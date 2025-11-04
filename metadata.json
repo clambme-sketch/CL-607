@@ -1,0 +1,7 @@
+{
+  "name": "CL-607 Drum Machine",
+  "description": "A classic 808-style drum sequencer with kick, snare, and closed hi-hat sounds. Create and play your own beats with tempo control and a 16-step grid. Sounds are synthesized using the Web Audio API.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
