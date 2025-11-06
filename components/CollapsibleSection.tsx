@@ -5,6 +5,8 @@ interface CollapsibleSectionProps {
     children: (isOpen: boolean) => React.ReactNode;
     defaultOpen?: boolean;
     closedTitle?: string;
+    dragHandleProps?: React.HTMLAttributes<HTMLButtonElement>;
+    isDragging?: boolean;
 }
 
 const ChevronIcon: React.FC<{ open: boolean }> = ({ open }) => (
@@ -18,20 +20,47 @@ const ChevronIcon: React.FC<{ open: boolean }> = ({ open }) => (
     </svg>
 );
 
-const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({ title, children, defaultOpen = false, closedTitle }) => {
+const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({ title, children, defaultOpen = false, closedTitle, dragHandleProps, isDragging = false }) => {
     const [isOpen, setIsOpen] = useState(defaultOpen);
 
     const handleToggle = () => {
-        setIsOpen(!isOpen);
+        // This logic differentiates between a "click" to toggle and a "long press" to drag.
+        if (dragHandleProps) {
+            const pressStartTime = Date.now();
+            const onPointerUp = () => {
+                // If the pointer is released before the drag delay, it's a click.
+                if (Date.now() - pressStartTime < 400) { 
+                     setIsOpen(prev => !prev);
+                }
+                window.removeEventListener('pointerup', onPointerUp);
+            };
+            window.addEventListener('pointerup', onPointerUp, { once: true });
+        } else {
+             setIsOpen(!isOpen);
+        }
+    };
+    
+    // This combined handler ensures that both the toggle-detection logic and the drag-initiation logic
+    // from the parent component are fired on pointer down.
+    const combinedPointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
+        handleToggle();
+        dragHandleProps?.onPointerDown?.(e);
     };
 
     const displayTitle = !isOpen && closedTitle ? closedTitle : title;
+    
+    const wrapperClasses = `
+        draggable-section bg-gradient-to-b from-gray-800 to-gray-900 rounded-xl overflow-hidden shadow-lg ring-1 ring-white/10
+        transition-all duration-300
+        ${isDragging ? 'opacity-75 scale-[1.02] shadow-2xl shadow-blue-500/50 z-50' : 'z-10'}
+    `;
 
     return (
-        <div className="bg-gradient-to-b from-gray-800 to-gray-900 rounded-xl overflow-hidden transition-all duration-300 shadow-lg ring-1 ring-white/10">
+        <div className={wrapperClasses}>
             <button
-                onClick={handleToggle}
-                className="w-full flex items-center justify-between p-4 text-left focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500 transition-transform active:scale-[0.99]"
+                {...dragHandleProps}
+                onPointerDown={combinedPointerDown}
+                className={`w-full flex items-center justify-between p-4 text-left focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500 transition-transform active:scale-[0.99] ${dragHandleProps ? 'cursor-grab active:cursor-grabbing' : ''}`}
                 aria-expanded={isOpen}
                 aria-controls={`collapsible-content-${title.replace(/\s+/g, '-')}`}
             >

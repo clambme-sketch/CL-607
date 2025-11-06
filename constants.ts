@@ -1,6 +1,5 @@
 import { Instrument } from './types';
 
-export const NUM_STEPS = 16;
 export const DEFAULT_TEMPO = 90;
 export const MIN_TEMPO = 40;
 export const MAX_TEMPO = 240;

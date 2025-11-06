@@ -1,12 +1,10 @@
-
-
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import Sequencer from './components/Sequencer';
 import Controls from './components/Controls';
 import Effects from './components/Effects';
 import { useAudioEngine, AllAnalyserNodes } from './hooks/useAudioEngine';
 import type { Grid, Instrument, AllInstrumentParams, InstrumentParams, KickDesignerParams, SavedPattern } from './types';
-import { NUM_STEPS, INSTRUMENTS, INSTRUMENT_LABELS, DEFAULT_TEMPO, MIN_FILTER_FREQ, MAX_FILTER_FREQ, BASE_INSTRUMENT_COLORS_HSL } from './constants';
+import { INSTRUMENTS, INSTRUMENT_LABELS, DEFAULT_TEMPO, MIN_FILTER_FREQ, MAX_FILTER_FREQ, BASE_INSTRUMENT_COLORS_HSL } from './constants';
 import NotationVisualizer from './components/NotationVisualizer';
 import CollapsibleSection from './components/CollapsibleSection';
 import InstrumentSettings from './components/InstrumentSettings';
@@ -14,9 +12,10 @@ import KickDrumDesigner from './components/BassDrumDesigner';
 import XYFilterPad from './components/XYFilterPad';
 import LoFiRadio from './components/LoFiRadio';
 import Settings, { VisualizerType } from './components/Settings';
+import Tooltip from './components/Tooltip';
 
-const createInitialGrid = (): Grid => {
-    return Array(INSTRUMENTS.length).fill(null).map(() => Array(NUM_STEPS).fill(false));
+const createInitialGrid = (numSteps: number): Grid => {
+    return Array(INSTRUMENTS.length).fill(null).map(() => Array(numSteps).fill(false));
 };
 
 const initialEffectAnalysers: Omit<AllAnalyserNodes, 'instrumentAnalysers'> = {
@@ -59,7 +58,7 @@ const DEFAULT_KICK_DESIGNER_PARAMS: KickDesignerParams = {
 
 const DEFAULT_VOLUMES = [0.3, 0.59, 1, 0.42, 0.29, 0.31, 0.7];
 
-const calculateRandomizeStep = (linearStep: number, intensity: number): number => {
+const calculateRandomizeStep = (linearStep: number, intensity: number, numSteps: number): number => {
     if (intensity === 0) {
         return linearStep;
     }
@@ -73,7 +72,7 @@ const calculateRandomizeStep = (linearStep: number, intensity: number): number =
     const maxOffset = Math.round(intensityRatio * 4);
     if (maxOffset > 0) {
         const randomOffset = Math.floor(Math.random() * (2 * maxOffset + 1)) - maxOffset;
-        return (linearStep + randomOffset + NUM_STEPS) % NUM_STEPS;
+        return (linearStep + randomOffset + numSteps) % numSteps;
     }
     
     return linearStep;
@@ -123,9 +122,10 @@ const scramble = (originalText: string) => {
 const App: React.FC = () => {
     const [isInitialized, setIsInitialized] = useState<boolean>(false);
     const [isLoading, setIsLoading] = useState<boolean>(false);
+    const [beatsPerMeasure, setBeatsPerMeasure] = useState<number>(4);
     const [grids, setGrids] = useState<{ a: Grid, b: Grid }>({
-        a: createInitialGrid(),
-        b: createInitialGrid(),
+        a: createInitialGrid(16),
+        b: createInitialGrid(16),
     });
     const [activePattern, setActivePattern] = useState<'a' | 'b'>('a');
     const [isPlaying, setIsPlaying] = useState<boolean>(false);
@@ -190,10 +190,24 @@ const App: React.FC = () => {
 
     // New state for Settings
     const [visualizerType, setVisualizerType] = useState<VisualizerType>('waveform');
+    const [isPerformanceMode, setIsPerformanceMode] = useState<boolean>(false);
+    const [tooltipsEnabled, setTooltipsEnabled] = useState<boolean>(true);
+    const [showBeatNumbers, setShowBeatNumbers] = useState<boolean>(false);
 
     // New state for tracking default settings
     const [isDjSettingsDefault, setIsDjSettingsDefault] = useState(true);
     const [isEffectsSettingsDefault, setIsEffectsSettingsDefault] = useState(true);
+
+    // State for hiding tooltips while dragging sliders
+    const [isInteractingWithSlider, setIsInteractingWithSlider] = useState(false);
+    
+    // State for drag and drop section reordering
+    const [sectionOrder, setSectionOrder] = useState<string[]>(['dj', 'effects', 'instruments', 'notation', 'settings']);
+    const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+    const longPressTimeoutRef = useRef<number>();
+    const sectionsContainerRef = useRef<HTMLDivElement>(null);
+    const draggedItemIndexRef = useRef<number | null>(null);
+
 
     // FIX: Initialize useRef with null to provide an initial value and prevent errors.
     const animationFrameRef = useRef<number | null>(null);
@@ -215,6 +229,7 @@ const App: React.FC = () => {
     const chainModeRef = useRef(chainMode);
     const activePatternRef = useRef(activePattern); // Ref for scheduler
     const instrumentVisibilityRef = useRef(instrumentVisibility);
+    const beatsPerMeasureRef = useRef(beatsPerMeasure);
 
     const isCurrentPatternEmpty = useMemo(() => {
         const hasNotes = (grid: Grid) => grid.some(row => row.some(step => step));
@@ -231,7 +246,8 @@ const App: React.FC = () => {
         chainModeRef.current = chainMode;
         activePatternRef.current = activePattern;
         instrumentVisibilityRef.current = instrumentVisibility;
-    }, [grids, volumes, isRandomizeActive, randomizeIntensity, instrumentParams, swing, chainMode, activePattern, instrumentVisibility]);
+        beatsPerMeasureRef.current = beatsPerMeasure;
+    }, [grids, volumes, isRandomizeActive, randomizeIntensity, instrumentParams, swing, chainMode, activePattern, instrumentVisibility, beatsPerMeasure]);
 
     // When the user manually changes the pattern or chain mode, reset the counter.
     useEffect(() => {
@@ -241,26 +257,31 @@ const App: React.FC = () => {
 
     // Load saved patterns from localStorage and initialize working state on first mount
     useEffect(() => {
+        // Load tooltip setting
+        const savedTooltipsSetting = localStorage.getItem('cl607-tooltipsEnabled');
+        if (savedTooltipsSetting !== null) {
+            setTooltipsEnabled(JSON.parse(savedTooltipsSetting));
+        }
+
+        const savedBeatNumbers = localStorage.getItem('cl607-showBeatNumbers');
+        if (savedBeatNumbers !== null) {
+            setShowBeatNumbers(JSON.parse(savedBeatNumbers));
+        }
+
+        // Load patterns
         const loadedPatterns: (SavedPattern | null)[] = [];
         for (let i = 0; i < 4; i++) {
             try {
                 const savedData = localStorage.getItem(`cl607-pattern-${i}`);
                 if (savedData) {
                     const parsedData = JSON.parse(savedData) as any;
-                    // Backwards compatibility check for old format
-                    if (parsedData.grid && !parsedData.grids) {
-                        console.log(`Migrating old pattern format for slot ${i}`);
-                        const migratedPattern: SavedPattern = {
-                            grids: { a: parsedData.grid, b: createInitialGrid() },
-                            volumes: parsedData.volumes,
-                            tempo: parsedData.tempo,
-                            instrumentParams: parsedData.instrumentParams,
-                            swing: parsedData.swing ?? 0,
-                        };
-                        loadedPatterns.push(migratedPattern);
-                    } else {
-                        loadedPatterns.push(parsedData as SavedPattern);
-                    }
+                    const finalPattern: SavedPattern = {
+                        ...parsedData,
+                        grids: parsedData.grids || { a: parsedData.grid, b: createInitialGrid( (parsedData.beatsPerMeasure || 4) * 4) }, // Migration
+                        beatsPerMeasure: parsedData.beatsPerMeasure || 4, // Default to 4
+                        swing: parsedData.swing ?? 0,
+                    };
+                    loadedPatterns.push(finalPattern);
                 } else {
                     loadedPatterns.push(null);
                 }
@@ -277,13 +298,15 @@ const App: React.FC = () => {
             setTempo(initialPattern.tempo);
             setInstrumentParams(initialPattern.instrumentParams);
             setSwing(initialPattern.swing ?? 0);
+            setBeatsPerMeasure(initialPattern.beatsPerMeasure || 4);
         } else {
              const defaultPattern: SavedPattern = {
-                grids: { a: createInitialGrid(), b: createInitialGrid() },
+                grids: { a: createInitialGrid(16), b: createInitialGrid(16) },
                 volumes: DEFAULT_VOLUMES,
                 tempo: DEFAULT_TEMPO,
                 instrumentParams: JSON.parse(JSON.stringify(DEFAULT_INSTRUMENT_PARAMS)),
                 swing: 0,
+                beatsPerMeasure: 4,
             };
             
             loadedPatterns[0] = defaultPattern;
@@ -303,6 +326,7 @@ const App: React.FC = () => {
             tempo,
             instrumentParams,
             swing,
+            beatsPerMeasure,
         };
 
         const debounceSave = setTimeout(() => {
@@ -324,7 +348,7 @@ const App: React.FC = () => {
 
         return () => clearTimeout(debounceSave);
 
-    }, [isAppLoaded, grids, volumes, tempo, instrumentParams, swing, currentPatternIndex]);
+    }, [isAppLoaded, grids, volumes, tempo, instrumentParams, swing, beatsPerMeasure, currentPatternIndex]);
 
 
     const { 
@@ -407,6 +431,8 @@ const App: React.FC = () => {
             const allParams = instrumentParamsRef.current;
             const currentSwing = swingRef.current;
             const visibility = instrumentVisibilityRef.current;
+            const currentBPM = beatsPerMeasureRef.current;
+            const numSteps = currentBPM * 4;
             
             while (nextNoteTime.current < audioContext.currentTime + schedulerAheadTime) {
                 let patternToUse = activePatternRef.current;
@@ -444,7 +470,7 @@ const App: React.FC = () => {
                 const secondsPerStep = 60.0 / tempo / 4.0;
                 
                 const stepToPlay = randomizeActive
-                    ? calculateRandomizeStep(currentStepRef.current, intensity)
+                    ? calculateRandomizeStep(currentStepRef.current, intensity, numSteps)
                     : currentStepRef.current;
     
                 if (stepToPlay > -1) {
@@ -462,7 +488,7 @@ const App: React.FC = () => {
                     : swingFactor * 2 * secondsPerStep;
     
                 nextNoteTime.current += stepDuration;
-                currentStepRef.current = (currentStepRef.current + 1) % NUM_STEPS;
+                currentStepRef.current = (currentStepRef.current + 1) % numSteps;
             }
             schedulerTimerRef.current = window.setTimeout(scheduler, schedulerInterval);
         };
@@ -489,10 +515,11 @@ const App: React.FC = () => {
         }
 
         const visualizerLoop = () => {
+            const numSteps = beatsPerMeasure * 4;
             const secondsPerStep = 60.0 / tempo / 4.0;
             // Add a small offset to prevent floating point inaccuracies from showing the previous step
-            const timeElapsed = audioContext.currentTime - nextNoteTime.current + (secondsPerStep * NUM_STEPS);
-            const stepToShow = Math.floor((timeElapsed / secondsPerStep + currentStepRef.current) % NUM_STEPS);
+            const timeElapsed = audioContext.currentTime - nextNoteTime.current + (secondsPerStep * numSteps);
+            const stepToShow = Math.floor((timeElapsed / secondsPerStep + currentStepRef.current) % numSteps);
 
             setCurrentStep(stepToShow);
             
@@ -504,7 +531,7 @@ const App: React.FC = () => {
         return () => {
             if (visualizerTimerRef.current) cancelAnimationFrame(visualizerTimerRef.current);
         }
-    }, [isPlaying, audioContext, tempo]);
+    }, [isPlaying, audioContext, tempo, beatsPerMeasure]);
 
 
     const handleToggleStep = useCallback((instrumentIndex: number, stepIndex: number) => {
@@ -660,11 +687,12 @@ const App: React.FC = () => {
         if (!patternToLoad) {
             // This slot is empty. Create a default pattern for it.
             const defaultPattern: SavedPattern = {
-                grids: { a: createInitialGrid(), b: createInitialGrid() },
+                grids: { a: createInitialGrid(16), b: createInitialGrid(16) },
                 volumes: DEFAULT_VOLUMES,
                 tempo: DEFAULT_TEMPO,
                 instrumentParams: JSON.parse(JSON.stringify(DEFAULT_INSTRUMENT_PARAMS)),
                 swing: 0,
+                beatsPerMeasure: 4,
             };
             
             setSavedPatterns(prev => {
@@ -676,6 +704,7 @@ const App: React.FC = () => {
             patternToLoad = defaultPattern;
         }
 
+        setBeatsPerMeasure(patternToLoad.beatsPerMeasure || 4);
         setGrids(patternToLoad.grids);
         setVolumes(patternToLoad.volumes);
         setTempo(patternToLoad.tempo);
@@ -687,8 +716,9 @@ const App: React.FC = () => {
     }, [currentPatternIndex, savedPatterns]);
 
     const handleClearPattern = useCallback(() => {
-        setGrids({ a: createInitialGrid(), b: createInitialGrid() });
-    }, []);
+        const numSteps = beatsPerMeasure * 4;
+        setGrids({ a: createInitialGrid(numSteps), b: createInitialGrid(numSteps) });
+    }, [beatsPerMeasure]);
 
     const handleInstrumentVisibilityChange = useCallback((index: number) => {
         setInstrumentVisibility(prev => {
@@ -754,6 +784,164 @@ const App: React.FC = () => {
             return { ...prevGrids, [activePattern]: newGrid };
         });
     }, [activePattern]);
+
+    const handleTogglePerformanceMode = useCallback(() => setIsPerformanceMode(prev => !prev), []);
+    
+    const handleFactoryReset = useCallback(() => {
+        // Stop playback if it's running
+        if (isPlaying) {
+            setIsPlaying(false);
+        }
+
+        // 1. Clear storage
+        for (let i = 0; i < 4; i++) {
+            localStorage.removeItem(`cl607-pattern-${i}`);
+        }
+        localStorage.removeItem('cl607-tooltipsEnabled');
+        localStorage.removeItem('cl607-showBeatNumbers');
+    
+        // 2. Reset all state to defaults
+        // Core sequencer state
+        setBeatsPerMeasure(4);
+        setGrids({ a: createInitialGrid(16), b: createInitialGrid(16) });
+        setVolumes([...DEFAULT_VOLUMES]);
+        setTempo(DEFAULT_TEMPO);
+        setSwing(0);
+        setActivePattern('a');
+        setMasterVolume(0.5);
+        setInstrumentParams(JSON.parse(JSON.stringify(DEFAULT_INSTRUMENT_PARAMS)));
+        setKickDesignerParams(JSON.parse(JSON.stringify(DEFAULT_KICK_DESIGNER_PARAMS)));
+        
+        // Effects state
+        handleResetEffectsSettings();
+        
+        // DJ state
+        handleResetDjSettings();
+        
+        // Settings state
+        setVisualizerType('waveform');
+        setIsPerformanceMode(false);
+        setTooltipsEnabled(true);
+        setShowBeatNumbers(false);
+        setInstrumentVisibility(Array(INSTRUMENTS.length).fill(true));
+        setEffectsEnabled({
+            lowPass: true, highPass: true, sidechain: true, crush: true, tape: true, envelope: true, reverb: true, delay: true
+        });
+        setSectionOrder(['dj', 'effects', 'instruments', 'notation', 'settings']);
+        setHueRotate(0);
+        setIsColorAnimating(false);
+    
+        // Pattern management state
+        const defaultPattern: SavedPattern = {
+            grids: { a: createInitialGrid(16), b: createInitialGrid(16) },
+            volumes: [...DEFAULT_VOLUMES],
+            tempo: DEFAULT_TEMPO,
+            instrumentParams: JSON.parse(JSON.stringify(DEFAULT_INSTRUMENT_PARAMS)),
+            swing: 0,
+            beatsPerMeasure: 4,
+        };
+        const newSavedPatterns = Array(4).fill(null);
+        newSavedPatterns[0] = defaultPattern;
+        setSavedPatterns(newSavedPatterns);
+        setCurrentPatternIndex(0);
+    
+    }, [isPlaying]);
+
+    const handleSliderInteractionStart = useCallback(() => {
+        setIsInteractingWithSlider(true);
+        const handleInteractionEnd = () => {
+            setIsInteractingWithSlider(false);
+            window.removeEventListener('mouseup', handleInteractionEnd);
+            window.removeEventListener('touchend', handleInteractionEnd);
+        };
+        window.addEventListener('mouseup', handleInteractionEnd);
+        window.addEventListener('touchend', handleInteractionEnd);
+    }, []);
+    
+    const handlePointerDown = useCallback((e: React.PointerEvent, index: number) => {
+        if (e.button !== 0) return; // Only handle left clicks
+        e.currentTarget.setPointerCapture(e.pointerId);
+
+        draggedItemIndexRef.current = index;
+        
+        const onPointerUp = () => {
+            clearTimeout(longPressTimeoutRef.current!);
+            window.removeEventListener('pointerup', onPointerUp);
+        };
+        window.addEventListener('pointerup', onPointerUp);
+
+        longPressTimeoutRef.current = window.setTimeout(() => {
+            window.removeEventListener('pointerup', onPointerUp);
+            setDraggedIndex(index);
+        }, 400); // Increased long-press duration to 400ms
+    }, []);
+
+    useEffect(() => {
+        const handlePointerUp = () => {
+            clearTimeout(longPressTimeoutRef.current);
+            if (draggedIndex !== null) {
+                setDraggedIndex(null);
+            }
+            draggedItemIndexRef.current = null;
+        };
+
+        const handlePointerMove = (e: PointerEvent) => {
+            if (draggedIndex === null || sectionsContainerRef.current === null) {
+                return;
+            }
+
+            const currentDraggedIndex = draggedItemIndexRef.current;
+            if (currentDraggedIndex === null) return;
+            
+            const children = Array.from(sectionsContainerRef.current.children);
+            const { clientY } = e;
+
+            let closestIndex = -1;
+            let minDistance = Infinity;
+
+            children.forEach((child, index) => {
+                // FIX: Add type guard to ensure child is an HTMLElement before accessing getBoundingClientRect.
+                if (child instanceof HTMLElement) {
+                    const rect = child.getBoundingClientRect();
+                    const midY = rect.top + rect.height / 2;
+                    const distance = Math.abs(clientY - midY);
+
+                    if (distance < minDistance) {
+                        minDistance = distance;
+                        closestIndex = index;
+                    }
+                }
+            });
+
+            if (closestIndex !== -1 && closestIndex !== currentDraggedIndex) {
+                setSectionOrder(currentOrder => {
+                    const newOrder = [...currentOrder];
+                    const [movedItem] = newOrder.splice(currentDraggedIndex, 1);
+                    newOrder.splice(closestIndex, 0, movedItem);
+                    draggedItemIndexRef.current = closestIndex;
+                    setDraggedIndex(closestIndex); // Update state to reflect new index
+                    return newOrder;
+                });
+            }
+        };
+        
+        if (draggedIndex !== null) {
+            window.addEventListener('pointermove', handlePointerMove);
+            window.addEventListener('pointerup', handlePointerUp);
+        }
+
+        return () => {
+            clearTimeout(longPressTimeoutRef.current);
+            window.removeEventListener('pointermove', handlePointerMove);
+            window.removeEventListener('pointerup', handlePointerUp);
+        };
+    }, [draggedIndex]);
+
+
+    const sliderInteractionProps = {
+        onMouseDown: handleSliderInteractionStart,
+        onTouchStart: handleSliderInteractionStart,
+    };
 
     useEffect(() => { setLowPassFrequency(effectsEnabled.lowPass ? lowPassFreq : MAX_FILTER_FREQ) }, [lowPassFreq, effectsEnabled.lowPass, setLowPassFrequency]);
     useEffect(() => { setHighPassFrequency(effectsEnabled.highPass ? highPassFreq : MIN_FILTER_FREQ) }, [highPassFreq, effectsEnabled.highPass, setHighPassFrequency]);
@@ -939,18 +1127,62 @@ const App: React.FC = () => {
         };
     }, [handlePlayToggle]);
 
+    const handleToggleTooltips = useCallback(() => setTooltipsEnabled(prev => !prev), []);
+    const handleToggleBeatNumbers = useCallback(() => setShowBeatNumbers(prev => !prev), []);
+    
+    const handleBeatsPerMeasureChange = useCallback((newBPM: number) => {
+        const newNumSteps = newBPM * 4;
+
+        const resizeGrid = (grid: Grid): Grid => {
+            return grid.map(row => {
+                const newRow = Array(newNumSteps).fill(false);
+                const limit = Math.min(row.length, newNumSteps);
+                for (let i = 0; i < limit; i++) {
+                    newRow[i] = row[i];
+                }
+                return newRow;
+            });
+        };
+
+        setGrids(prevGrids => ({
+            a: resizeGrid(prevGrids.a),
+            b: resizeGrid(prevGrids.b),
+        }));
+        setBeatsPerMeasure(newBPM);
+    }, []);
+
+    useEffect(() => {
+        if (tooltipsEnabled) {
+            document.body.classList.remove('tooltips-disabled');
+        } else {
+            document.body.classList.add('tooltips-disabled');
+        }
+        // Only save if app is fully loaded to prevent overwriting on initial render
+        if (isAppLoaded) {
+            localStorage.setItem('cl607-tooltipsEnabled', JSON.stringify(tooltipsEnabled));
+        }
+    }, [tooltipsEnabled, isAppLoaded]);
+    
+    useEffect(() => {
+        if (isAppLoaded) {
+            localStorage.setItem('cl607-showBeatNumbers', JSON.stringify(showBeatNumbers));
+        }
+    }, [showBeatNumbers, isAppLoaded]);
+
     
     if (!isInitialized) {
         return (
             <div className="min-h-screen text-white flex flex-col items-center justify-center p-4 text-center">
                  <h1 className="text-3xl sm:text-4xl font-bold tracking-tight text-gray-100">CL-607 Drum Machine</h1>
                  <p className="text-sm text-gray-400 mt-1 mb-8">by Clark Lambert</p>
-                 <button
-                     onClick={handleStart}
-                     className="flex items-center justify-center w-48 h-16 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-blue-500 active:scale-[0.98] text-lg uppercase tracking-wider"
-                 >
-                     Start
-                 </button>
+                 <Tooltip text="Initialize the audio engine">
+                     <button
+                         onClick={handleStart}
+                         className="flex items-center justify-center w-48 h-16 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-blue-500 active:scale-[0.98] text-lg uppercase tracking-wider"
+                     >
+                         Start
+                     </button>
+                 </Tooltip>
             </div>
         );
     }
@@ -968,12 +1200,238 @@ const App: React.FC = () => {
         )
     }
 
-    const chainOptions: { mode: ChainMode; label: string }[] = [
-        { mode: 'off', label: 'OFF' },
-        { mode: 'ab', label: 'A-B' },
-        { mode: 'aaab', label: 'A-A-A-B' },
-        { mode: 'aabb', label: 'A-A-B-B' },
+    const chainOptions: { mode: ChainMode; label: string, tooltip: string }[] = [
+        { mode: 'off', label: 'OFF', tooltip: 'Playback a single pattern' },
+        { mode: 'ab', label: 'A-B', tooltip: 'Alternate between Pattern A and B' },
+        { mode: 'aaab', label: 'A-A-A-B', tooltip: 'Play Pattern A three times, then B once' },
+        { mode: 'aabb', label: 'A-A-B-B', tooltip: 'Play Pattern A twice, then B twice' },
     ];
+    
+    const sections: Record<string, React.ReactNode> = {
+        dj: (
+            <CollapsibleSection title="LIVE DJ" closedTitle="LIVE DJ">
+                {(isOpen) => (
+                    <div className="flex flex-wrap items-start justify-center gap-8 p-2">
+                        <div className="flex flex-col items-center gap-3 p-3 rounded-lg bg-gray-900/50">
+                            <h4 className="text-xs text-gray-400 uppercase tracking-wider">RANDOMIZER</h4>
+                             <Tooltip text="Hold to temporarily jumble the beat">
+                                <button
+                                    onMouseDown={handleRandomizePressStart}
+                                    onMouseUp={handleRandomizePressEnd}
+                                    onMouseLeave={handleRandomizePressEnd}
+                                    onTouchStart={(e) => { e.preventDefault(); handleRandomizePressStart(); }}
+                                    onTouchEnd={handleRandomizePressEnd}
+                                    className="w-32 h-16 bg-purple-600 text-white font-bold rounded-lg hover:bg-purple-700 transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-purple-500 active:scale-[0.98] text-lg uppercase tracking-wider"
+                                >
+                                    {randomizeButtonText}
+                                </button>
+                            </Tooltip>
+                            <Tooltip text="Controls how much the beat is jumbled when RANDOMIZE is held" isInteracting={isInteractingWithSlider}>
+                                <div className="flex items-center gap-2 w-full max-w-xs pt-2">
+                                    <label htmlFor="random-intensity" className="text-xs text-gray-500">CHAOS</label>
+                                    <input
+                                        type="range"
+                                        id="random-intensity"
+                                        min={0}
+                                        max={10}
+                                        step={1}
+                                        value={randomizeIntensity}
+                                        onChange={handleRandomizeIntensityChange}
+                                        {...sliderInteractionProps}
+                                        className="w-full h-1.5 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                                    />
+                                </div>
+                            </Tooltip>
+                        </div>
+                        
+                        <div className="flex flex-col items-center gap-3 p-3 rounded-lg bg-gray-900/50">
+                            <h4 className="text-xs text-gray-400 uppercase tracking-wider">PATTERN CHAIN</h4>
+                            <div className="flex items-center gap-2">
+                                {chainOptions.map(opt => (
+                                    <Tooltip key={opt.mode} text={opt.tooltip}>
+                                        <button 
+                                            onClick={() => setChainMode(opt.mode)}
+                                            className={`px-3 py-1.5 rounded-md text-xs font-bold transition-colors ${chainMode === opt.mode ? 'bg-green-500 text-gray-900' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}
+                                        >
+                                            {opt.label}
+                                        </button>
+                                    </Tooltip>
+                                ))}
+                            </div>
+                        </div>
+                        
+                        {/* Isolator */}
+                        <div className="flex flex-col items-center gap-3 p-3 rounded-lg bg-gray-900/50">
+                            <h4 className="text-xs text-gray-400 uppercase tracking-wider">ISOLATOR</h4>
+                            <div className="flex items-end gap-8 pt-4">
+                                {(['low', 'mid', 'high'] as const).map((band) => {
+                                    const gainValue = isolatorGains[band];
+                                    const tooltipText = band === 'low'
+                                        ? "Adjust the volume of the low (bass) frequencies"
+                                        : band === 'mid'
+                                        ? "Adjust the volume of the mid-range frequencies"
+                                        : "Adjust the volume of the high (treble) frequencies";
+                                    return (
+                                        <Tooltip key={band} text={tooltipText} isInteracting={isInteractingWithSlider}>
+                                            <div className="flex flex-col items-center gap-2">
+                                                <span className="text-xs text-gray-500 font-bold -mb-2 tabular-nums">{Math.round(gainValue * 100)}</span>
+                                                <div className="h-24 w-8 flex items-center justify-center">
+                                                    <input
+                                                        type="range"
+                                                        min={0}
+                                                        max={1.5}
+                                                        step="0.01"
+                                                        value={gainValue}
+                                                        onChange={(e) => handleIsolatorGainChange(band, Number(e.target.value))}
+                                                        {...sliderInteractionProps}
+                                                        className="w-24 h-2 appearance-none cursor-pointer accent-teal-400 origin-center -rotate-90"
+                                                    />
+                                                </div>
+                                                <span className="text-sm font-bold uppercase">{band}</span>
+                                            </div>
+                                        </Tooltip>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                        
+                        <Tooltip text="Drag to control filter (X: Frequency, Y: Drive)" placement="bottom">
+                            <XYFilterPad 
+                                onFilterChange={handleFilterChange}
+                                onInteractionStart={handleFilterInteractionStart}
+                                onInteractionEnd={handleFilterInteractionEnd}
+                            />
+                        </Tooltip>
+
+                        <LoFiRadio 
+                            isActive={isOpen}
+                            lofiMix={lofiMix}
+                            onLofiMixChange={setLofiMix}
+                            dryAnalyser={effectAnalysers.lofiDryAnalyser}
+                            wetAnalyser={effectAnalysers.lofiWetAnalyser}
+                            isPerformanceMode={isPerformanceMode}
+                        />
+
+                         {!isDjSettingsDefault && (
+                            <div className="w-full flex justify-center">
+                                <Tooltip text="Hold to reset all DJ controls to their defaults">
+                                    <button
+                                        onMouseDown={handleDjResetStart}
+                                        onMouseUp={handleDjResetEnd}
+                                        onMouseLeave={handleDjResetEnd}
+                                        onTouchStart={(e) => { e.preventDefault(); handleDjResetStart(); }}
+                                        onTouchEnd={handleDjResetEnd}
+                                        className={`relative flex items-center justify-center mt-2 px-3 h-8 bg-gray-600/80 text-white font-bold rounded-md hover:bg-gray-500/80 transition-transform duration-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-blue-500 text-xs uppercase tracking-wider overflow-hidden select-none ${isDjResetPoofing ? 'animate-poof' : ''}`}
+                                        style={{ transform: `scale(${1 - djResetProgress * 0.15})` }}
+                                        aria-label="Hold to reset DJ settings to default"
+                                    >
+                                        <span className="relative z-10">HOLD TO RESET LIVE DJ SETTINGS</span>
+                                    </button>
+                                </Tooltip>
+                            </div>
+                        )}
+                    </div>
+                )}
+            </CollapsibleSection>
+        ),
+        effects: (
+            <CollapsibleSection title="EFFECTS" closedTitle="EFFECTS">
+                {(isOpen) => <Effects 
+                    isActive={isOpen}
+                    lowPassFreq={lowPassFreq}
+                    highPassFreq={highPassFreq}
+                    onLowPassChange={setLowPassFreq}
+                    onHighPassChange={setHighPassFreq}
+                    reverbMix={reverbMix}
+                    reverbDecay={reverbDecay}
+                    reverbSource={reverbSource}
+                    onReverbMixChange={setReverbMix}
+                    onReverbDecayChange={setReverbDecay}
+                    onReverbSourceChange={setReverbSource}
+                    delayMix={delayMix}
+                    delayTime={delayTime}
+                    delayFeedback={delayFeedback}
+                    delaySource={delaySource}
+                    onDelayMixChange={setDelayMix}
+                    onDelayTimeChange={setDelayTime}
+                    onDelayFeedbackChange={setDelayFeedback}
+                    onDelaySourceChange={setDelaySource}
+                    kickSidechainAmount={kickSidechainAmount}
+                    onKickSidechainAmountChange={setKickSidechainAmount}
+                    crushAmount={crushAmount}
+                    onCrushAmountChange={setCrushAmount}
+                    tapeSaturationMix={tapeSaturationMix}
+                    onTapeSaturationMixChange={setTapeSaturationMix}
+                    tapeSaturationAmount={tapeSaturationAmount}
+                    onTapeSaturationAmountChange={setTapeSaturationAmount}
+                    tapeSaturationTone={tapeSaturationTone}
+                    onTapeSaturationToneChange={setTapeSaturationTone}
+                    envelopeFilterMix={envelopeFilterMix}
+                    onEnvelopeFilterMixChange={setEnvelopeFilterMix}
+                    envelopeFilterAmount={envelopeFilterAmount}
+                    onEnvelopeFilterAmountChange={setEnvelopeFilterAmount}
+                    envelopeFilterBaseFreq={envelopeFilterBaseFreq}
+                    onEnvelopeFilterBaseFreqChange={setEnvelopeFilterBaseFreq}
+                    envelopeFilterQ={envelopeFilterQ}
+                    onEnvelopeFilterQChange={setEnvelopeFilterQ}
+                    postFilterAnalyser={effectAnalysers.postFilterAnalyser}
+                    reverbAnalyser={effectAnalysers.reverbAnalyser}
+                    delayAnalyser={effectAnalysers.delayAnalyser}
+                    sidechainVisualiserAnalyser={effectAnalysers.sidechainVisualiserAnalyser}
+                    crushAnalyser={effectAnalysers.crushAnalyser}
+                    tapeSaturationAnalyser={effectAnalysers.tapeSaturationAnalyser}
+                    envelopeFilterAnalyser={effectAnalysers.envelopeFilterAnalyser}
+                    effectsEnabled={effectsEnabled}
+                    onToggleEffect={handleToggleEffect}
+                    onReset={handleResetEffectsSettings}
+                    isSettingsDefault={isEffectsSettingsDefault}
+                    isPerformanceMode={isPerformanceMode}
+                />}
+            </CollapsibleSection>
+        ),
+        instruments: (
+            <CollapsibleSection title="INSTRUMENT SETTINGS" closedTitle="INSTRUMENT SETTINGS" defaultOpen={false}>
+                {(isOpen) => <InstrumentSettings
+                    isActive={isOpen}
+                    params={instrumentParams}
+                    instrumentColors={instrumentColors}
+                    onParamChange={handleInstrumentParamChange}
+                    instrumentVisibility={instrumentVisibility}
+                    onVisibilityChange={handleInstrumentVisibilityChange}
+                    kickDesignerParams={kickDesignerParams}
+                    onKickDesignerParamChange={handleKickDesignerParamChange}
+                />}
+            </CollapsibleSection>
+        ),
+        notation: (
+            <CollapsibleSection title="rhythmic notation (under construction: rests are ugly)" defaultOpen={false}>
+                {(isOpen) => (
+                    !isPerformanceMode && <NotationVisualizer
+                        isActive={isOpen}
+                        grid={grids[activePattern]}
+                        instrumentColors={instrumentColors}
+                        beatsPerMeasure={beatsPerMeasure}
+                    />
+                )}
+            </CollapsibleSection>
+        ),
+        settings: (
+            <Settings
+                visualizer={visualizerType}
+                onVisualizerChange={setVisualizerType}
+                onShiftPattern={handleShiftPattern}
+                isPerformanceMode={isPerformanceMode}
+                onTogglePerformanceMode={handleTogglePerformanceMode}
+                onFactoryReset={handleFactoryReset}
+                tooltipsEnabled={tooltipsEnabled}
+                onToggleTooltips={handleToggleTooltips}
+                showBeatNumbers={showBeatNumbers}
+                onToggleBeatNumbers={handleToggleBeatNumbers}
+                beatsPerMeasure={beatsPerMeasure}
+                onBeatsPerMeasureChange={handleBeatsPerMeasureChange}
+            />
+        )
+    };
 
     return (
         <div 
@@ -1030,191 +1488,22 @@ const App: React.FC = () => {
                             visualizerType={visualizerType}
                             masterAnalyser={effectAnalysers.masterAnalyser}
                             hueRotate={hueRotate}
+                            isPerformanceMode={isPerformanceMode}
+                            showBeatNumbers={showBeatNumbers}
+                            beatsPerMeasure={beatsPerMeasure}
                         />
                     </div>
-                    <CollapsibleSection title="LIVE DJ" closedTitle="LIVE DJ">
-                        {(isOpen) => (
-                            <div className="flex flex-wrap items-start justify-center gap-8 p-2">
-                                <div className="flex flex-col items-center gap-3 p-3 rounded-lg bg-gray-900/50">
-                                    <h4 className="text-xs text-gray-400 uppercase tracking-wider">RANDOMIZER</h4>
-                                    <button
-                                        onMouseDown={handleRandomizePressStart}
-                                        onMouseUp={handleRandomizePressEnd}
-                                        onMouseLeave={handleRandomizePressEnd}
-                                        onTouchStart={(e) => { e.preventDefault(); handleRandomizePressStart(); }}
-                                        onTouchEnd={handleRandomizePressEnd}
-                                        className="w-32 h-16 bg-purple-600 text-white font-bold rounded-lg hover:bg-purple-700 transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-purple-500 active:scale-[0.98] text-lg uppercase tracking-wider"
-                                    >
-                                        {randomizeButtonText}
-                                    </button>
-                                    <div className="flex items-center gap-2 w-full max-w-xs pt-2">
-                                        <label htmlFor="random-intensity" className="text-xs text-gray-500">CHAOS</label>
-                                        <input
-                                            type="range"
-                                            id="random-intensity"
-                                            min={0}
-                                            max={10}
-                                            step={1}
-                                            value={randomizeIntensity}
-                                            onChange={handleRandomizeIntensityChange}
-                                            className="w-full h-1.5 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-purple-500"
-                                        />
-                                    </div>
-                                </div>
-                                
-                                <div className="flex flex-col items-center gap-3 p-3 rounded-lg bg-gray-900/50">
-                                    <h4 className="text-xs text-gray-400 uppercase tracking-wider">PATTERN CHAIN</h4>
-                                    <div className="flex items-center gap-2">
-                                        {chainOptions.map(opt => (
-                                            <button 
-                                                key={opt.mode}
-                                                onClick={() => setChainMode(opt.mode)}
-                                                className={`px-3 py-1.5 rounded-md text-xs font-bold transition-colors ${chainMode === opt.mode ? 'bg-green-500 text-gray-900' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}
-                                            >
-                                                {opt.label}
-                                            </button>
-                                        ))}
-                                    </div>
-                                </div>
-                                
-                                {/* Isolator */}
-                                <div className="flex flex-col items-center gap-3 p-3 rounded-lg bg-gray-900/50">
-                                    <h4 className="text-xs text-gray-400 uppercase tracking-wider">ISOLATOR</h4>
-                                    <div className="flex items-end gap-8 pt-4">
-                                        {(['low', 'mid', 'high'] as const).map((band) => {
-                                            const gainValue = isolatorGains[band];
-                                            return (
-                                                <div key={band} className="flex flex-col items-center gap-2">
-                                                    <span className="text-xs text-gray-500 font-bold -mb-2 tabular-nums">{Math.round(gainValue * 100)}</span>
-                                                    <div className="h-24 w-8 flex items-center justify-center">
-                                                        <input
-                                                            type="range"
-                                                            min={0}
-                                                            max={1.5}
-                                                            step="0.01"
-                                                            value={gainValue}
-                                                            onChange={(e) => handleIsolatorGainChange(band, Number(e.target.value))}
-                                                            className="w-24 h-2 appearance-none cursor-pointer accent-teal-400 origin-center -rotate-90"
-                                                        />
-                                                    </div>
-                                                    <span className="text-sm font-bold uppercase">{band}</span>
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
-                                </div>
-
-                                <XYFilterPad 
-                                    onFilterChange={handleFilterChange}
-                                    onInteractionStart={handleFilterInteractionStart}
-                                    onInteractionEnd={handleFilterInteractionEnd}
-                                />
-
-                                <LoFiRadio 
-                                    isActive={isOpen}
-                                    lofiMix={lofiMix}
-                                    onLofiMixChange={setLofiMix}
-                                    dryAnalyser={effectAnalysers.lofiDryAnalyser}
-                                    wetAnalyser={effectAnalysers.lofiWetAnalyser}
-                                />
-
-                                 {!isDjSettingsDefault && (
-                                    <div className="w-full flex justify-center">
-                                        <button
-                                            onMouseDown={handleDjResetStart}
-                                            onMouseUp={handleDjResetEnd}
-                                            onMouseLeave={handleDjResetEnd}
-                                            onTouchStart={(e) => { e.preventDefault(); handleDjResetStart(); }}
-                                            onTouchEnd={handleDjResetEnd}
-                                            className={`relative flex items-center justify-center mt-2 px-3 h-8 bg-gray-600/80 text-white font-bold rounded-md hover:bg-gray-500/80 transition-transform duration-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-blue-500 text-xs uppercase tracking-wider overflow-hidden select-none ${isDjResetPoofing ? 'animate-poof' : ''}`}
-                                            style={{ transform: `scale(${1 - djResetProgress * 0.15})` }}
-                                            aria-label="Hold to reset DJ settings to default"
-                                        >
-                                            <span className="relative z-10">RESET DJ CONTROLS</span>
-                                        </button>
-                                    </div>
-                                )}
-                            </div>
-                        )}
-                    </CollapsibleSection>
-                    <CollapsibleSection title="EFFECTS" closedTitle="EFFECTS">
-                        {(isOpen) => <Effects 
-                            isActive={isOpen}
-                            lowPassFreq={lowPassFreq}
-                            highPassFreq={highPassFreq}
-                            onLowPassChange={setLowPassFreq}
-                            onHighPassChange={setHighPassFreq}
-                            reverbMix={reverbMix}
-                            reverbDecay={reverbDecay}
-                            reverbSource={reverbSource}
-                            onReverbMixChange={setReverbMix}
-                            onReverbDecayChange={setReverbDecay}
-                            onReverbSourceChange={setReverbSource}
-                            delayMix={delayMix}
-                            delayTime={delayTime}
-                            delayFeedback={delayFeedback}
-                            delaySource={delaySource}
-                            onDelayMixChange={setDelayMix}
-                            onDelayTimeChange={setDelayTime}
-                            onDelayFeedbackChange={setDelayFeedback}
-                            onDelaySourceChange={setDelaySource}
-                            kickSidechainAmount={kickSidechainAmount}
-                            onKickSidechainAmountChange={setKickSidechainAmount}
-                            crushAmount={crushAmount}
-                            onCrushAmountChange={setCrushAmount}
-                            tapeSaturationMix={tapeSaturationMix}
-                            onTapeSaturationMixChange={setTapeSaturationMix}
-                            tapeSaturationAmount={tapeSaturationAmount}
-                            onTapeSaturationAmountChange={setTapeSaturationAmount}
-                            tapeSaturationTone={tapeSaturationTone}
-                            onTapeSaturationToneChange={setTapeSaturationTone}
-                            envelopeFilterMix={envelopeFilterMix}
-                            onEnvelopeFilterMixChange={setEnvelopeFilterMix}
-                            envelopeFilterAmount={envelopeFilterAmount}
-                            onEnvelopeFilterAmountChange={setEnvelopeFilterAmount}
-                            envelopeFilterBaseFreq={envelopeFilterBaseFreq}
-                            onEnvelopeFilterBaseFreqChange={setEnvelopeFilterBaseFreq}
-                            envelopeFilterQ={envelopeFilterQ}
-                            onEnvelopeFilterQChange={setEnvelopeFilterQ}
-                            postFilterAnalyser={effectAnalysers.postFilterAnalyser}
-                            reverbAnalyser={effectAnalysers.reverbAnalyser}
-                            delayAnalyser={effectAnalysers.delayAnalyser}
-                            sidechainVisualiserAnalyser={effectAnalysers.sidechainVisualiserAnalyser}
-                            crushAnalyser={effectAnalysers.crushAnalyser}
-                            tapeSaturationAnalyser={effectAnalysers.tapeSaturationAnalyser}
-                            envelopeFilterAnalyser={effectAnalysers.envelopeFilterAnalyser}
-                            effectsEnabled={effectsEnabled}
-                            onToggleEffect={handleToggleEffect}
-                            onReset={handleResetEffectsSettings}
-                            isSettingsDefault={isEffectsSettingsDefault}
-                        />}
-                    </CollapsibleSection>
-                    <CollapsibleSection title="INSTRUMENT SETTINGS" closedTitle="INSTRUMENT SETTINGS" defaultOpen={false}>
-                        {(isOpen) => <InstrumentSettings
-                            isActive={isOpen}
-                            params={instrumentParams}
-                            instrumentColors={instrumentColors}
-                            onParamChange={handleInstrumentParamChange}
-                            instrumentVisibility={instrumentVisibility}
-                            onVisibilityChange={handleInstrumentVisibilityChange}
-                            kickDesignerParams={kickDesignerParams}
-                            onKickDesignerParamChange={handleKickDesignerParamChange}
-                        />}
-                    </CollapsibleSection>
-                    <CollapsibleSection title="rhythmic notation (under construction: rests are ugly)" defaultOpen={false}>
-                        {(isOpen) => (
-                            <NotationVisualizer
-                                isActive={isOpen}
-                                grid={grids[activePattern]}
-                                instrumentColors={instrumentColors}
-                            />
-                        )}
-                    </CollapsibleSection>
-                     <Settings
-                        visualizer={visualizerType}
-                        onVisualizerChange={setVisualizerType}
-                        onShiftPattern={handleShiftPattern}
-                    />
+                    <div ref={sectionsContainerRef} className="flex flex-col gap-6">
+                        {sectionOrder.map((key, index) => {
+                             const isBeingDragged = index === draggedIndex;
+                             const sectionElement = React.cloneElement(sections[key] as React.ReactElement, {
+                                 key: key,
+                                 dragHandleProps: { onPointerDown: (e: React.PointerEvent) => handlePointerDown(e, index) },
+                                 isDragging: isBeingDragged,
+                             });
+                             return sectionElement;
+                        })}
+                    </div>
                 </main>
             </div>
         </div>

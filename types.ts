@@ -35,4 +35,5 @@ export type SavedPattern = {
     tempo: number;
     instrumentParams: AllInstrumentParams;
     swing: number;
+    beatsPerMeasure: number;
 };

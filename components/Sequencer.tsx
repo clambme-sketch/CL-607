@@ -1,4 +1,4 @@
-import React, { useRef, useCallback } from 'react';
+import React, { useRef, useCallback, useMemo } from 'react';
 import { Grid, Instrument } from '../types';
 import { INSTRUMENTS, INSTRUMENT_LABELS } from '../constants';
 import SmallOscilloscope from './SmallOscilloscope';
@@ -7,6 +7,7 @@ import StepButton from './StepButton';
 import XYOscilloscope from './XYOscilloscope';
 import FrequencySpectrumVisualizer from './FrequencySpectrumVisualizer';
 import { VisualizerType } from './Settings';
+import Tooltip from './Tooltip';
 
 interface SequencerProps {
     grid: Grid;
@@ -25,6 +26,9 @@ interface SequencerProps {
     visualizerType: VisualizerType;
     masterAnalyser: AnalyserNode | null;
     hueRotate: number;
+    isPerformanceMode: boolean;
+    showBeatNumbers: boolean;
+    beatsPerMeasure: number;
 }
 
 const Sequencer: React.FC<SequencerProps> = ({ 
@@ -44,10 +48,21 @@ const Sequencer: React.FC<SequencerProps> = ({
     visualizerType,
     masterAnalyser,
     hueRotate,
+    isPerformanceMode,
+    showBeatNumbers,
+    beatsPerMeasure,
 }) => {
     const isDraggingRef = useRef(false);
     const dragModeRef = useRef<'activate' | 'deactivate' | null>(null);
     const lastToggledStep = useRef<string | null>(null); // To prevent re-toggling the same step
+
+    const BEAT_LABELS = useMemo(() => {
+        const labels: string[] = [];
+        for (let i = 0; i < beatsPerMeasure; i++) {
+            labels.push(String(i + 1), 'e', '&', 'a');
+        }
+        return labels;
+    }, [beatsPerMeasure]);
 
     const handlePointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
         const target = e.target as HTMLElement;
@@ -141,30 +156,35 @@ const Sequencer: React.FC<SequencerProps> = ({
                         if (instrument === 'sample') {
                             return (
                                 <div key={`${instrument}-recorder`} className="relative flex items-center justify-center rounded-md bg-gray-900 h-12 sm:h-14 px-1.5">
-                                    <button
-                                        onMouseDown={onStartRecording}
-                                        onMouseUp={onStopRecording}
-                                        onTouchStart={onStartRecording}
-                                        onTouchEnd={onStopRecording}
-                                        className={`w-full h-full rounded flex items-center justify-center transition-all duration-150 active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-900 ${
-                                            isRecording
-                                                ? 'bg-red-700 ring-red-500 animate-pulse'
-                                                : countdown
-                                                ? 'bg-yellow-500 ring-yellow-400'
-                                                : 'bg-gray-700 hover:bg-gray-600 ring-gray-500'
-                                        }`}
-                                        aria-label={countdown ? `Recording in ${countdown}` : isRecording ? "Stop Recording Sample" : "Hold to Record Sample"}
-                                    >
-                                        {countdown ? (
-                                            <span className="text-white font-bold text-xl tabular-nums">{countdown}</span>
-                                        ) : isRecording ? (
-                                            <div className="w-2.5 h-2.5 bg-white rounded-sm" />
-                                        ) : (
-                                            <div className="w-3 h-3 bg-red-500 rounded-full" />
-                                        )}
-                                    </button>
+                                    <Tooltip text="Hold to record from your microphone">
+                                        <button
+                                            onMouseDown={onStartRecording}
+                                            onMouseUp={onStopRecording}
+                                            onTouchStart={onStartRecording}
+                                            onTouchEnd={onStopRecording}
+                                            className={`w-full h-full rounded flex items-center justify-center transition-all duration-150 active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-900 ${
+                                                isRecording
+                                                    ? 'bg-red-700 ring-red-500 animate-pulse'
+                                                    : countdown
+                                                    ? 'bg-yellow-500 ring-yellow-400'
+                                                    : 'bg-gray-700 hover:bg-gray-600 ring-gray-500'
+                                            }`}
+                                            aria-label={countdown ? `Recording in ${countdown}` : isRecording ? "Stop Recording Sample" : "Hold to Record Sample"}
+                                        >
+                                            {countdown ? (
+                                                <span className="text-white font-bold text-xl tabular-nums">{countdown}</span>
+                                            ) : isRecording ? (
+                                                <div className="w-2.5 h-2.5 bg-white rounded-sm" />
+                                            ) : (
+                                                <div className="w-3 h-3 bg-red-500 rounded-full" />
+                                            )}
+                                        </button>
+                                    </Tooltip>
                                 </div>
                             );
+                        }
+                        if (isPerformanceMode) {
+                            return <div key={`${instrument}-scope-placeholder`} className="relative flex items-center justify-center rounded-md bg-gray-900 h-12 sm:h-14 px-1" />;
                         }
                         return (
                             <div key={`${instrument}-scope`} className="relative flex items-center justify-center rounded-md bg-gray-900 h-12 sm:h-14 px-1">
@@ -180,28 +200,32 @@ const Sequencer: React.FC<SequencerProps> = ({
 
                 {/* Grid and Main Oscilloscope Wrapper */}
                 <div className="relative flex-1 flex flex-col gap-2">
-                    {visualizerType === 'waveform' && (
-                        <Oscilloscope analyserNodes={instrumentAnalyserNodes} colors={instrumentColors} />
-                    )}
-                    {visualizerType === 'lissajous' && (
-                        <div 
-                            className="absolute inset-0 z-0 rounded-xl overflow-hidden pointer-events-none"
-                            style={{ filter: `hue-rotate(-${hueRotate}deg)` }}
-                        >
-                            <XYOscilloscope
-                                isActive={isPlaying}
-                                wetAnalyser={masterAnalyser}
-                                color="#d1d5db" // gray-300
-                            />
-                        </div>
-                    )}
-                    {visualizerType === 'spectrum' && (
-                        <div className="absolute inset-0 z-0 rounded-xl overflow-hidden pointer-events-none">
-                            <FrequencySpectrumVisualizer
-                                isActive={isPlaying}
-                                analyserNode={masterAnalyser}
-                            />
-                        </div>
+                    {!isPerformanceMode && (
+                        <>
+                            {visualizerType === 'waveform' && (
+                                <Oscilloscope analyserNodes={instrumentAnalyserNodes} colors={instrumentColors} />
+                            )}
+                            {visualizerType === 'lissajous' && (
+                                <div 
+                                    className="absolute inset-0 z-0 rounded-xl overflow-hidden pointer-events-none"
+                                    style={{ filter: `hue-rotate(-${hueRotate}deg)` }}
+                                >
+                                    <XYOscilloscope
+                                        isActive={isPlaying}
+                                        wetAnalyser={masterAnalyser}
+                                        color="#d1d5db" // gray-300
+                                    />
+                                </div>
+                            )}
+                            {visualizerType === 'spectrum' && (
+                                <div className="absolute inset-0 z-0 rounded-xl overflow-hidden pointer-events-none">
+                                    <FrequencySpectrumVisualizer
+                                        isActive={isPlaying}
+                                        analyserNode={masterAnalyser}
+                                    />
+                                </div>
+                            )}
+                        </>
                     )}
                     
                     {/* Step Grid */}
@@ -213,7 +237,7 @@ const Sequencer: React.FC<SequencerProps> = ({
                         onPointerUp={handlePointerUp}
                         onPointerCancel={handlePointerUp}
                     >
-                        {[0, 1, 2, 3].map(groupIndex => (
+                        {[...Array(beatsPerMeasure).keys()].map(groupIndex => (
                             <div key={groupIndex} className="grid grid-cols-4 gap-x-1 sm:gap-x-1.5 gap-y-1 sm:gap-y-2 w-full">
                                 {INSTRUMENTS.map((instrument, instrumentIndex) => (
                                     instrumentVisibility[instrumentIndex] && (
@@ -228,6 +252,7 @@ const Sequencer: React.FC<SequencerProps> = ({
                                                         color={instrumentColors[instrumentIndex]}
                                                         instrumentIndex={instrumentIndex}
                                                         stepIndex={stepIndex}
+                                                        beatLabel={showBeatNumbers ? BEAT_LABELS[stepIndex] : undefined}
                                                     />
                                                 );
                                             })}
@@ -240,7 +265,7 @@ const Sequencer: React.FC<SequencerProps> = ({
                     
                     {/* Step Numbers */}
                     <div className="relative z-10 flex justify-between gap-2 sm:gap-3 md:gap-4">
-                        {[0, 1, 2, 3].map(groupIndex => (
+                        {[...Array(beatsPerMeasure).keys()].map(groupIndex => (
                             <div key={groupIndex} className="grid grid-cols-4 gap-1 sm:gap-1.5 w-full">
                                 {Array.from({ length: 4 }).map((_, stepInGroup) => {
                                     const stepIndex = groupIndex * 4 + stepInGroup;

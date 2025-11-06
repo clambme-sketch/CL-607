@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { Grid } from '../types';
-import { INSTRUMENTS, NUM_STEPS, INSTRUMENT_LABELS } from '../constants';
+import { INSTRUMENTS, INSTRUMENT_LABELS } from '../constants';
 
 // --- VISUAL CONSTANTS ---
 const VIEWBOX_WIDTH = 1000;
@@ -9,7 +9,7 @@ const STAFF_HEIGHT = VIEWBOX_HEIGHT / INSTRUMENTS.length;
 const START_X = 40;
 const END_X = VIEWBOX_WIDTH - 20;
 const STAFF_WIDTH = END_X - START_X;
-const STEP_WIDTH = STAFF_WIDTH / NUM_STEPS;
+
 const NOTE_COLOR = "var(--note-color)";
 const STAFF_COLOR = "var(--staff-color)";
 
@@ -27,7 +27,9 @@ type NotationElement = NoteElement | RestElement;
 type Beam = { startStep: number; endStep: number; y: number; };
 
 // This is the core logic. It converts a raw boolean grid into musically correct notation.
-const parseGridToNotation = (grid: boolean[], color: string): { notation: NotationElement[], beams: Beam[] } => {
+const parseGridToNotation = (grid: boolean[], color: string, beatsPerMeasure: number): { notation: NotationElement[], beams: Beam[] } => {
+    const numSteps = beatsPerMeasure * 4;
+    
     // Rule: Whole note rest for an entirely empty track
     if (!grid.some(step => step)) {
         return { notation: [{ type: 'rest', step: 0, duration: 'wr' }], beams: [] };
@@ -35,20 +37,8 @@ const parseGridToNotation = (grid: boolean[], color: string): { notation: Notati
 
     const notation: NotationElement[] = [];
     let i = 0;
-    while (i < NUM_STEPS) {
+    while (i < numSteps) {
         const b = (step: number) => grid[step] || false;
-
-        // Rule: Half note rests for empty half-measures
-        if (i === 0 && !grid.slice(0, 8).some(step => step)) {
-            notation.push({ type: 'rest', step: 0, duration: 'hr' });
-            i += 8;
-            continue;
-        }
-        if (i === 8 && !grid.slice(8, 16).some(step => step)) {
-            notation.push({ type: 'rest', step: 8, duration: 'hr' });
-            i += 8;
-            continue;
-        }
 
         const isFirstStepOfBeat = i % 4 === 0;
 
@@ -111,7 +101,7 @@ const parseGridToNotation = (grid: boolean[], color: string): { notation: Notati
 
     // --- Beaming logic: group consecutive 16th notes within each beat ---
     const beams: Beam[] = [];
-    for (let beat = 0; beat < 4; beat++) {
+    for (let beat = 0; beat < beatsPerMeasure; beat++) {
         const beatStart = beat * 4;
         const beatEnd = beatStart + 3;
         
@@ -256,12 +246,16 @@ interface NotationVisualizerProps {
     isActive: boolean;
     grid: Grid;
     instrumentColors: string[];
+    beatsPerMeasure: number;
 }
 
-const NotationVisualizer: React.FC<NotationVisualizerProps> = ({ isActive, grid, instrumentColors }) => {
+const NotationVisualizer: React.FC<NotationVisualizerProps> = ({ isActive, grid, instrumentColors, beatsPerMeasure }) => {
+    const numSteps = beatsPerMeasure * 4;
+    const STEP_WIDTH = STAFF_WIDTH / numSteps;
+
     const processedNotation = useMemo(() => {
         return INSTRUMENTS.map((_, instrumentIndex) => {
-            const { notation, beams } = parseGridToNotation(grid[instrumentIndex] || [], instrumentColors[instrumentIndex]);
+            const { notation, beams } = parseGridToNotation(grid[instrumentIndex] || [], instrumentColors[instrumentIndex], beatsPerMeasure);
             const beamedSteps = new Set<number>();
             beams.forEach(b => {
                 for (let s = b.startStep; s <= b.endStep; s++) {
@@ -270,7 +264,7 @@ const NotationVisualizer: React.FC<NotationVisualizerProps> = ({ isActive, grid,
             });
             return { notation, beams, beamedSteps };
         });
-    }, [grid, instrumentColors]);
+    }, [grid, instrumentColors, beatsPerMeasure]);
     
     if (!isActive) {
         return <div className="h-48 bg-gray-900 rounded-md w-full" />;

@@ -1,5 +1,5 @@
 import { useRef, useCallback } from 'react';
-import { MAX_FILTER_FREQ, MIN_FILTER_FREQ, INSTRUMENTS, NUM_STEPS } from '../constants';
+import { MAX_FILTER_FREQ, MIN_FILTER_FREQ, INSTRUMENTS } from '../constants';
 import { Grid, Instrument, AllInstrumentParams, InstrumentParams, KickDesignerParams } from '../types';
 
 export interface AllAnalyserNodes {
@@ -1260,9 +1260,11 @@ export const useAudioEngine = () => {
         if (isBPatternActive) {
             patternsToRender.push(grids.b);
         }
+
+        const numSteps = grids.a[0]?.length || 16;
         
         const secondsPerStep = (60 / tempo) / 4;
-        const totalDuration = patternsToRender.length * NUM_STEPS * secondsPerStep;
+        const totalDuration = patternsToRender.length * numSteps * secondsPerStep;
 
         const offlineCtx = new OfflineAudioContext(2, Math.ceil(totalDuration * liveContext.sampleRate), liveContext.sampleRate);
         
@@ -1470,7 +1472,8 @@ export const useAudioEngine = () => {
         const swingFactor = 0.5 + (swing * 0.25);
         let currentTime = 0;
         patternsToRender.forEach((grid) => {
-            for (let step = 0; step < NUM_STEPS; step++) {
+            const currentNumSteps = grid[0]?.length || 0;
+            for (let step = 0; step < currentNumSteps; step++) {
                 const isOddStep = step % 2 !== 0;
                 const stepDuration = isOddStep 
                     ? (1 - swingFactor) * 2 * secondsPerStep 

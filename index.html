@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en" class="dark">
   <head>
-    <meta charset="UTF-8" />
+    <meta charset="UTF-g" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>CL-607 Drum Machine</title>
@@ -33,6 +33,12 @@
       .notation-visualizer {
           --note-color: #d1d5db; /* gray-300 */
           --staff-color: #4b5563; /* gray-600 */
+      }
+      .draggable-section {
+        transition: transform 0.2s cubic-bezier(0.2, 0, 0, 1);
+      }
+      .tooltips-disabled [role="tooltip"] {
+        display: none !important;
       }
     </style>
   <script type="importmap">

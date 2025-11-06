@@ -1,6 +1,7 @@
 import React, { useRef, useCallback, useState, useEffect } from 'react';
 import { MIN_TEMPO, MAX_TEMPO } from '../constants';
 import { SavedPattern } from '../types';
+import Tooltip from './Tooltip';
 
 // --- New Disco Ball Component ---
 const DiscoBall: React.FC<{ isPlaying: boolean }> = React.memo(({ isPlaying }) => {
@@ -406,6 +407,24 @@ const Controls: React.FC<ControlsProps> = ({
     const clearTimerRef = useRef<number | null>(null);
     const clearRequestRef = useRef<number | null>(null);
 
+    const [isInteractingWithSlider, setIsInteractingWithSlider] = useState(false);
+
+    const handleSliderInteractionStart = useCallback(() => {
+        setIsInteractingWithSlider(true);
+        const handleInteractionEnd = () => {
+            setIsInteractingWithSlider(false);
+            window.removeEventListener('mouseup', handleInteractionEnd);
+            window.removeEventListener('touchend', handleInteractionEnd);
+        };
+        window.addEventListener('mouseup', handleInteractionEnd);
+        window.addEventListener('touchend', handleInteractionEnd);
+    }, []);
+
+    const sliderInteractionProps = {
+        onMouseDown: handleSliderInteractionStart,
+        onTouchStart: handleSliderInteractionStart,
+    };
+
     const HOLD_DURATION = 1000; // 1 second hold
 
     useEffect(() => {
@@ -514,47 +533,55 @@ const Controls: React.FC<ControlsProps> = ({
 
     return (
         <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-6 p-2">
-            <button
-                onClick={onDownload}
-                disabled={isRendering}
-                className="flex items-center justify-center w-24 h-12 bg-gray-700 text-white font-bold rounded-lg hover:bg-gray-600 transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-indigo-500 active:scale-[0.98] disabled:bg-gray-500 disabled:cursor-not-allowed disabled:text-gray-400"
-                aria-label={isRendering ? 'Rendering your beat' : 'Download your beat'}
-            >
-                {isRendering 
-                    ? <span className="text-xs tracking-wider animate-pulse">RENDERING</span>
-                    : <>
-                        <DownloadIcon className="w-5 h-5" />
-                        <span className="ml-1.5 text-sm tracking-wider">SAVE</span>
-                      </>
-                }
-            </button>
-            <button
-                onClick={onPlayToggle}
-                className="flex items-center justify-center w-28 h-12 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-blue-500 active:scale-[0.98]"
-                aria-label={isPlaying ? 'Pause playback' : 'Start playback'}
-            >
-                {isPlaying 
-                    ? <PauseIcon className="w-6 h-6" /> 
-                    : <PlayIcon className="w-6 h-6" />}
-                <span className="ml-2 text-sm tracking-wider">{isPlaying ? 'PAUSE' : 'PLAY'}</span>
-            </button>
+            <Tooltip text="Download current beat as a .wav file">
+                <button
+                    onClick={onDownload}
+                    disabled={isRendering}
+                    className="flex items-center justify-center w-24 h-12 bg-gray-700 text-white font-bold rounded-lg hover:bg-gray-600 transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-indigo-500 active:scale-[0.98] disabled:bg-gray-500 disabled:cursor-not-allowed disabled:text-gray-400"
+                    aria-label={isRendering ? 'Rendering your beat' : 'Download your beat'}
+                >
+                    {isRendering 
+                        ? <span className="text-xs tracking-wider animate-pulse">RENDERING</span>
+                        : <>
+                            <DownloadIcon className="w-5 h-5" />
+                            <span className="ml-1.5 text-sm tracking-wider">SAVE</span>
+                          </>
+                    }
+                </button>
+            </Tooltip>
+            <Tooltip text={isPlaying ? "Pause sequence (Spacebar)" : "Play sequence (Spacebar)"}>
+                <button
+                    onClick={onPlayToggle}
+                    className="flex items-center justify-center w-28 h-12 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-blue-500 active:scale-[0.98]"
+                    aria-label={isPlaying ? 'Pause playback' : 'Start playback'}
+                >
+                    {isPlaying 
+                        ? <PauseIcon className="w-6 h-6" /> 
+                        : <PlayIcon className="w-6 h-6" />}
+                    <span className="ml-2 text-sm tracking-wider">{isPlaying ? 'PAUSE' : 'PLAY'}</span>
+                </button>
+            </Tooltip>
             <div className="flex flex-col items-center gap-1">
                  <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">BEAT SWITCH</span>
                 <div className="flex items-center gap-2" role="group" aria-label="Pattern selector">
-                    <button
-                        onClick={() => onPatternToggle('a')}
-                        className={`w-14 h-12 rounded-md font-bold text-lg transition-all duration-150 active:scale-[0.98] ${activePattern === 'a' ? 'bg-yellow-500 text-gray-900 ring-2 ring-offset-2 ring-offset-gray-800 ring-yellow-400' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}
-                        aria-pressed={activePattern === 'a'}
-                    >
-                        A
-                    </button>
-                    <button
-                        onClick={() => onPatternToggle('b')}
-                        className={`w-14 h-12 rounded-md font-bold text-lg transition-all duration-150 active:scale-[0.98] ${activePattern === 'b' ? 'bg-yellow-500 text-gray-900 ring-2 ring-offset-2 ring-offset-gray-800 ring-yellow-400' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}
-                        aria-pressed={activePattern === 'b'}
-                    >
-                        B
-                    </button>
+                    <Tooltip text="Switch to Pattern A">
+                        <button
+                            onClick={() => onPatternToggle('a')}
+                            className={`w-14 h-12 rounded-md font-bold text-lg transition-all duration-150 active:scale-[0.98] ${activePattern === 'a' ? 'bg-yellow-500 text-gray-900 ring-2 ring-offset-2 ring-offset-gray-800 ring-yellow-400' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}
+                            aria-pressed={activePattern === 'a'}
+                        >
+                            A
+                        </button>
+                    </Tooltip>
+                    <Tooltip text="Switch to Pattern B">
+                        <button
+                            onClick={() => onPatternToggle('b')}
+                            className={`w-14 h-12 rounded-md font-bold text-lg transition-all duration-150 active:scale-[0.98] ${activePattern === 'b' ? 'bg-yellow-500 text-gray-900 ring-2 ring-offset-2 ring-offset-gray-800 ring-yellow-400' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}
+                            aria-pressed={activePattern === 'b'}
+                        >
+                            B
+                        </button>
+                    </Tooltip>
                 </div>
             </div>
 
@@ -562,122 +589,137 @@ const Controls: React.FC<ControlsProps> = ({
                 <span className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">PATTERN SELECT</span>
                 <div className="flex items-center gap-2" role="group" aria-label="Pattern selection slots">
                     {savedPatterns.map((pattern, index) => (
-                        <PatternSlotButton 
-                            key={index}
-                            slotIndex={index}
-                            hasContent={hasContentInPattern(pattern)}
-                            isActive={currentPatternIndex === index}
-                            onClick={onSelectPattern}
-                        />
+                        <Tooltip key={index} text={`Load Pattern ${index + 1}`}>
+                            <PatternSlotButton 
+                                slotIndex={index}
+                                hasContent={hasContentInPattern(pattern)}
+                                isActive={currentPatternIndex === index}
+                                onClick={onSelectPattern}
+                            />
+                        </Tooltip>
                     ))}
                 </div>
                 {(!isCurrentPatternEmpty || isPoofing) && (
-                     <button
-                        onMouseDown={handleClearStart}
-                        onMouseUp={handleClearEnd}
-                        onMouseLeave={handleClearEnd}
-                        onTouchStart={(e) => { e.preventDefault(); handleClearStart(); }}
-                        onTouchEnd={handleClearEnd}
-                        className={`relative flex items-center justify-center mt-2 px-3 h-8 bg-red-800/80 text-white font-bold rounded-md hover:bg-red-700/80 transition-transform duration-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-red-500 text-xs uppercase tracking-wider overflow-hidden select-none ${isPoofing ? 'animate-poof' : ''}`}
-                        style={{ transform: `scale(${1 - clearProgress * 0.15})` }}
-                        aria-label="Hold to clear current pattern"
-                    >
-                        <span className="relative z-10">
-                            CLEAR CURRENT PATTERN
-                        </span>
-                    </button>
+                     <Tooltip text="Hold to erase all notes in current pattern">
+                         <button
+                            onMouseDown={handleClearStart}
+                            onMouseUp={handleClearEnd}
+                            onMouseLeave={handleClearEnd}
+                            onTouchStart={(e) => { e.preventDefault(); handleClearStart(); }}
+                            onTouchEnd={handleClearEnd}
+                            className={`relative flex items-center justify-center mt-2 px-3 h-8 bg-red-800/80 text-white font-bold rounded-md hover:bg-red-700/80 transition-transform duration-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-red-500 text-xs uppercase tracking-wider overflow-hidden select-none ${isPoofing ? 'animate-poof' : ''}`}
+                            style={{ transform: `scale(${1 - clearProgress * 0.15})` }}
+                            aria-label="Hold to clear current pattern"
+                        >
+                            <span className="relative z-10">
+                                HOLD TO CLEAR CURRENT PATTERN
+                            </span>
+                        </button>
+                    </Tooltip>
                 )}
             </div>
             
             <div className="flex items-center gap-4">
                 <div className="flex flex-col gap-3">
-                    <div className="flex items-center gap-2">
-                        <label htmlFor="master-volume" className="w-16 text-gray-400 flex items-center" aria-label="Master Volume">
-                            <VolumeIcon className="w-6 h-6 text-gray-100" />
-                        </label>
-                        <input
-                            type="range"
-                            id="master-volume"
-                            min={0}
-                            max={1}
-                            step="0.01"
-                            value={masterVolume}
-                            onChange={onMasterVolumeChange}
-                            className="w-32 h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-blue-600"
-                        />
-                        <span className="text-sm font-bold text-gray-100 w-12 text-center">{Math.round(masterVolume * 100)}%</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <label htmlFor="tempo" className="w-16 text-sm text-gray-400 font-bold uppercase tracking-wider">
-                            BPM
-                        </label>
-                        <input
-                            type="range"
-                            id="tempo"
-                            min={MIN_TEMPO}
-                            max={MAX_TEMPO}
-                            value={tempo}
-                            onChange={onTempoChange}
-                            className="w-32 h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-blue-600"
-                        />
-                        <span className="text-sm font-bold text-gray-100 w-12 text-center">{tempo}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <label htmlFor="swing" className="w-16 text-sm text-gray-400 font-bold uppercase tracking-wider">
-                            Swing
-                        </label>
-                         <input
-                            type="range"
-                            id="swing"
-                            min={0}
-                            max={1}
-                            step="0.01"
-                            value={swing}
-                            onChange={onSwingChange}
-                            className="w-32 h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-purple-500"
-                        />
-                        <span className="text-sm font-bold text-gray-100 w-12 text-center">{Math.round(swing*100)}%</span>
-                    </div>
-                </div>
-
-                <div className="flex flex-col items-center gap-2">
-                    <label htmlFor="color-knob" className="font-bold text-gray-100 text-sm">
-                        6 7
-                    </label>
-                    <div
-                        id="color-knob"
-                        role="slider"
-                        aria-valuemin={0}
-                        aria-valuemax={360}
-                        aria-valuenow={Math.round(hueRotate)}
-                        aria-label="Color Hue"
-                        tabIndex={0}
-                        onMouseDown={handleMouseDown}
-                        onTouchStart={handleTouchStart}
-                        onTouchMove={handleTouchMove}
-                        onTouchEnd={handleTouchEnd}
-                        className={`relative w-16 h-16 bg-gray-700 rounded-full cursor-grab active:cursor-grabbing flex items-center justify-center select-none shadow-inner transition-transform active:scale-[0.98]
-                                    ${isColorAnimating ? 'animate-pulse ring-2 ring-pink-500 ring-offset-2 ring-offset-gray-800' : 'ring-1 ring-gray-600'}`}
-                    >
-                        {/* Indicator Line */}
-                        <div
-                            className="absolute w-full h-full"
-                            style={{ transform: `rotate(${hueRotate}deg)` }}
-                        >
-                            <div className="absolute top-1 left-1/2 -translate-x-1/2 w-1 h-3 bg-pink-400 rounded-full" />
+                    <Tooltip text="Adjust the overall output volume of the drum machine" isInteracting={isInteractingWithSlider}>
+                        <div className="flex items-center gap-2">
+                            <label htmlFor="master-volume" className="w-16 text-gray-400 flex items-center" aria-label="Master Volume">
+                                <VolumeIcon className="w-6 h-6 text-gray-100" />
+                            </label>
+                            <input
+                                type="range"
+                                id="master-volume"
+                                min={0}
+                                max={1}
+                                step="0.01"
+                                value={masterVolume}
+                                onChange={onMasterVolumeChange}
+                                {...sliderInteractionProps}
+                                className="w-32 h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                            />
+                            <span className="text-sm font-bold text-gray-100 w-12 text-center">{Math.round(masterVolume * 100)}%</span>
                         </div>
-                         <span className="text-2xl z-10 pointer-events-none">😎</span>
-                    </div>
+                    </Tooltip>
+                    <Tooltip text="Set the playback speed in Beats Per Minute" isInteracting={isInteractingWithSlider}>
+                        <div className="flex items-center gap-2">
+                            <label htmlFor="tempo" className="w-16 text-sm text-gray-400 font-bold uppercase tracking-wider">
+                                BPM
+                            </label>
+                            <input
+                                type="range"
+                                id="tempo"
+                                min={MIN_TEMPO}
+                                max={MAX_TEMPO}
+                                value={tempo}
+                                onChange={onTempoChange}
+                                {...sliderInteractionProps}
+                                className="w-32 h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                            />
+                            <span className="text-sm font-bold text-gray-100 w-12 text-center">{tempo}</span>
+                        </div>
+                    </Tooltip>
+                    <Tooltip text="Add a shuffle feel by delaying every second 16th note" isInteracting={isInteractingWithSlider}>
+                        <div className="flex items-center gap-2">
+                            <label htmlFor="swing" className="w-16 text-sm text-gray-400 font-bold uppercase tracking-wider">
+                                Swing
+                            </label>
+                             <input
+                                type="range"
+                                id="swing"
+                                min={0}
+                                max={1}
+                                step="0.01"
+                                value={swing}
+                                onChange={onSwingChange}
+                                {...sliderInteractionProps}
+                                className="w-32 h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                            />
+                            <span className="text-sm font-bold text-gray-100 w-12 text-center">{Math.round(swing*100)}%</span>
+                        </div>
+                    </Tooltip>
                 </div>
+
+                <Tooltip text="Drag to change color scheme. Click to toggle animation.">
+                    <div className="flex flex-col items-center gap-2">
+                        <label htmlFor="color-knob" className="font-bold text-gray-100 text-sm">
+                            6 7
+                        </label>
+                        <div
+                            id="color-knob"
+                            role="slider"
+                            aria-valuemin={0}
+                            aria-valuemax={360}
+                            aria-valuenow={Math.round(hueRotate)}
+                            aria-label="Color Hue"
+                            tabIndex={0}
+                            onMouseDown={handleMouseDown}
+                            onTouchStart={handleTouchStart}
+                            onTouchMove={handleTouchMove}
+                            onTouchEnd={handleTouchEnd}
+                            className={`relative w-16 h-16 bg-gray-700 rounded-full cursor-grab active:cursor-grabbing flex items-center justify-center select-none shadow-inner transition-transform active:scale-[0.98]
+                                        ${isColorAnimating ? 'animate-pulse ring-2 ring-pink-500 ring-offset-2 ring-offset-gray-800' : 'ring-1 ring-gray-600'}`}
+                        >
+                            {/* Indicator Line */}
+                            <div
+                                className="absolute w-full h-full"
+                                style={{ transform: `rotate(${hueRotate}deg)` }}
+                            >
+                                <div className="absolute top-1 left-1/2 -translate-x-1/2 w-1 h-3 bg-pink-400 rounded-full" />
+                            </div>
+                             <span className="text-2xl z-10 pointer-events-none">😎</span>
+                        </div>
+                    </div>
+                </Tooltip>
             </div>
 
-            <div
-                onClick={() => isPlaying && onCatClick()}
-                className={isPlaying ? 'cursor-pointer' : ''}
-                title={isPlaying ? "Click me!" : ""}
-            >
-                <DancingCat isPlaying={isPlaying} tempo={tempo} />
-            </div>
+            <Tooltip text={isPlaying ? "Click for a surprise!" : "Press play to wake me up!"}>
+                <div
+                    onClick={() => isPlaying && onCatClick()}
+                    className={isPlaying ? 'cursor-pointer' : ''}
+                >
+                    <DancingCat isPlaying={isPlaying} tempo={tempo} />
+                </div>
+            </Tooltip>
         </div>
     );
 };
