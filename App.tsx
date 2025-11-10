@@ -190,7 +190,7 @@ const App: React.FC = () => {
 
     // New state for Settings
     const [visualizerType, setVisualizerType] = useState<VisualizerType>('waveform');
-    const [isPerformanceMode, setIsPerformanceMode] = useState<boolean>(false);
+    const [isPerformanceMode, setIsPerformanceMode] = useState<boolean>(true);
     const [tooltipsEnabled, setTooltipsEnabled] = useState<boolean>(true);
     const [showBeatNumbers, setShowBeatNumbers] = useState<boolean>(false);
 
@@ -820,7 +820,7 @@ const App: React.FC = () => {
         
         // Settings state
         setVisualizerType('waveform');
-        setIsPerformanceMode(false);
+        setIsPerformanceMode(true);
         setTooltipsEnabled(true);
         setShowBeatNumbers(false);
         setInstrumentVisibility(Array(INSTRUMENTS.length).fill(true));
@@ -962,7 +962,7 @@ const App: React.FC = () => {
     useEffect(() => { setAudioEngineEnvelopeFilterAmount(envelopeFilterAmount) }, [envelopeFilterAmount, setAudioEngineEnvelopeFilterAmount]);
     useEffect(() => { setAudioEngineEnvelopeFilterBaseFreq(envelopeFilterBaseFreq) }, [envelopeFilterBaseFreq, setAudioEngineEnvelopeFilterBaseFreq]);
     useEffect(() => { setAudioEngineEnvelopeFilterQ(envelopeFilterQ) }, [envelopeFilterQ, setAudioEngineEnvelopeFilterQ]);
-    // FIX: Use the renamed `setAudioEngineLofiMix` function to avoid conflict
+    // FIX: Use the renamed `setLofiMix` function to avoid conflict
     useEffect(() => { if (setAudioEngineLofiMix) setAudioEngineLofiMix(lofiMix); }, [lofiMix, setAudioEngineLofiMix]);
     useEffect(() => { if (setIsoGain) setIsoGain('low', isolatorGains.low); }, [isolatorGains.low, setIsoGain]);
     useEffect(() => { if (setIsoGain) setIsoGain('mid', isolatorGains.mid); }, [isolatorGains.mid, setIsoGain]);
