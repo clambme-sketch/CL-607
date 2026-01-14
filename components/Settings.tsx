@@ -17,6 +17,8 @@ interface SettingsProps {
     onToggleBeatNumbers: () => void;
     beatsPerMeasure: number;
     onBeatsPerMeasureChange: (beats: number) => void;
+    dragHandleProps?: React.HTMLAttributes<HTMLButtonElement>;
+    isDragging?: boolean;
 }
 
 // --- Sub-components (moved outside the main component function) ---
@@ -61,7 +63,7 @@ const ArrowRightIcon: React.FC = () => (
 );
 
 
-const Settings: React.FC<SettingsProps> = ({ visualizer, onVisualizerChange, onShiftPattern, isPerformanceMode, onTogglePerformanceMode, onFactoryReset, tooltipsEnabled, onToggleTooltips, showBeatNumbers, onToggleBeatNumbers, beatsPerMeasure, onBeatsPerMeasureChange }) => {
+const Settings: React.FC<SettingsProps> = ({ visualizer, onVisualizerChange, onShiftPattern, isPerformanceMode, onTogglePerformanceMode, onFactoryReset, tooltipsEnabled, onToggleTooltips, showBeatNumbers, onToggleBeatNumbers, beatsPerMeasure, onBeatsPerMeasureChange, dragHandleProps, isDragging }) => {
     // --- Factory Reset Button Logic ---
     const [resetProgress, setResetProgress] = useState(0);
     const [isPoofing, setIsPoofing] = useState(false);
@@ -113,7 +115,7 @@ const Settings: React.FC<SettingsProps> = ({ visualizer, onVisualizerChange, onS
     }, []);
 
     return (
-        <CollapsibleSection title="Settings">
+        <CollapsibleSection title="Settings" dragHandleProps={dragHandleProps} isDragging={isDragging}>
             {(isOpen) => (
                 <>
                     <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-8">

@@ -8,7 +8,6 @@ import { INSTRUMENTS, INSTRUMENT_LABELS, DEFAULT_TEMPO, MIN_FILTER_FREQ, MAX_FIL
 import NotationVisualizer from './components/NotationVisualizer';
 import CollapsibleSection from './components/CollapsibleSection';
 import InstrumentSettings from './components/InstrumentSettings';
-import KickDrumDesigner from './components/BassDrumDesigner';
 import XYFilterPad from './components/XYFilterPad';
 import LoFiRadio from './components/LoFiRadio';
 import Settings, { VisualizerType } from './components/Settings';
@@ -204,7 +203,7 @@ const App: React.FC = () => {
     // State for drag and drop section reordering
     const [sectionOrder, setSectionOrder] = useState<string[]>(['dj', 'effects', 'instruments', 'notation', 'settings']);
     const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
-    const longPressTimeoutRef = useRef<number>();
+    const longPressTimeoutRef = useRef<number | undefined>(undefined);
     const sectionsContainerRef = useRef<HTMLDivElement>(null);
     const draggedItemIndexRef = useRef<number | null>(null);
 
@@ -865,7 +864,7 @@ const App: React.FC = () => {
         draggedItemIndexRef.current = index;
         
         const onPointerUp = () => {
-            clearTimeout(longPressTimeoutRef.current!);
+            clearTimeout(longPressTimeoutRef.current);
             window.removeEventListener('pointerup', onPointerUp);
         };
         window.addEventListener('pointerup', onPointerUp);
@@ -1429,6 +1428,7 @@ const App: React.FC = () => {
                 onToggleBeatNumbers={handleToggleBeatNumbers}
                 beatsPerMeasure={beatsPerMeasure}
                 onBeatsPerMeasureChange={handleBeatsPerMeasureChange}
+                dragHandleProps={isInteractingWithSlider ? undefined : { onPointerDown: (e: React.PointerEvent) => {} }} // Dummy or handled by cloneElement
             />
         )
     };
