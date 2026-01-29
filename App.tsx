@@ -207,6 +207,10 @@ const App: React.FC = () => {
     const sectionsContainerRef = useRef<HTMLDivElement>(null);
     const draggedItemIndexRef = useRef<number | null>(null);
 
+    // --- Cappuccino Mode State ---
+    const [isCappuccinoMode, setIsCappuccinoMode] = useState(false);
+    const titleClickRef = useRef({ count: 0, lastTime: 0 });
+
 
     // FIX: Initialize useRef with null to provide an initial value and prevent errors.
     const animationFrameRef = useRef<number | null>(null);
@@ -829,6 +833,7 @@ const App: React.FC = () => {
         setSectionOrder(['dj', 'effects', 'instruments', 'notation', 'settings']);
         setHueRotate(0);
         setIsColorAnimating(false);
+        setIsCappuccinoMode(false); // Reset hidden mode
     
         // Pattern management state
         const defaultPattern: SavedPattern = {
@@ -961,7 +966,7 @@ const App: React.FC = () => {
     useEffect(() => { setAudioEngineEnvelopeFilterAmount(envelopeFilterAmount) }, [envelopeFilterAmount, setAudioEngineEnvelopeFilterAmount]);
     useEffect(() => { setAudioEngineEnvelopeFilterBaseFreq(envelopeFilterBaseFreq) }, [envelopeFilterBaseFreq, setAudioEngineEnvelopeFilterBaseFreq]);
     useEffect(() => { setAudioEngineEnvelopeFilterQ(envelopeFilterQ) }, [envelopeFilterQ, setAudioEngineEnvelopeFilterQ]);
-    // FIX: Use the renamed `setLofiMix` function to avoid conflict
+    // FIX: Use the renamed `setLofiMix` function to avoid conflict with state setter
     useEffect(() => { if (setAudioEngineLofiMix) setAudioEngineLofiMix(lofiMix); }, [lofiMix, setAudioEngineLofiMix]);
     useEffect(() => { if (setIsoGain) setIsoGain('low', isolatorGains.low); }, [isolatorGains.low, setIsoGain]);
     useEffect(() => { if (setIsoGain) setIsoGain('mid', isolatorGains.mid); }, [isolatorGains.mid, setIsoGain]);
@@ -1086,6 +1091,22 @@ const App: React.FC = () => {
         setDjResetProgress(0);
     }, []);
     // --- End: Reset button logic ---
+
+    // --- Cappuccino Mode Logic ---
+    const handleTitleClick = useCallback(() => {
+        const now = Date.now();
+        if (now - titleClickRef.current.lastTime < 500) {
+            titleClickRef.current.count++;
+        } else {
+            titleClickRef.current.count = 1;
+        }
+        titleClickRef.current.lastTime = now;
+
+        if (titleClickRef.current.count >= 6) {
+            setIsCappuccinoMode(prev => !prev);
+            titleClickRef.current.count = 0;
+        }
+    }, []);
 
     useEffect(() => {
         if (isColorAnimating) {
@@ -1405,7 +1426,7 @@ const App: React.FC = () => {
         notation: (
             <CollapsibleSection title="rhythmic notation (under construction: rests are ugly)" defaultOpen={false}>
                 {(isOpen) => (
-                    !isPerformanceMode && <NotationVisualizer
+                    <NotationVisualizer
                         isActive={isOpen}
                         grid={grids[activePattern]}
                         instrumentColors={instrumentColors}
@@ -1435,15 +1456,20 @@ const App: React.FC = () => {
 
     return (
         <div 
-            className="min-h-screen flex flex-col items-center justify-center p-2 sm:p-4"
+            className="min-h-screen flex flex-col items-center justify-center p-2 sm:p-4 bg-gray-900 text-gray-100"
             style={{ 
-                filter: `hue-rotate(${hueRotate}deg)`,
-                transition: isColorAnimating ? 'none' : 'filter 0.05s linear'
+                filter: `${isCappuccinoMode ? 'sepia(0.85) saturate(1.5) contrast(1.1) brightness(1.1) ' : ''}hue-rotate(${hueRotate}deg)`,
+                transition: isColorAnimating ? 'none' : 'filter 0.5s ease-in-out'
             }}
         >
             <div className="w-full max-w-7xl mx-auto flex flex-col gap-4 sm:gap-6">
                 <header className="text-center">
-                    <h1 className="text-3xl sm:text-4xl font-bold tracking-tight text-gray-100">CL-607 Drum Machine</h1>
+                    <h1 
+                        className={`text-3xl sm:text-4xl font-bold tracking-tight select-none cursor-default ${isCappuccinoMode ? "font-['Dancing_Script'] text-5xl" : ""}`}
+                        onClick={handleTitleClick}
+                    >
+                        {isCappuccinoMode ? "Cappuccino Drum Machino" : "CL-607 Drum Machine"}
+                    </h1>
                 </header>
                 <main className="flex flex-col gap-6">
                     <div className="bg-gradient-to-b from-gray-800 to-gray-900 rounded-xl p-2 sm:p-4 shadow-lg ring-1 ring-white/10 flex flex-col gap-4">
@@ -1470,6 +1496,7 @@ const App: React.FC = () => {
                             onCatClick={playAirhorn}
                             onClearPattern={handleClearPattern}
                             isCurrentPatternEmpty={isCurrentPatternEmpty}
+                            isCappuccinoMode={isCappuccinoMode}
                         />
                         <Sequencer
                             grid={grids[activePattern]}

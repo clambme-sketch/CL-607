@@ -286,6 +286,127 @@ const DancingCat: React.FC<DancingCatProps> = React.memo(({ isPlaying, tempo }) 
     );
 });
 
+// --- Dancing Coffee Cup Component (for Cappuccino Mode) ---
+
+const CoffeeCupFrame1: React.FC = () => (
+    <svg width="96" height="96" viewBox="0 0 96 96" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+            <filter id="steam-blur">
+                <feGaussianBlur in="SourceGraphic" stdDeviation="1.5" />
+            </filter>
+        </defs>
+        {/* Steam Left */}
+        <path d="M35 25 Q 30 15 35 5" stroke="#E6C9A8" strokeWidth="3" fill="none" opacity="0.6" filter="url(#steam-blur)" strokeLinecap="round"/>
+        <path d="M48 22 Q 43 12 48 2" stroke="#E6C9A8" strokeWidth="3" fill="none" opacity="0.4" filter="url(#steam-blur)" strokeLinecap="round"/>
+        
+        {/* Saucer */}
+        <ellipse cx="48" cy="85" rx="30" ry="6" fill="#fdfbf7" stroke="#e5e7eb" strokeWidth="1"/>
+        
+        <g transform="rotate(-5, 48, 85)">
+            {/* Handle */}
+            <path d="M70 45 C 82 45, 82 65, 68 70" stroke="#fdfbf7" strokeWidth="5" fill="none" strokeLinecap="round"/>
+            {/* Cup Body */}
+            <path d="M26 35 L30 80 C 30 86, 66 86, 66 80 L 70 35 Z" fill="#fdfbf7" stroke="#e5e7eb" strokeWidth="1" />
+            
+            {/* Bandit Mask (TMNT Style) */}
+            <path d="M25 56 C 25 45, 45 45, 48 52 C 51 45, 71 45, 71 56 C 71 67, 51 67, 48 60 C 45 67, 25 67, 25 56 Z" fill="#1f2937" />
+            {/* Eyes */}
+            <ellipse cx="37" cy="56" rx="3.5" ry="3" fill="white" />
+            <ellipse cx="59" cy="56" rx="3.5" ry="3" fill="white" />
+            {/* Mask Ties (Left) */}
+            <path d="M26 56 C 18 52, 10 58, 12 66 L 18 62 C 16 66, 18 68, 22 64 Z" fill="#1f2937" />
+            {/* Mask Ties (Right) */}
+            <path d="M70 56 C 78 52, 86 58, 84 66 L 78 62 C 80 66, 78 68, 74 64 Z" fill="#1f2937" />
+
+            {/* Liquid Surface */}
+            <ellipse cx="48" cy="35" rx="22" ry="7" fill="#6F4E37" />
+            {/* Latte Art Heart */}
+            <path d="M48 38 C 48 38, 42 34, 42 32 C 42 30, 45 30, 48 33 C 51 30, 54 30, 54 32 C 54 34, 48 38, 48 38 Z" fill="#E6C9A8" opacity="0.9" />
+        </g>
+    </svg>
+);
+
+const CoffeeCupFrame2: React.FC = () => (
+    <svg width="96" height="96" viewBox="0 0 96 96" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+            <filter id="steam-blur-2">
+                <feGaussianBlur in="SourceGraphic" stdDeviation="1.5" />
+            </filter>
+        </defs>
+        {/* Steam Right */}
+        <path d="M61 25 Q 66 15 61 5" stroke="#E6C9A8" strokeWidth="3" fill="none" opacity="0.6" filter="url(#steam-blur-2)" strokeLinecap="round"/>
+        <path d="M48 22 Q 53 12 48 2" stroke="#E6C9A8" strokeWidth="3" fill="none" opacity="0.4" filter="url(#steam-blur-2)" strokeLinecap="round"/>
+
+        {/* Saucer */}
+        <ellipse cx="48" cy="85" rx="30" ry="6" fill="#fdfbf7" stroke="#e5e7eb" strokeWidth="1"/>
+        
+        <g transform="rotate(5, 48, 85)">
+            {/* Handle */}
+            <path d="M70 45 C 82 45, 82 65, 68 70" stroke="#fdfbf7" strokeWidth="5" fill="none" strokeLinecap="round"/>
+            {/* Cup Body */}
+            <path d="M26 35 L30 80 C 30 86, 66 86, 66 80 L 70 35 Z" fill="#fdfbf7" stroke="#e5e7eb" strokeWidth="1" />
+            
+            {/* Bandit Mask (TMNT Style) */}
+            <path d="M25 56 C 25 45, 45 45, 48 52 C 51 45, 71 45, 71 56 C 71 67, 51 67, 48 60 C 45 67, 25 67, 25 56 Z" fill="#1f2937" />
+            {/* Eyes */}
+            <ellipse cx="37" cy="56" rx="3.5" ry="3" fill="white" />
+            <ellipse cx="59" cy="56" rx="3.5" ry="3" fill="white" />
+            {/* Mask Ties (Left) */}
+            <path d="M26 56 C 18 50, 8 54, 10 62 L 16 60 C 14 64, 16 66, 20 62 Z" fill="#1f2937" />
+            {/* Mask Ties (Right) */}
+            <path d="M70 56 C 78 50, 88 54, 86 62 L 80 60 C 82 64, 80 66, 76 62 Z" fill="#1f2937" />
+
+            {/* Liquid Surface */}
+            <ellipse cx="48" cy="35" rx="22" ry="7" fill="#6F4E37" />
+            {/* Latte Art Heart */}
+            <path d="M48 38 C 48 38, 42 34, 42 32 C 42 30, 45 30, 48 33 C 51 30, 54 30, 54 32 C 54 34, 48 38, 48 38 Z" fill="#E6C9A8" opacity="0.9" />
+        </g>
+    </svg>
+);
+
+const coffeeFrames = [
+    <CoffeeCupFrame1 key="1" />,
+    <CoffeeCupFrame2 key="2" />,
+];
+
+const DancingCoffeeCup: React.FC<DancingCatProps> = React.memo(({ isPlaying, tempo }) => {
+    const [currentFrame, setCurrentFrame] = useState(0);
+
+    useEffect(() => {
+        if (!isPlaying) {
+            const timer = setTimeout(() => setCurrentFrame(0), 500);
+            return () => clearTimeout(timer);
+        }
+
+        const intervalMs = (60 / tempo / 2) * 1000;
+
+        const intervalId = setInterval(() => {
+            setCurrentFrame(prevFrame => (prevFrame + 1) % coffeeFrames.length);
+        }, intervalMs);
+
+        return () => {
+            clearInterval(intervalId);
+        };
+    }, [isPlaying, tempo]);
+
+    const containerClasses = `
+        relative w-32 h-24
+        transform transition-all duration-500 ease-in-out
+        ${isPlaying ? 'opacity-100' : 'opacity-0 -translate-y-4'}
+    `;
+
+    return (
+        <div className={containerClasses} aria-hidden="true">
+            <div className="absolute left-0 bottom-0">
+                {coffeeFrames[currentFrame]}
+            </div>
+            <div className="absolute right-0 top-0">
+                 <DiscoBall isPlaying={isPlaying} />
+            </div>
+        </div>
+    );
+});
+
 
 // --- Main Controls Component ---
 
@@ -312,6 +433,7 @@ interface ControlsProps {
     onCatClick: () => void;
     onClearPattern: () => void;
     isCurrentPatternEmpty: boolean;
+    isCappuccinoMode?: boolean;
 }
 
 const PlayIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
@@ -398,6 +520,7 @@ const Controls: React.FC<ControlsProps> = ({
     onCatClick,
     onClearPattern,
     isCurrentPatternEmpty,
+    isCappuccinoMode = false,
 }) => {
     const isDraggingKnob = useRef(false);
     const knobDragStart = useRef({ y: 0, hue: 0, time: 0 });
@@ -717,7 +840,11 @@ const Controls: React.FC<ControlsProps> = ({
                     onClick={() => isPlaying && onCatClick()}
                     className={isPlaying ? 'cursor-pointer' : ''}
                 >
-                    <DancingCat isPlaying={isPlaying} tempo={tempo} />
+                    {isCappuccinoMode ? (
+                        <DancingCoffeeCup isPlaying={isPlaying} tempo={tempo} />
+                    ) : (
+                        <DancingCat isPlaying={isPlaying} tempo={tempo} />
+                    )}
                 </div>
             </Tooltip>
         </div>
