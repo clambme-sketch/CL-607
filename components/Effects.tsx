@@ -28,7 +28,11 @@ interface EffectsProps {
     onDelayFeedbackChange: (value: number) => void;
     onDelaySourceChange: (source: Instrument | 'all') => void;
     kickSidechainAmount: number;
+    kickSidechainThreshold: number;
+    kickSidechainRatio: number;
     onKickSidechainAmountChange: (value: number) => void;
+    onKickSidechainThresholdChange: (value: number) => void;
+    onKickSidechainRatioChange: (value: number) => void;
     crushAmount: number;
     onCrushAmountChange: (value: number) => void;
     tapeSaturationMix: number;
@@ -118,7 +122,11 @@ const Effects: React.FC<EffectsProps> = ({
     onDelayFeedbackChange,
     onDelaySourceChange,
     kickSidechainAmount,
+    kickSidechainThreshold,
+    kickSidechainRatio,
     onKickSidechainAmountChange,
+    onKickSidechainThresholdChange,
+    onKickSidechainRatioChange,
     crushAmount,
     onCrushAmountChange,
     tapeSaturationMix,
@@ -176,6 +184,8 @@ const Effects: React.FC<EffectsProps> = ({
     const handleDelayFeedbackChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => onDelayFeedbackChange(Number(e.target.value)), [onDelayFeedbackChange]);
     const handleDelaySourceChange = useCallback((e: React.ChangeEvent<HTMLSelectElement>) => onDelaySourceChange(e.target.value as Instrument | 'all'), [onDelaySourceChange]);
     const handleKickSidechainChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => onKickSidechainAmountChange(Number(e.target.value)), [onKickSidechainAmountChange]);
+    const handleKickSidechainThresholdChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => onKickSidechainThresholdChange(Number(e.target.value)), [onKickSidechainThresholdChange]);
+    const handleKickSidechainRatioChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => onKickSidechainRatioChange(Number(e.target.value)), [onKickSidechainRatioChange]);
     const handleCrushChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => onCrushAmountChange(Number(e.target.value)), [onCrushAmountChange]);
     const handleTapeSaturationMixChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => onTapeSaturationMixChange(Number(e.target.value)), [onTapeSaturationMixChange]);
     const handleTapeSaturationAmountChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => onTapeSaturationAmountChange(Number(e.target.value)), [onTapeSaturationAmountChange]);
@@ -285,6 +295,20 @@ const Effects: React.FC<EffectsProps> = ({
                         <input type="range" id="sidechain" min={0} max={1} step="0.01" value={kickSidechainAmount} onChange={handleKickSidechainChange} {...sliderInteractionProps} disabled={!effectsEnabled.sidechain} className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-blue-600 disabled:accent-gray-500" />
                     </Tooltip>
                     <span className="text-xs text-gray-500">{Math.round(kickSidechainAmount * 100)}%</span>
+                    <Tooltip text="Threshold for sidechain ducking" isInteracting={isInteractingWithSlider}>
+                        <div className="flex items-center gap-2 text-xs w-full">
+                            <label htmlFor="sidechain-threshold" className="text-gray-500 w-12 flex-shrink-0">THRESH</label>
+                            <input type="range" id="sidechain-threshold" min={-60} max={0} step="1" value={kickSidechainThreshold} onChange={handleKickSidechainThresholdChange} {...sliderInteractionProps} disabled={!effectsEnabled.sidechain} className="w-full h-1.5 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-blue-600 disabled:accent-gray-500" />
+                            <span className="text-gray-500 w-10 text-right">{kickSidechainThreshold}dB</span>
+                        </div>
+                    </Tooltip>
+                    <Tooltip text="Ratio for sidechain ducking" isInteracting={isInteractingWithSlider}>
+                        <div className="flex items-center gap-2 text-xs w-full">
+                            <label htmlFor="sidechain-ratio" className="text-gray-500 w-12 flex-shrink-0">RATIO</label>
+                            <input type="range" id="sidechain-ratio" min={1} max={20} step="0.1" value={kickSidechainRatio} onChange={handleKickSidechainRatioChange} {...sliderInteractionProps} disabled={!effectsEnabled.sidechain} className="w-full h-1.5 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-blue-600 disabled:accent-gray-500" />
+                            <span className="text-gray-500 w-10 text-right">{kickSidechainRatio}:1</span>
+                        </div>
+                    </Tooltip>
                 </div>
                 
                 <div className={effectContainerClasses(effectsEnabled.crush)}>

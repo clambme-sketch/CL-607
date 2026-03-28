@@ -99,9 +99,11 @@ const DEFAULT_EFFECTS_SETTINGS = {
     delayFeedback: 0.3,
     delaySource: 'all' as Instrument | 'all',
     kickSidechainAmount: 0,
+    kickSidechainThreshold: -20,
+    kickSidechainRatio: 4,
     crushAmount: 0,
     tapeSaturationMix: 0,
-    tapeSaturationAmount: 0,
+    tapeSaturationAmount: 1,
     tapeSaturationTone: MAX_FILTER_FREQ,
     envelopeFilterMix: 0,
     envelopeFilterAmount: 0.5,
@@ -143,6 +145,8 @@ const App: React.FC = () => {
     const [delayFeedback, setDelayFeedback] = useState(DEFAULT_EFFECTS_SETTINGS.delayFeedback);
     const [delaySource, setDelaySource] = useState<Instrument | 'all'>(DEFAULT_EFFECTS_SETTINGS.delaySource);
     const [kickSidechainAmount, setKickSidechainAmount] = useState(DEFAULT_EFFECTS_SETTINGS.kickSidechainAmount);
+    const [kickSidechainThreshold, setKickSidechainThreshold] = useState(DEFAULT_EFFECTS_SETTINGS.kickSidechainThreshold);
+    const [kickSidechainRatio, setKickSidechainRatio] = useState(DEFAULT_EFFECTS_SETTINGS.kickSidechainRatio);
     const [crushAmount, setCrushAmount] = useState(DEFAULT_EFFECTS_SETTINGS.crushAmount);
     const [tapeSaturationMix, setTapeSaturationMix] = useState(DEFAULT_EFFECTS_SETTINGS.tapeSaturationMix);
     const [tapeSaturationAmount, setTapeSaturationAmount] = useState(DEFAULT_EFFECTS_SETTINGS.tapeSaturationAmount);
@@ -1377,7 +1381,11 @@ const App: React.FC = () => {
                     onDelayFeedbackChange={setDelayFeedback}
                     onDelaySourceChange={setDelaySource}
                     kickSidechainAmount={kickSidechainAmount}
+                    kickSidechainThreshold={kickSidechainThreshold}
+                    kickSidechainRatio={kickSidechainRatio}
                     onKickSidechainAmountChange={setKickSidechainAmount}
+                    onKickSidechainThresholdChange={setKickSidechainThreshold}
+                    onKickSidechainRatioChange={setKickSidechainRatio}
                     crushAmount={crushAmount}
                     onCrushAmountChange={setCrushAmount}
                     tapeSaturationMix={tapeSaturationMix}
