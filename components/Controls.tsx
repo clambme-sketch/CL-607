@@ -1,7 +1,8 @@
 import React, { useRef, useCallback, useState, useEffect } from 'react';
 import { MIN_TEMPO, MAX_TEMPO } from '../constants';
-import { SavedPattern } from '../types';
+import { SavedPattern, VisualizerStyle } from '../types';
 import Tooltip from './Tooltip';
+import { getButtonStyle } from '../utils';
 
 // --- New Disco Ball Component ---
 const DiscoBall: React.FC<{ isPlaying: boolean }> = React.memo(({ isPlaying }) => {
@@ -426,7 +427,9 @@ interface ControlsProps {
     isColorAnimating: boolean;
     onToggleColorAnimation: () => void;
     onDownload: () => void;
+    onCopy: () => void;
     isRendering: boolean;
+    isCopying: boolean;
     savedPatterns: (SavedPattern | null)[];
     currentPatternIndex: number;
     onSelectPattern: (slotIndex: number) => void;
@@ -434,6 +437,7 @@ interface ControlsProps {
     onClearPattern: () => void;
     isCurrentPatternEmpty: boolean;
     isCappuccinoMode?: boolean;
+    visualizerStyle?: VisualizerStyle;
 }
 
 const PlayIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
@@ -461,12 +465,24 @@ const DownloadIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
     </svg>
 );
 
+const DragIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+        <circle cx="9" cy="5" r="1" />
+        <circle cx="9" cy="12" r="1" />
+        <circle cx="9" cy="19" r="1" />
+        <circle cx="15" cy="5" r="1" />
+        <circle cx="15" cy="12" r="1" />
+        <circle cx="15" cy="19" r="1" />
+    </svg>
+);
+
 // --- Pattern Slot Button Component ---
 interface PatternSlotButtonProps {
     slotIndex: number;
     hasContent: boolean;
     isActive: boolean;
     onClick: (index: number) => void;
+    visualizerStyle: import('../types').VisualizerStyle;
 }
 
 const hasContentInPattern = (pattern: SavedPattern | null): boolean => {
@@ -476,13 +492,14 @@ const hasContentInPattern = (pattern: SavedPattern | null): boolean => {
     return hasNotesA || hasNotesB;
 };
 
-const PatternSlotButton: React.FC<PatternSlotButtonProps> = ({ slotIndex, hasContent, isActive, onClick }) => {
-    const buttonClasses = `
-        relative w-10 h-10 rounded-md font-bold text-lg transition-all duration-150 active:scale-[0.98]
-        flex items-center justify-center
-        ${isActive ? 'ring-2 ring-offset-2 ring-offset-gray-800 ring-yellow-400' : ''}
-        ${hasContent ? 'bg-indigo-500 text-white' : 'bg-gray-700 text-gray-400 hover:bg-gray-600'}
-    `;
+const PatternSlotButton: React.FC<PatternSlotButtonProps> = ({ slotIndex, hasContent, isActive, onClick, visualizerStyle }) => {
+    const buttonClasses = getButtonStyle(
+        visualizerStyle,
+        hasContent ? 'primary' : 'secondary',
+        isActive,
+        false,
+        'w-10 h-10 text-lg'
+    );
 
     return (
         <button
@@ -513,7 +530,11 @@ const Controls: React.FC<ControlsProps> = ({
     isColorAnimating,
     onToggleColorAnimation,
     onDownload,
+    onPrepareDrag,
     isRendering,
+    isPreparingDrag,
+    dragBlobUrl,
+    onClearDragUrl,
     savedPatterns,
     currentPatternIndex,
     onSelectPattern,
@@ -521,6 +542,7 @@ const Controls: React.FC<ControlsProps> = ({
     onClearPattern,
     isCurrentPatternEmpty,
     isCappuccinoMode = false,
+    visualizerStyle = 'default' as VisualizerStyle,
 }) => {
     const isDraggingKnob = useRef(false);
     const knobDragStart = useRef({ y: 0, hue: 0, time: 0 });
@@ -656,26 +678,55 @@ const Controls: React.FC<ControlsProps> = ({
 
     return (
         <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-6 p-2">
-            <Tooltip text="Download current beat as a .wav file">
-                <button
-                    onClick={onDownload}
-                    disabled={isRendering}
-                    className="flex items-center justify-center w-24 h-12 bg-gray-700 text-white font-bold rounded-lg hover:bg-gray-600 transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-indigo-500 active:scale-[0.98] disabled:bg-gray-500 disabled:cursor-not-allowed disabled:text-gray-400"
-                    aria-label={isRendering ? 'Rendering your beat' : 'Download your beat'}
-                >
-                    {isRendering 
-                        ? <span className="text-xs tracking-wider animate-pulse">RENDERING</span>
-                        : <>
-                            <DownloadIcon className="w-5 h-5" />
-                            <span className="ml-1.5 text-sm tracking-wider">SAVE</span>
-                          </>
-                    }
-                </button>
-            </Tooltip>
+            <div className="flex flex-col gap-2">
+                <Tooltip text={dragBlobUrl ? "Drag this button into your DAW or folder. Click to reset." : "Prepare beat for drag-and-drop export"}>
+                    <button
+                        onClick={dragBlobUrl ? onClearDragUrl : onPrepareDrag}
+                        draggable={!!dragBlobUrl}
+                        onDragStart={(e) => {
+                            if (dragBlobUrl) {
+                                e.dataTransfer.setData('DownloadURL', `audio/wav:CL-607-beat.wav:${dragBlobUrl}`);
+                            }
+                        }}
+                        disabled={isPreparingDrag || isRendering}
+                        className={getButtonStyle(visualizerStyle, dragBlobUrl ? 'success' : 'secondary', false, isPreparingDrag || isRendering, `w-24 h-10 ${dragBlobUrl ? 'cursor-grab active:cursor-grabbing' : ''}`)}
+                        aria-label={dragBlobUrl ? 'Drag to export' : isPreparingDrag ? 'Preparing export' : 'Prepare export'}
+                    >
+                        {isPreparingDrag 
+                            ? <span className="text-xs tracking-wider animate-pulse">RENDERING</span>
+                            : dragBlobUrl
+                                ? <>
+                                    <DragIcon className="w-4 h-4" />
+                                    <span className="ml-1.5 text-xs tracking-wider">DRAG ME</span>
+                                  </>
+                                : <>
+                                    <DragIcon className="w-4 h-4" />
+                                    <span className="ml-1.5 text-xs tracking-wider">DRAG & DROP</span>
+                                  </>
+                        }
+                    </button>
+                </Tooltip>
+                <Tooltip text="Download current beat as a .wav file">
+                    <button
+                        onClick={onDownload}
+                        disabled={isRendering || isPreparingDrag}
+                        className={getButtonStyle(visualizerStyle, 'secondary', false, isRendering || isPreparingDrag, 'w-24 h-10')}
+                        aria-label={isRendering ? 'Rendering your beat' : 'Download your beat'}
+                    >
+                        {isRendering 
+                            ? <span className="text-xs tracking-wider animate-pulse">RENDERING</span>
+                            : <>
+                                <DownloadIcon className="w-4 h-4" />
+                                <span className="ml-1.5 text-xs tracking-wider">SAVE</span>
+                              </>
+                        }
+                    </button>
+                </Tooltip>
+            </div>
             <Tooltip text={isPlaying ? "Pause sequence (Spacebar)" : "Play sequence (Spacebar)"}>
                 <button
                     onClick={onPlayToggle}
-                    className="flex items-center justify-center w-28 h-12 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-blue-500 active:scale-[0.98]"
+                    className={getButtonStyle(visualizerStyle, 'primary', false, false, 'w-28 h-12')}
                     aria-label={isPlaying ? 'Pause playback' : 'Start playback'}
                 >
                     {isPlaying 
@@ -690,7 +741,7 @@ const Controls: React.FC<ControlsProps> = ({
                     <Tooltip text="Switch to Pattern A">
                         <button
                             onClick={() => onPatternToggle('a')}
-                            className={`w-14 h-12 rounded-md font-bold text-lg transition-all duration-150 active:scale-[0.98] ${activePattern === 'a' ? 'bg-yellow-500 text-gray-900 ring-2 ring-offset-2 ring-offset-gray-800 ring-yellow-400' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}
+                            className={getButtonStyle(visualizerStyle, 'secondary', activePattern === 'a', false, 'w-14 h-12 text-lg')}
                             aria-pressed={activePattern === 'a'}
                         >
                             A
@@ -699,7 +750,7 @@ const Controls: React.FC<ControlsProps> = ({
                     <Tooltip text="Switch to Pattern B">
                         <button
                             onClick={() => onPatternToggle('b')}
-                            className={`w-14 h-12 rounded-md font-bold text-lg transition-all duration-150 active:scale-[0.98] ${activePattern === 'b' ? 'bg-yellow-500 text-gray-900 ring-2 ring-offset-2 ring-offset-gray-800 ring-yellow-400' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}
+                            className={getButtonStyle(visualizerStyle, 'secondary', activePattern === 'b', false, 'w-14 h-12 text-lg')}
                             aria-pressed={activePattern === 'b'}
                         >
                             B
@@ -718,6 +769,7 @@ const Controls: React.FC<ControlsProps> = ({
                                 hasContent={hasContentInPattern(pattern)}
                                 isActive={currentPatternIndex === index}
                                 onClick={onSelectPattern}
+                                visualizerStyle={visualizerStyle}
                             />
                         </Tooltip>
                     ))}
@@ -730,7 +782,7 @@ const Controls: React.FC<ControlsProps> = ({
                             onMouseLeave={handleClearEnd}
                             onTouchStart={(e) => { e.preventDefault(); handleClearStart(); }}
                             onTouchEnd={handleClearEnd}
-                            className={`relative flex items-center justify-center mt-2 px-3 h-8 bg-red-800/80 text-white font-bold rounded-md hover:bg-red-700/80 transition-transform duration-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-red-500 text-xs uppercase tracking-wider overflow-hidden select-none ${isPoofing ? 'animate-poof' : ''}`}
+                            className={`${getButtonStyle(visualizerStyle, 'danger', false, false, 'mt-2 px-3 h-8 text-xs overflow-hidden')} ${isPoofing ? 'animate-poof' : ''}`}
                             style={{ transform: `scale(${1 - clearProgress * 0.15})` }}
                             aria-label="Hold to clear current pattern"
                         >

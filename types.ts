@@ -1,5 +1,8 @@
 export type Instrument = 'kick' | 'snare' | 'hihat' | 'snap' | 'clave' | 'cowbell' | 'sample';
 
+export type VisualizerType = 'waveform' | 'lissajous' | 'spectrum';
+export type VisualizerStyle = 'default' | 'neon' | 'minimal' | 'retro' | 'mpc' | 'cyberpunk';
+
 export type Grid = boolean[][];
 
 export type InstrumentParams = {

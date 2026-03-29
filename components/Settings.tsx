@@ -1,12 +1,14 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import CollapsibleSection from './CollapsibleSection';
 import Tooltip from './Tooltip';
-
-export type VisualizerType = 'waveform' | 'lissajous' | 'spectrum';
+import { Instrument, VisualizerType, VisualizerStyle } from '../types';
+import { getButtonStyle } from '../utils';
 
 interface SettingsProps {
     visualizer: VisualizerType;
     onVisualizerChange: (type: VisualizerType) => void;
+    visualizerStyle: VisualizerStyle;
+    onVisualizerStyleChange: (style: VisualizerStyle) => void;
     onShiftPattern: (direction: 'left' | 'right') => void;
     isPerformanceMode: boolean;
     onTogglePerformanceMode: () => void;
@@ -17,6 +19,10 @@ interface SettingsProps {
     onToggleBeatNumbers: () => void;
     beatsPerMeasure: number;
     onBeatsPerMeasureChange: (beats: number) => void;
+    keyboardDrummingEnabled: boolean;
+    onToggleKeyboardDrumming: () => void;
+    keyboardMap: Record<string, Instrument>;
+    onUpdateKeyboardMap: (key: string, instrument: Instrument) => void;
     dragHandleProps?: React.HTMLAttributes<HTMLButtonElement>;
     isDragging?: boolean;
 }
@@ -63,7 +69,28 @@ const ArrowRightIcon: React.FC = () => (
 );
 
 
-const Settings: React.FC<SettingsProps> = ({ visualizer, onVisualizerChange, onShiftPattern, isPerformanceMode, onTogglePerformanceMode, onFactoryReset, tooltipsEnabled, onToggleTooltips, showBeatNumbers, onToggleBeatNumbers, beatsPerMeasure, onBeatsPerMeasureChange, dragHandleProps, isDragging }) => {
+const Settings: React.FC<SettingsProps> = ({ 
+    visualizer, 
+    onVisualizerChange, 
+    visualizerStyle,
+    onVisualizerStyleChange,
+    onShiftPattern, 
+    isPerformanceMode, 
+    onTogglePerformanceMode, 
+    onFactoryReset, 
+    tooltipsEnabled, 
+    onToggleTooltips, 
+    showBeatNumbers, 
+    onToggleBeatNumbers, 
+    beatsPerMeasure, 
+    onBeatsPerMeasureChange, 
+    keyboardDrummingEnabled,
+    onToggleKeyboardDrumming,
+    keyboardMap,
+    onUpdateKeyboardMap,
+    dragHandleProps, 
+    isDragging 
+}) => {
     // --- Factory Reset Button Logic ---
     const [resetProgress, setResetProgress] = useState(0);
     const [isPoofing, setIsPoofing] = useState(false);
@@ -114,88 +141,207 @@ const Settings: React.FC<SettingsProps> = ({ visualizer, onVisualizerChange, onS
         setResetProgress(0);
     }, []);
 
+    const [editingKeyFor, setEditingKeyFor] = useState<Instrument | null>(null);
+
+    useEffect(() => {
+        if (!editingKeyFor) return;
+
+        const handleKeyDown = (e: KeyboardEvent) => {
+            e.preventDefault();
+            const key = e.key.toLowerCase();
+            
+            // Allow alphanumeric keys and some common symbols
+            if (/^[a-z0-9;:'",.<>/?\\|\[\]{}!@#$%^&*()_+-=]$/.test(key)) {
+                onUpdateKeyboardMap(key, editingKeyFor);
+                setEditingKeyFor(null);
+            } else if (e.key === 'Escape') {
+                setEditingKeyFor(null);
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [editingKeyFor, onUpdateKeyboardMap]);
+
     return (
         <CollapsibleSection title="Settings" dragHandleProps={dragHandleProps} isDragging={isDragging}>
             {(isOpen) => (
                 <>
-                    <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-8">
-                        <div className="flex flex-col gap-3">
-                            <h4 className="font-bold text-xs text-gray-400 uppercase tracking-wider">Sequencer Background</h4>
-                            <div className="flex flex-col gap-2">
-                                <RadioButton
-                                    type="visualizer"
-                                    id="vis-waveform"
-                                    value="waveform"
-                                    checked={visualizer === 'waveform'}
-                                    onChange={onVisualizerChange}
-                                    label="Multi-Waveform"
-                                    disabled={isPerformanceMode}
-                                />
-                                <RadioButton
-                                    type="visualizer"
-                                    id="vis-lissajous"
-                                    value="lissajous"
-                                    checked={visualizer === 'lissajous'}
-                                    onChange={onVisualizerChange}
-                                    label="Lissajous (Master)"
-                                    disabled={isPerformanceMode}
-                                />
-                                <RadioButton
-                                    type="visualizer"
-                                    id="vis-spectrum"
-                                    value="spectrum"
-                                    checked={visualizer === 'spectrum'}
-                                    onChange={onVisualizerChange}
-                                    label="Frequency Spectrum"
-                                    disabled={isPerformanceMode}
-                                />
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                        {/* Visuals Section */}
+                        <div className="flex flex-col gap-6">
+                            <div className="flex flex-col gap-3">
+                                <h4 className="font-bold text-xs text-gray-400 uppercase tracking-wider">Sequencer Background</h4>
+                                <div className="flex flex-col gap-2">
+                                    <RadioButton
+                                        type="visualizer"
+                                        id="vis-waveform"
+                                        value="waveform"
+                                        checked={visualizer === 'waveform'}
+                                        onChange={onVisualizerChange}
+                                        label="Multi-Waveform"
+                                        disabled={isPerformanceMode}
+                                    />
+                                    <RadioButton
+                                        type="visualizer"
+                                        id="vis-lissajous"
+                                        value="lissajous"
+                                        checked={visualizer === 'lissajous'}
+                                        onChange={onVisualizerChange}
+                                        label="Lissajous (Master)"
+                                        disabled={isPerformanceMode}
+                                    />
+                                    <RadioButton
+                                        type="visualizer"
+                                        id="vis-spectrum"
+                                        value="spectrum"
+                                        checked={visualizer === 'spectrum'}
+                                        onChange={onVisualizerChange}
+                                        label="Frequency Spectrum"
+                                        disabled={isPerformanceMode}
+                                    />
+                                </div>
+                            </div>
+                            <div className="flex flex-col gap-3">
+                                <h4 className="font-bold text-xs text-gray-400 uppercase tracking-wider">Visual Style</h4>
+                                <div className="flex flex-col gap-2">
+                                    <RadioButton
+                                        type="visualizerStyle"
+                                        id="style-default"
+                                        value="default"
+                                        checked={visualizerStyle === 'default'}
+                                        onChange={onVisualizerStyleChange}
+                                        label="Default"
+                                    />
+                                    <RadioButton
+                                        type="visualizerStyle"
+                                        id="style-neon"
+                                        value="neon"
+                                        checked={visualizerStyle === 'neon'}
+                                        onChange={onVisualizerStyleChange}
+                                        label="Neon Dreams"
+                                    />
+                                    <RadioButton
+                                        type="visualizerStyle"
+                                        id="style-minimal"
+                                        value="minimal"
+                                        checked={visualizerStyle === 'minimal'}
+                                        onChange={onVisualizerStyleChange}
+                                        label="Minimalist"
+                                    />
+                                    <RadioButton
+                                        type="visualizerStyle"
+                                        id="style-retro"
+                                        value="retro"
+                                        checked={visualizerStyle === 'retro'}
+                                        onChange={onVisualizerStyleChange}
+                                        label="Retro Terminal"
+                                    />
+                                    <RadioButton
+                                        type="visualizerStyle"
+                                        id="style-mpc"
+                                        value="mpc"
+                                        checked={visualizerStyle === 'mpc'}
+                                        onChange={onVisualizerStyleChange}
+                                        label="MPC Inspired"
+                                    />
+                                    <RadioButton
+                                        type="visualizerStyle"
+                                        id="style-cyberpunk"
+                                        value="cyberpunk"
+                                        checked={visualizerStyle === 'cyberpunk'}
+                                        onChange={onVisualizerStyleChange}
+                                        label="Cyberpunk"
+                                    />
+                                </div>
                             </div>
                         </div>
-                        <div className="flex flex-col gap-3">
-                            <h4 className="font-bold text-xs text-gray-400 uppercase tracking-wider">Beats Per Measure</h4>
-                             <p className="text-xs text-gray-500 -mt-2">Changes the time signature.</p>
-                            <div className="flex items-center gap-2">
-                                {[3, 4, 5, 6, 7].map(bpm => (
-                                    <Tooltip key={bpm} text={`${bpm}/4 Time Signature`}>
+
+                        {/* Sequencer Controls Section */}
+                        <div className="flex flex-col gap-6">
+                            <div className="flex flex-col gap-3">
+                                <h4 className="font-bold text-xs text-gray-400 uppercase tracking-wider">Beats Per Measure</h4>
+                                 <p className="text-xs text-gray-500 -mt-2">Changes the time signature.</p>
+                                <div className="flex items-center gap-2">
+                                    {[3, 4, 5, 6, 7].map(bpm => (
+                                        <Tooltip key={bpm} text={`${bpm}/4 Time Signature`}>
+                                            <button
+                                                onClick={() => onBeatsPerMeasureChange(bpm)}
+                                                className={getButtonStyle(visualizerStyle, beatsPerMeasure === bpm ? 'primary' : 'secondary', beatsPerMeasure === bpm, false, 'flex items-center justify-center w-10 h-10 text-lg')}
+                                            >
+                                                {bpm}
+                                            </button>
+                                        </Tooltip>
+                                    ))}
+                                </div>
+                            </div>
+                            <div className="flex flex-col gap-3">
+                                <h4 className="font-bold text-xs text-gray-400 uppercase tracking-wider">Shift Active Pattern</h4>
+                                <p className="text-xs text-gray-500 -mt-2">Nudge all notes left or right.</p>
+                                <div className="flex items-center gap-2">
+                                    <Tooltip text="Shift pattern notes left">
                                         <button
-                                            onClick={() => onBeatsPerMeasureChange(bpm)}
-                                            className={`flex items-center justify-center w-10 h-10 rounded-md font-bold text-lg transition-all duration-150 active:scale-[0.98] ${
-                                                beatsPerMeasure === bpm
-                                                    ? 'bg-blue-600 text-white ring-2 ring-offset-2 ring-offset-gray-800 ring-blue-500'
-                                                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                                            }`}
+                                            onClick={() => onShiftPattern('left')}
+                                            className={getButtonStyle(visualizerStyle, 'secondary', false, false, 'flex items-center justify-center w-12 h-10')}
+                                            aria-label="Shift pattern left"
                                         >
-                                            {bpm}
+                                            <ArrowLeftIcon />
                                         </button>
                                     </Tooltip>
-                                ))}
+                                    <Tooltip text="Shift pattern notes right">
+                                        <button
+                                            onClick={() => onShiftPattern('right')}
+                                            className={getButtonStyle(visualizerStyle, 'secondary', false, false, 'flex items-center justify-center w-12 h-10')}
+                                            aria-label="Shift pattern right"
+                                        >
+                                            <ArrowRightIcon />
+                                        </button>
+                                    </Tooltip>
+                                </div>
                             </div>
                         </div>
+
+                        {/* Keyboard Drumming Section */}
                         <div className="flex flex-col gap-3">
-                            <h4 className="font-bold text-xs text-gray-400 uppercase tracking-wider">Shift Active Pattern</h4>
-                            <p className="text-xs text-gray-500 -mt-2">Nudge all notes left or right.</p>
-                            <div className="flex items-center gap-2">
-                                <Tooltip text="Shift pattern notes left">
-                                    <button
-                                        onClick={() => onShiftPattern('left')}
-                                        className="flex items-center justify-center w-12 h-10 bg-gray-700 text-white font-bold rounded-md hover:bg-gray-600 transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-blue-500 active:scale-[0.98]"
-                                        aria-label="Shift pattern left"
-                                    >
-                                        <ArrowLeftIcon />
-                                    </button>
+                            <h4 className="font-bold text-xs text-gray-400 uppercase tracking-wider">Keyboard Drumming</h4>
+                            <p className="text-xs text-gray-500 -mt-2">Play drums with your keyboard.</p>
+                            <div className="flex flex-col gap-3">
+                                <Tooltip text="Enable playing drums using your computer keyboard">
+                                    <ToggleSwitch
+                                        id="keyboard-drumming-toggle"
+                                        isEnabled={keyboardDrummingEnabled}
+                                        onToggle={onToggleKeyboardDrumming}
+                                        label="Enable Keyboard Drumming"
+                                    />
                                 </Tooltip>
-                                <Tooltip text="Shift pattern notes right">
-                                    <button
-                                        onClick={() => onShiftPattern('right')}
-                                        className="flex items-center justify-center w-12 h-10 bg-gray-700 text-white font-bold rounded-md hover:bg-gray-600 transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-blue-500 active:scale-[0.98]"
-                                        aria-label="Shift pattern right"
-                                    >
-                                        <ArrowRightIcon />
-                                    </button>
-                                </Tooltip>
+                                
+                                {keyboardDrummingEnabled && (
+                                    <div className="mt-2 flex flex-col gap-2 bg-gray-800/50 p-3 rounded-lg border border-gray-700">
+                                        <div className="text-xs text-gray-400 mb-1">Click a key to remap it, then press the new key.</div>
+                                        {(['kick', 'snare', 'hihat', 'snap', 'clave', 'cowbell', 'sample'] as Instrument[]).map((inst) => {
+                                            // Find the key mapped to this instrument
+                                            const mappedKey = Object.entries(keyboardMap).find(([_, i]) => i === inst)?.[0] || 'Unmapped';
+                                            const isEditing = editingKeyFor === inst;
+                                            
+                                            return (
+                                                <div key={inst} className="flex items-center justify-between text-sm">
+                                                    <span className="text-gray-300 capitalize">{inst}</span>
+                                                    <button
+                                                        onClick={() => setEditingKeyFor(isEditing ? null : inst)}
+                                                        className={getButtonStyle(visualizerStyle, isEditing ? 'primary' : 'secondary', isEditing, false, `px-3 py-1 font-mono text-xs ${isEditing ? 'animate-pulse' : ''}`)}
+                                                    >
+                                                        {isEditing ? 'Press any key...' : mappedKey.toUpperCase()}
+                                                    </button>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                )}
                             </div>
                         </div>
-                        <div className="flex flex-col items-center gap-3">
+
+                        {/* UI & Performance Section */}
+                        <div className="flex flex-col gap-3">
                             <h4 className="font-bold text-xs text-gray-400 uppercase tracking-wider">UI & Performance</h4>
                             <p className="text-xs text-gray-500 -mt-2">Customize the user interface.</p>
                             <div className="flex flex-col gap-3">
@@ -237,7 +383,7 @@ const Settings: React.FC<SettingsProps> = ({ visualizer, onVisualizerChange, onS
                                 onMouseLeave={handleResetEnd}
                                 onTouchStart={(e) => { e.preventDefault(); handleResetStart(); }}
                                 onTouchEnd={handleResetEnd}
-                                className={`relative flex items-center justify-center mt-2 px-4 h-10 bg-red-900/80 text-white font-bold rounded-md hover:bg-red-800/80 transition-transform duration-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-red-500 text-sm uppercase tracking-wider overflow-hidden select-none ${isPoofing ? 'animate-poof' : ''}`}
+                                className={`${getButtonStyle(visualizerStyle, 'danger', false, false, 'mt-2 px-4 h-10 text-sm overflow-hidden')} ${isPoofing ? 'animate-poof' : ''}`}
                                 style={{ transform: `scale(${1 - resetProgress * 0.15})` }}
                                 aria-label="Hold to factory reset the application"
                             >

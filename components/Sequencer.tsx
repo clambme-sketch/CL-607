@@ -1,12 +1,11 @@
 import React, { useRef, useCallback, useMemo } from 'react';
-import { Grid, Instrument } from '../types';
+import { Grid, Instrument, VisualizerType, VisualizerStyle } from '../types';
 import { INSTRUMENTS, INSTRUMENT_LABELS } from '../constants';
 import SmallOscilloscope from './SmallOscilloscope';
 import Oscilloscope from './Oscilloscope';
 import StepButton from './StepButton';
 import XYOscilloscope from './XYOscilloscope';
 import FrequencySpectrumVisualizer from './FrequencySpectrumVisualizer';
-import { VisualizerType } from './Settings';
 import Tooltip from './Tooltip';
 
 interface SequencerProps {
@@ -24,6 +23,7 @@ interface SequencerProps {
     onStopRecording: () => void;
     instrumentVisibility: boolean[];
     visualizerType: VisualizerType;
+    visualizerStyle: VisualizerStyle;
     masterAnalyser: AnalyserNode | null;
     hueRotate: number;
     isPerformanceMode: boolean;
@@ -46,6 +46,7 @@ const Sequencer: React.FC<SequencerProps> = ({
     onStopRecording,
     instrumentVisibility,
     visualizerType,
+    visualizerStyle,
     masterAnalyser,
     hueRotate,
     isPerformanceMode,
@@ -253,6 +254,7 @@ const Sequencer: React.FC<SequencerProps> = ({
                                                         instrumentIndex={instrumentIndex}
                                                         stepIndex={stepIndex}
                                                         beatLabel={showBeatNumbers ? BEAT_LABELS[stepIndex] : undefined}
+                                                        visualizerStyle={visualizerStyle}
                                                     />
                                                 );
                                             })}

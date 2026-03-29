@@ -3,15 +3,17 @@ import Sequencer from './components/Sequencer';
 import Controls from './components/Controls';
 import Effects from './components/Effects';
 import { useAudioEngine, AllAnalyserNodes } from './hooks/useAudioEngine';
-import type { Grid, Instrument, AllInstrumentParams, InstrumentParams, KickDesignerParams, SavedPattern } from './types';
+import type { Grid, Instrument, AllInstrumentParams, InstrumentParams, KickDesignerParams, SavedPattern, VisualizerType, VisualizerStyle } from './types';
 import { INSTRUMENTS, INSTRUMENT_LABELS, DEFAULT_TEMPO, MIN_FILTER_FREQ, MAX_FILTER_FREQ, BASE_INSTRUMENT_COLORS_HSL } from './constants';
 import NotationVisualizer from './components/NotationVisualizer';
 import CollapsibleSection from './components/CollapsibleSection';
 import InstrumentSettings from './components/InstrumentSettings';
+import SampleRecorderMenu from './components/SampleRecorderMenu';
 import XYFilterPad from './components/XYFilterPad';
 import LoFiRadio from './components/LoFiRadio';
-import Settings, { VisualizerType } from './components/Settings';
+import Settings from './components/Settings';
 import Tooltip from './components/Tooltip';
+import { getButtonStyle } from './utils';
 
 const createInitialGrid = (numSteps: number): Grid => {
     return Array(INSTRUMENTS.length).fill(null).map(() => Array(numSteps).fill(false));
@@ -123,6 +125,8 @@ const scramble = (originalText: string) => {
 const App: React.FC = () => {
     const [isInitialized, setIsInitialized] = useState<boolean>(false);
     const [isLoading, setIsLoading] = useState<boolean>(false);
+    const [isPreparingDrag, setIsPreparingDrag] = useState<boolean>(false);
+    const [dragBlobUrl, setDragBlobUrl] = useState<string | null>(null);
     const [beatsPerMeasure, setBeatsPerMeasure] = useState<number>(4);
     const [grids, setGrids] = useState<{ a: Grid, b: Grid }>({
         a: createInitialGrid(16),
@@ -193,19 +197,33 @@ const App: React.FC = () => {
 
     // New state for Settings
     const [visualizerType, setVisualizerType] = useState<VisualizerType>('waveform');
+    const [visualizerStyle, setVisualizerStyle] = useState<VisualizerStyle>('default');
     const [isPerformanceMode, setIsPerformanceMode] = useState<boolean>(true);
     const [tooltipsEnabled, setTooltipsEnabled] = useState<boolean>(true);
     const [showBeatNumbers, setShowBeatNumbers] = useState<boolean>(false);
+    
+    // Keyboard drumming state
+    const [keyboardDrummingEnabled, setKeyboardDrummingEnabled] = useState<boolean>(false);
+    const [keyboardMap, setKeyboardMap] = useState<Record<string, Instrument>>({
+        'a': 'kick',
+        's': 'snare',
+        'd': 'hihat',
+        'f': 'snap',
+        'g': 'clave',
+        'h': 'cowbell',
+        'j': 'sample'
+    });
 
     // New state for tracking default settings
     const [isDjSettingsDefault, setIsDjSettingsDefault] = useState(true);
     const [isEffectsSettingsDefault, setIsEffectsSettingsDefault] = useState(true);
+    const [isAudioEngineReady, setIsAudioEngineReady] = useState(false);
 
     // State for hiding tooltips while dragging sliders
     const [isInteractingWithSlider, setIsInteractingWithSlider] = useState(false);
     
     // State for drag and drop section reordering
-    const [sectionOrder, setSectionOrder] = useState<string[]>(['dj', 'effects', 'instruments', 'notation', 'settings']);
+    const [sectionOrder, setSectionOrder] = useState<string[]>(['dj', 'effects', 'instruments', 'recorder', 'notation', 'settings']);
     const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
     const longPressTimeoutRef = useRef<number | undefined>(undefined);
     const sectionsContainerRef = useRef<HTMLDivElement>(null);
@@ -359,7 +377,7 @@ const App: React.FC = () => {
 
 
     const { 
-        setup, playKick, playSnare, playHiHat, playSnap, playClave, playCowbell, playSample, startRecording, stopRecording, renderBeatToBuffer, updateInstrumentParameter, rerenderKick,
+        setup, playKick, playSnare, playHiHat, playSnap, playClave, playCowbell, playSample, startRecording, stopRecording, getRecordedAudioData, setSampleAudioData, renderBeatToBuffer, updateInstrumentParameter, rerenderKick,
         setLowPassFrequency, setHighPassFrequency,
         setReverbMix: setAudioEngineReverbMix, 
         setReverbDecay: setAudioEngineReverbDecay,
@@ -390,6 +408,7 @@ const App: React.FC = () => {
         setIsLoading(true);
         const result = await setup(kickDesignerParams);
         if (result) {
+            setIsAudioEngineReady(true);
             setInstrumentAnalyserNodes(result.analysers.instrumentAnalysers);
             setEffectAnalysers({
                 masterAnalyser: result.analysers.masterAnalyser,
@@ -669,6 +688,62 @@ const App: React.FC = () => {
         crushAmount, tapeSaturationMix, tapeSaturationAmount, tapeSaturationTone,
         envelopeFilterMix, envelopeFilterAmount, envelopeFilterBaseFreq, envelopeFilterQ,
         effectsEnabled, instrumentVisibility, isolatorGains, lofiMix,
+    ]);
+
+    const handlePrepareDrag = useCallback(async () => {
+        setIsPreparingDrag(true);
+        try {
+            const wavBlob = await renderBeatToBuffer(
+                grids,
+                volumes,
+                tempo,
+                swing,
+                masterVolume,
+                effectsEnabled.lowPass ? lowPassFreq : MAX_FILTER_FREQ,
+                effectsEnabled.highPass ? highPassFreq : MIN_FILTER_FREQ,
+                effectsEnabled.reverb ? reverbMix : 0,
+                reverbDecay,
+                reverbSource,
+                effectsEnabled.delay ? delayMix : 0,
+                delayTime,
+                delayFeedback,
+                delaySource,
+                effectsEnabled.sidechain ? kickSidechainAmount : 0,
+                effectsEnabled.crush ? crushAmount : 0,
+                effectsEnabled.tape ? tapeSaturationMix : 0,
+                tapeSaturationAmount,
+                tapeSaturationTone,
+                effectsEnabled.envelope ? envelopeFilterMix : 0,
+                envelopeFilterAmount,
+                envelopeFilterBaseFreq,
+                envelopeFilterQ,
+                instrumentVisibility,
+                isolatorGains,
+                lofiMix
+            );
+
+            if (wavBlob) {
+                if (dragBlobUrl) {
+                    URL.revokeObjectURL(dragBlobUrl);
+                }
+                const url = URL.createObjectURL(wavBlob);
+                setDragBlobUrl(url);
+            } else {
+                console.error("Rendering failed, received null blob.");
+                alert("Sorry, there was an error rendering your beat.");
+            }
+        } catch (error) {
+            console.error("Failed to render beat for drag:", error);
+            alert("Sorry, there was an error rendering your beat.");
+        } finally {
+            setIsPreparingDrag(false);
+        }
+    }, [
+        renderBeatToBuffer, grids, volumes, tempo, swing, masterVolume, lowPassFreq, highPassFreq,
+        reverbMix, reverbDecay, reverbSource, delayMix, delayTime, delayFeedback, delaySource, kickSidechainAmount,
+        crushAmount, tapeSaturationMix, tapeSaturationAmount, tapeSaturationTone,
+        envelopeFilterMix, envelopeFilterAmount, envelopeFilterBaseFreq, envelopeFilterQ,
+        effectsEnabled, instrumentVisibility, isolatorGains, lofiMix, dragBlobUrl
     ]);
 
     const handlePlayToggle = useCallback(() => {
@@ -963,9 +1038,9 @@ const App: React.FC = () => {
     useEffect(() => { setAudioEngineKickSidechainAmount(effectsEnabled.sidechain ? kickSidechainAmount : 0) }, [kickSidechainAmount, effectsEnabled.sidechain, setAudioEngineKickSidechainAmount]);
     useEffect(() => { setAudioEngineMasterVolume(masterVolume) }, [masterVolume, setAudioEngineMasterVolume]);
     useEffect(() => { setAudioEngineCrushAmount(effectsEnabled.crush ? crushAmount : 0) }, [crushAmount, effectsEnabled.crush, setAudioEngineCrushAmount]);
-    useEffect(() => { setAudioEngineTapeSaturationMix(effectsEnabled.tape ? tapeSaturationMix : 0) }, [tapeSaturationMix, effectsEnabled.tape, setAudioEngineTapeSaturationMix]);
-    useEffect(() => { setAudioEngineTapeSaturationAmount(tapeSaturationAmount) }, [tapeSaturationAmount, setAudioEngineTapeSaturationAmount]);
-    useEffect(() => { setAudioEngineTapeSaturationTone(tapeSaturationTone) }, [tapeSaturationTone, setAudioEngineTapeSaturationTone]);
+    useEffect(() => { if (isInitialized) setAudioEngineTapeSaturationMix(effectsEnabled.tape ? tapeSaturationMix : 0) }, [tapeSaturationMix, effectsEnabled.tape, setAudioEngineTapeSaturationMix, isInitialized]);
+    useEffect(() => { if (isInitialized) setAudioEngineTapeSaturationAmount(tapeSaturationAmount) }, [tapeSaturationAmount, setAudioEngineTapeSaturationAmount, isInitialized]);
+    useEffect(() => { if (isInitialized) setAudioEngineTapeSaturationTone(tapeSaturationTone) }, [tapeSaturationTone, setAudioEngineTapeSaturationTone, isInitialized]);
     useEffect(() => { setAudioEngineEnvelopeFilterMix(effectsEnabled.envelope ? envelopeFilterMix : 0) }, [envelopeFilterMix, effectsEnabled.envelope, setAudioEngineEnvelopeFilterMix]);
     useEffect(() => { setAudioEngineEnvelopeFilterAmount(envelopeFilterAmount) }, [envelopeFilterAmount, setAudioEngineEnvelopeFilterAmount]);
     useEffect(() => { setAudioEngineEnvelopeFilterBaseFreq(envelopeFilterBaseFreq) }, [envelopeFilterBaseFreq, setAudioEngineEnvelopeFilterBaseFreq]);
@@ -1193,6 +1268,39 @@ const App: React.FC = () => {
         }
     }, [showBeatNumbers, isAppLoaded]);
 
+    // Keyboard drumming effect
+    useEffect(() => {
+        if (!keyboardDrummingEnabled || !isAudioEngineReady) return;
+
+        const handleKeyDown = (e: KeyboardEvent) => {
+            // Don't trigger if user is typing in an input
+            if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+            
+            const key = e.key.toLowerCase();
+            const instrument = keyboardMap[key];
+            
+            if (instrument) {
+                // Play the instrument with default volume
+                const instrumentIndex = INSTRUMENTS.indexOf(instrument);
+                // FIX: Use the 'volumes' state which is correctly defined and passed down.
+                const volume = instrumentIndex !== -1 ? volumes[instrumentIndex] : 0.8;
+                
+                switch (instrument) {
+                    case 'kick': playKick(volume); break;
+                    case 'snare': playSnare(volume); break;
+                    case 'hihat': playHiHat(volume); break;
+                    case 'snap': playSnap(volume); break;
+                    case 'clave': playClave(volume); break;
+                    case 'cowbell': playCowbell(volume); break;
+                    case 'sample': playSample(volume); break;
+                }
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [keyboardDrummingEnabled, keyboardMap, isAudioEngineReady, playKick, playSnare, playHiHat, playSnap, playClave, playCowbell, playSample, volumes]);
+
     
     if (!isInitialized) {
         return (
@@ -1202,7 +1310,7 @@ const App: React.FC = () => {
                  <Tooltip text="Initialize the audio engine">
                      <button
                          onClick={handleStart}
-                         className="flex items-center justify-center w-48 h-16 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-blue-500 active:scale-[0.98] text-lg uppercase tracking-wider"
+                         className={getButtonStyle(visualizerStyle, 'primary', false, false, 'w-48 h-16 text-lg')}
                      >
                          Start
                      </button>
@@ -1245,7 +1353,7 @@ const App: React.FC = () => {
                                     onMouseLeave={handleRandomizePressEnd}
                                     onTouchStart={(e) => { e.preventDefault(); handleRandomizePressStart(); }}
                                     onTouchEnd={handleRandomizePressEnd}
-                                    className="w-32 h-16 bg-purple-600 text-white font-bold rounded-lg hover:bg-purple-700 transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-purple-500 active:scale-[0.98] text-lg uppercase tracking-wider"
+                                    className={getButtonStyle(visualizerStyle, 'primary', false, false, 'w-32 h-16 text-lg bg-purple-600 hover:bg-purple-700 focus:ring-purple-500')}
                                 >
                                     {randomizeButtonText}
                                 </button>
@@ -1275,7 +1383,7 @@ const App: React.FC = () => {
                                     <Tooltip key={opt.mode} text={opt.tooltip}>
                                         <button 
                                             onClick={() => setChainMode(opt.mode)}
-                                            className={`px-3 py-1.5 rounded-md text-xs font-bold transition-colors ${chainMode === opt.mode ? 'bg-green-500 text-gray-900' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}
+                                            className={getButtonStyle(visualizerStyle, chainMode === opt.mode ? 'success' : 'secondary', chainMode === opt.mode, false, 'px-3 py-1.5 text-xs')}
                                         >
                                             {opt.label}
                                         </button>
@@ -1345,7 +1453,7 @@ const App: React.FC = () => {
                                         onMouseLeave={handleDjResetEnd}
                                         onTouchStart={(e) => { e.preventDefault(); handleDjResetStart(); }}
                                         onTouchEnd={handleDjResetEnd}
-                                        className={`relative flex items-center justify-center mt-2 px-3 h-8 bg-gray-600/80 text-white font-bold rounded-md hover:bg-gray-500/80 transition-transform duration-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-blue-500 text-xs uppercase tracking-wider overflow-hidden select-none ${isDjResetPoofing ? 'animate-poof' : ''}`}
+                                        className={`${getButtonStyle(visualizerStyle, 'secondary', false, false, 'mt-2 px-3 h-8 text-xs overflow-hidden')} ${isDjResetPoofing ? 'animate-poof' : ''}`}
                                         style={{ transform: `scale(${1 - djResetProgress * 0.15})` }}
                                         aria-label="Hold to reset DJ settings to default"
                                     >
@@ -1431,6 +1539,20 @@ const App: React.FC = () => {
                 />}
             </CollapsibleSection>
         ),
+        recorder: (
+            <CollapsibleSection title="SAMPLE RECORDER" closedTitle="SAMPLE RECORDER" defaultOpen={false}>
+                {(isOpen) => <SampleRecorderMenu 
+                    isAudioEngineReady={isAudioEngineReady} 
+                    startRecording={handleStartRecording} 
+                    stopRecording={handleStopRecording} 
+                    getRecordedAudioData={getRecordedAudioData}
+                    setSampleAudioData={setSampleAudioData}
+                    updateInstrumentParameter={updateInstrumentParameter}
+                    playSample={playSample}
+                    visualizerStyle={visualizerStyle}
+                />}
+            </CollapsibleSection>
+        ),
         notation: (
             <CollapsibleSection title="rhythmic notation (under construction: rests are ugly)" defaultOpen={false}>
                 {(isOpen) => (
@@ -1447,6 +1569,8 @@ const App: React.FC = () => {
             <Settings
                 visualizer={visualizerType}
                 onVisualizerChange={setVisualizerType}
+                visualizerStyle={visualizerStyle}
+                onVisualizerStyleChange={setVisualizerStyle}
                 onShiftPattern={handleShiftPattern}
                 isPerformanceMode={isPerformanceMode}
                 onTogglePerformanceMode={handleTogglePerformanceMode}
@@ -1457,18 +1581,57 @@ const App: React.FC = () => {
                 onToggleBeatNumbers={handleToggleBeatNumbers}
                 beatsPerMeasure={beatsPerMeasure}
                 onBeatsPerMeasureChange={handleBeatsPerMeasureChange}
+                keyboardDrummingEnabled={keyboardDrummingEnabled}
+                onToggleKeyboardDrumming={() => setKeyboardDrummingEnabled(!keyboardDrummingEnabled)}
+                keyboardMap={keyboardMap}
+                onUpdateKeyboardMap={(key, instrument) => setKeyboardMap(prev => ({ ...prev, [key]: instrument }))}
                 dragHandleProps={isInteractingWithSlider ? undefined : { onPointerDown: (e: React.PointerEvent) => {} }} // Dummy or handled by cloneElement
             />
         )
     };
 
+    const getAppStyle = () => {
+        let baseFilter = `hue-rotate(${hueRotate}deg)`;
+        
+        if (isCappuccinoMode) {
+            baseFilter = `sepia(0.85) saturate(1.5) contrast(1.1) brightness(1.1) ${baseFilter}`;
+        }
+
+        switch (visualizerStyle) {
+            case 'neon':
+                return {
+                    filter: baseFilter,
+                    transition: isColorAnimating ? 'none' : 'filter 0.5s ease-in-out',
+                    backgroundColor: '#050510',
+                    backgroundImage: 'radial-gradient(circle at 50% 50%, #1a0b2e 0%, #050510 100%)'
+                };
+            case 'minimal':
+                return {
+                    filter: baseFilter,
+                    transition: isColorAnimating ? 'none' : 'filter 0.5s ease-in-out',
+                    backgroundColor: '#f5f5f5',
+                    color: '#111'
+                };
+            case 'retro':
+                return {
+                    filter: `contrast(1.2) saturate(1.2) ${baseFilter}`,
+                    transition: isColorAnimating ? 'none' : 'filter 0.5s ease-in-out',
+                    backgroundColor: '#2b2118',
+                    backgroundImage: 'linear-gradient(0deg, transparent 24%, rgba(255, 255, 255, .05) 25%, rgba(255, 255, 255, .05) 26%, transparent 27%, transparent 74%, rgba(255, 255, 255, .05) 75%, rgba(255, 255, 255, .05) 76%, transparent 77%, transparent), linear-gradient(90deg, transparent 24%, rgba(255, 255, 255, .05) 25%, rgba(255, 255, 255, .05) 26%, transparent 27%, transparent 74%, rgba(255, 255, 255, .05) 75%, rgba(255, 255, 255, .05) 76%, transparent 77%, transparent)',
+                    backgroundSize: '50px 50px'
+                };
+            default:
+                return {
+                    filter: baseFilter,
+                    transition: isColorAnimating ? 'none' : 'filter 0.5s ease-in-out'
+                };
+        }
+    };
+
     return (
         <div 
-            className="min-h-screen flex flex-col items-center justify-center p-2 sm:p-4 bg-gray-900 text-gray-100"
-            style={{ 
-                filter: `${isCappuccinoMode ? 'sepia(0.85) saturate(1.5) contrast(1.1) brightness(1.1) ' : ''}hue-rotate(${hueRotate}deg)`,
-                transition: isColorAnimating ? 'none' : 'filter 0.5s ease-in-out'
-            }}
+            className={`min-h-screen flex flex-col items-center justify-center p-2 sm:p-4 transition-colors duration-500 ${visualizerStyle === 'minimal' ? 'text-gray-900' : 'bg-gray-900 text-gray-100'}`}
+            style={getAppStyle()}
         >
             <div className="w-full max-w-7xl mx-auto flex flex-col gap-4 sm:gap-6">
                 <header className="text-center">
@@ -1497,7 +1660,16 @@ const App: React.FC = () => {
                             isColorAnimating={isColorAnimating}
                             onToggleColorAnimation={handleToggleColorAnimation}
                             onDownload={handleDownload}
+                            onPrepareDrag={handlePrepareDrag}
                             isRendering={isRendering}
+                            isPreparingDrag={isPreparingDrag}
+                            dragBlobUrl={dragBlobUrl}
+                            onClearDragUrl={() => {
+                                if (dragBlobUrl) {
+                                    URL.revokeObjectURL(dragBlobUrl);
+                                    setDragBlobUrl(null);
+                                }
+                            }}
                             savedPatterns={savedPatterns}
                             currentPatternIndex={currentPatternIndex}
                             onSelectPattern={handleSelectPattern}
@@ -1505,6 +1677,7 @@ const App: React.FC = () => {
                             onClearPattern={handleClearPattern}
                             isCurrentPatternEmpty={isCurrentPatternEmpty}
                             isCappuccinoMode={isCappuccinoMode}
+                            visualizerStyle={visualizerStyle}
                         />
                         <Sequencer
                             grid={grids[activePattern]}
@@ -1521,6 +1694,7 @@ const App: React.FC = () => {
                             onStopRecording={handleStopRecording}
                             instrumentVisibility={instrumentVisibility}
                             visualizerType={visualizerType}
+                            visualizerStyle={visualizerStyle}
                             masterAnalyser={effectAnalysers.masterAnalyser}
                             hueRotate={hueRotate}
                             isPerformanceMode={isPerformanceMode}

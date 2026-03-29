@@ -160,7 +160,7 @@ const DEFAULT_PARAMS: AllInstrumentParams = {
     snap: { pitch: 1, decay: 1, attack: 0 },
     clave: { pitch: 1, decay: 1 },
     cowbell: { pitch: 1, decay: 1, attack: 0 },
-    sample: { pitch: 1, highPass: MIN_FILTER_FREQ, lowPass: MAX_FILTER_FREQ },
+    sample: { pitch: 1, decay: 1, highPass: MIN_FILTER_FREQ, lowPass: MAX_FILTER_FREQ },
 };
 
 const RAMP_TIME = 0.01; // 10ms ramp for all parameter changes to prevent clicks
@@ -1078,10 +1078,18 @@ export const useAudioEngine = () => {
         }
 
         const gain = context.createGain();
-        // The fix for the click: A micro-fade-in instead of an instantaneous gain change.
-        // This is imperceptible but gives the audio hardware time to adjust smoothly.
-        gain.gain.setValueAtTime(0, playTime);
-        gain.gain.linearRampToValueAtTime(volume, playTime + 0.005);
+        if (instrument === 'sample' && params?.decay && params.decay < 2) {
+            // Apply decay envelope. If decay is 2 (max), let it play fully.
+            // Otherwise, apply an exponential decay.
+            gain.gain.setValueAtTime(0, playTime);
+            gain.gain.linearRampToValueAtTime(volume, playTime + 0.005);
+            gain.gain.exponentialRampToValueAtTime(0.001, playTime + params.decay * 2.5); // scale decay
+        } else {
+            // The fix for the click: A micro-fade-in instead of an instantaneous gain change.
+            // This is imperceptible but gives the audio hardware time to adjust smoothly.
+            gain.gain.setValueAtTime(0, playTime);
+            gain.gain.linearRampToValueAtTime(volume, playTime + 0.005);
+        }
         
         source.connect(gain);
         gain.connect(destination);
@@ -1146,9 +1154,20 @@ export const useAudioEngine = () => {
     }, [playSoundFromBuffer]);
     
     const startRecording = useCallback(async () => {
-        const context = audioContextRef.current;
+        let context = audioContextRef.current;
+        
+        // If context is not ready, attempt to setup
+        if (!context) {
+            console.log("Audio context not ready, attempting setup...");
+            // We need kickDesignerParams for setup. 
+            // Since we don't have it here, we might need to rely on the fact that setup 
+            // might have been called, or we need to handle this differently.
+            // Actually, setup is called in App.tsx. 
+            // Let's just return if it's not ready, but provide a better error message.
+        }
+
         if (!context || context.audioWorklet === undefined) {
-            console.error("Audio context not ready or AudioWorklet not supported");
+            console.error("Audio context not ready or AudioWorklet not supported. Please start the audio engine first.");
             return;
         }
         if (recorderWorkletNodeRef.current) {
@@ -1487,9 +1506,19 @@ export const useAudioEngine = () => {
                         
                         const source = offlineCtx.createBufferSource();
                         source.buffer = buffer;
+                        
+                        if (instrument === 'sample' && instrumentParamsRef.current.sample.pitch) {
+                            source.playbackRate.setValueAtTime(instrumentParamsRef.current.sample.pitch, time);
+                        }
             
                         const gain = offlineCtx.createGain();
-                        gain.gain.setValueAtTime(volumes[instIndex], time);
+                        if (instrument === 'sample' && instrumentParamsRef.current.sample.decay && instrumentParamsRef.current.sample.decay < 2) {
+                            gain.gain.setValueAtTime(0, time);
+                            gain.gain.linearRampToValueAtTime(volumes[instIndex], time + 0.005);
+                            gain.gain.exponentialRampToValueAtTime(0.001, time + instrumentParamsRef.current.sample.decay * 2.5);
+                        } else {
+                            gain.gain.setValueAtTime(volumes[instIndex], time);
+                        }
                         source.connect(gain);
                         
                         let finalDestination: AudioNode;
@@ -1857,8 +1886,40 @@ export const useAudioEngine = () => {
     }, []);
 
 
+    const getRecordedAudioData = useCallback(() => {
+        const chunks = recordedPcmDataRef.current;
+        if (chunks.length === 0) return new Float32Array(0);
+
+        // Calculate total length
+        let totalLength = 0;
+        for (const chunk of chunks) {
+            totalLength += chunk.length;
+        }
+
+        // Combine chunks
+        const combined = new Float32Array(totalLength);
+        let offset = 0;
+        for (const chunk of chunks) {
+            combined.set(chunk, offset);
+            offset += chunk.length;
+        }
+        return combined;
+    }, []);
+
+    const setSampleAudioData = useCallback((audioData: Float32Array) => {
+        const context = audioContextRef.current;
+        if (!context) return;
+        if (audioData.length === 0) {
+            instrumentBuffersRef.current.sample = null;
+            return;
+        }
+        const audioBuffer = context.createBuffer(1, audioData.length, context.sampleRate);
+        audioBuffer.copyToChannel(audioData, 0);
+        instrumentBuffersRef.current.sample = audioBuffer;
+    }, []);
+
     return {
-        setup, playKick, playSnare, playHiHat, playSnap, playClave, playCowbell, playSample, startRecording, stopRecording, renderBeatToBuffer, updateInstrumentParameter, rerenderKick,
+        setup, playKick, playSnare, playHiHat, playSnap, playClave, playCowbell, playSample, startRecording, stopRecording, getRecordedAudioData, setSampleAudioData, renderBeatToBuffer, updateInstrumentParameter, rerenderKick,
         setLowPassFrequency, setHighPassFrequency, setReverbMix, setReverbDecay, setReverbSource, setDelayMix, setDelayTime, setDelayFeedback, setDelaySource, setKickSidechainAmount,
         setMasterVolume, setCrushAmount, setTapeSaturationMix, setTapeSaturationAmount, setTapeSaturationTone,
         setEnvelopeFilterMix, setEnvelopeFilterAmount, setEnvelopeFilterBaseFreq, setEnvelopeFilterQ,
