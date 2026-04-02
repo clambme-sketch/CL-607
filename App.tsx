@@ -1543,6 +1543,7 @@ const App: React.FC = () => {
             <CollapsibleSection title="SAMPLE RECORDER" closedTitle="SAMPLE RECORDER" defaultOpen={false}>
                 {(isOpen) => <SampleRecorderMenu 
                     isAudioEngineReady={isAudioEngineReady} 
+                    audioContext={audioContext}
                     startRecording={handleStartRecording} 
                     stopRecording={handleStopRecording} 
                     getRecordedAudioData={getRecordedAudioData}

@@ -6,6 +6,7 @@ import { getButtonStyle } from '../utils';
 
 interface SampleRecorderMenuProps {
     isAudioEngineReady: boolean;
+    audioContext: AudioContext | null;
     startRecording: () => void;
     stopRecording: () => void;
     getRecordedAudioData: () => Float32Array;
@@ -17,6 +18,7 @@ interface SampleRecorderMenuProps {
 
 const SampleRecorderMenu: React.FC<SampleRecorderMenuProps> = ({ 
     isAudioEngineReady, 
+    audioContext,
     startRecording, 
     stopRecording, 
     getRecordedAudioData,
@@ -30,6 +32,39 @@ const SampleRecorderMenu: React.FC<SampleRecorderMenuProps> = ({
     const [trimRange, setTrimRange] = useState({ start: 0, end: 1 });
     const [message, setMessage] = useState<string | null>(null);
     const recordingTimeoutRef = React.useRef<number | null>(null);
+
+    const handleDrop = useCallback(async (e: React.DragEvent) => {
+        e.preventDefault();
+        if (!audioContext) {
+            setMessage("Please start the audio engine first.");
+            setTimeout(() => setMessage(null), 3000);
+            return;
+        }
+        const file = e.dataTransfer.files[0];
+        if (!file || !file.type.startsWith('audio/')) {
+            setMessage("Please drop an audio file.");
+            setTimeout(() => setMessage(null), 3000);
+            return;
+        }
+
+        try {
+            const arrayBuffer = await file.arrayBuffer();
+            const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+            const channelData = audioBuffer.getChannelData(0);
+            setFullAudioData(new Float32Array(channelData));
+            setTrimRange({ start: 0, end: 1 });
+            setMessage("Sample loaded.");
+            setTimeout(() => setMessage(null), 3000);
+        } catch (err) {
+            console.error("Error decoding audio:", err);
+            setMessage("Error loading audio file.");
+            setTimeout(() => setMessage(null), 3000);
+        }
+    }, [audioContext]);
+
+    const handleDragOver = useCallback((e: React.DragEvent) => {
+        e.preventDefault();
+    }, []);
 
     useEffect(() => {
         let intervalId: number;
@@ -47,9 +82,9 @@ const SampleRecorderMenu: React.FC<SampleRecorderMenuProps> = ({
     }, [isRecording, getRecordedAudioData]);
 
     const stopRecordingAction = useCallback(() => {
+        const data = getRecordedAudioData();
         stopRecording();
         setIsRecording(false);
-        const data = getRecordedAudioData();
         setFullAudioData(data);
         setTrimRange({ start: 0, end: 1 });
         if (recordingTimeoutRef.current) {
@@ -247,7 +282,7 @@ const SampleRecorderMenu: React.FC<SampleRecorderMenuProps> = ({
     };
 
     return (
-        <div className="bg-gray-900/50 rounded-lg p-4 flex flex-col gap-4">
+        <div className="bg-gray-900/50 rounded-lg p-4 flex flex-col gap-4" onDrop={handleDrop} onDragOver={handleDragOver}>
             <div className="flex justify-between items-center">
                 <h4 className="font-bold text-sm uppercase tracking-wider text-white">
                     SAMPLE RECORDER
@@ -270,6 +305,15 @@ const SampleRecorderMenu: React.FC<SampleRecorderMenuProps> = ({
             {fullAudioData.length > 0 && !isRecording && (
                 <div className="flex flex-col gap-2 mt-2">
                     <div className="flex gap-2">
+                        <button
+                            onClick={() => {
+                                setFullAudioData(new Float32Array(0));
+                                setTrimRange({ start: 0, end: 1 });
+                            }}
+                            className={getButtonStyle(visualizerStyle, 'secondary', false, false, 'flex-1 px-4 py-2 text-xs')}
+                        >
+                            BACK
+                        </button>
                         <button
                             onClick={handleNormalize}
                             className={getButtonStyle(visualizerStyle, 'secondary', false, false, 'flex-1 px-4 py-2 text-xs')}

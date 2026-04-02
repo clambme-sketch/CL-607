@@ -222,6 +222,7 @@ export const useAudioEngine = () => {
     const delaySendBusRef = useRef<GainNode | null>(null);
     const sidechainDuckNodeRef = useRef<GainNode | null>(null);
     const kickSidechainAmountRef = useRef<number>(0);
+    const sampleSourceRef = useRef<AudioBufferSourceNode | null>(null);
     
     // Refs for effect analysers
     const masterAnalyserRef = useRef<AnalyserNode | null>(null);
@@ -1075,6 +1076,17 @@ export const useAudioEngine = () => {
         // Apply real-time pitch shift for sample playback
         if (instrument === 'sample' && params?.pitch) {
             source.playbackRate.setValueAtTime(params.pitch, playTime);
+        }
+
+        if (instrument === 'sample') {
+            if (sampleSourceRef.current) {
+                try {
+                    sampleSourceRef.current.stop();
+                } catch (e) {
+                    // Ignore error if already stopped
+                }
+            }
+            sampleSourceRef.current = source;
         }
 
         const gain = context.createGain();
