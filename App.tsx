@@ -13,7 +13,7 @@ import XYFilterPad from './components/XYFilterPad';
 import LoFiRadio from './components/LoFiRadio';
 import Settings from './components/Settings';
 import Tooltip from './components/Tooltip';
-import { getButtonStyle } from './utils';
+import { getButtonStyle, safeGetItem, safeSetItem, safeRemoveItem } from './utils';
 
 const createInitialGrid = (numSteps: number): Grid => {
     return Array(INSTRUMENTS.length).fill(null).map(() => Array(numSteps).fill(false));
@@ -198,6 +198,7 @@ const App: React.FC = () => {
     // New state for Settings
     const [visualizerType, setVisualizerType] = useState<VisualizerType>('waveform');
     const [visualizerStyle, setVisualizerStyle] = useState<VisualizerStyle>('default');
+    const [drumKit, setDrumKit] = useState<'808' | '909' | '727'>('808');
     const [isPerformanceMode, setIsPerformanceMode] = useState<boolean>(true);
     const [tooltipsEnabled, setTooltipsEnabled] = useState<boolean>(true);
     const [showBeatNumbers, setShowBeatNumbers] = useState<boolean>(false);
@@ -283,12 +284,12 @@ const App: React.FC = () => {
     // Load saved patterns from localStorage and initialize working state on first mount
     useEffect(() => {
         // Load tooltip setting
-        const savedTooltipsSetting = localStorage.getItem('cl607-tooltipsEnabled');
+        const savedTooltipsSetting = safeGetItem('cl607-tooltipsEnabled');
         if (savedTooltipsSetting !== null) {
             setTooltipsEnabled(JSON.parse(savedTooltipsSetting));
         }
 
-        const savedBeatNumbers = localStorage.getItem('cl607-showBeatNumbers');
+        const savedBeatNumbers = safeGetItem('cl607-showBeatNumbers');
         if (savedBeatNumbers !== null) {
             setShowBeatNumbers(JSON.parse(savedBeatNumbers));
         }
@@ -297,7 +298,7 @@ const App: React.FC = () => {
         const loadedPatterns: (SavedPattern | null)[] = [];
         for (let i = 0; i < 4; i++) {
             try {
-                const savedData = localStorage.getItem(`cl607-pattern-${i}`);
+                const savedData = safeGetItem(`cl607-pattern-${i}`);
                 if (savedData) {
                     const parsedData = JSON.parse(savedData) as any;
                     const finalPattern: SavedPattern = {
@@ -361,7 +362,7 @@ const App: React.FC = () => {
                 if (JSON.stringify(newPatterns[currentPatternIndex]) !== JSON.stringify(patternData)) {
                     newPatterns[currentPatternIndex] = patternData;
                     try {
-                        localStorage.setItem(`cl607-pattern-${currentPatternIndex}`, JSON.stringify(patternData));
+                        safeSetItem(`cl607-pattern-${currentPatternIndex}`, JSON.stringify(patternData));
                     } catch (e) {
                         console.error(`Failed to save pattern to slot ${currentPatternIndex}`, e);
                     }
@@ -377,7 +378,7 @@ const App: React.FC = () => {
 
 
     const { 
-        setup, playKick, playSnare, playHiHat, playSnap, playClave, playCowbell, playSample, startRecording, stopRecording, getRecordedAudioData, setSampleAudioData, renderBeatToBuffer, updateInstrumentParameter, rerenderKick,
+        setup, playKick, playSnare, playHiHat, playSnap, playClave, playCowbell, playSample, startRecording, stopRecording, getRecordedAudioData, setSampleAudioData, renderBeatToBuffer, updateInstrumentParameter, rerenderKick, rerenderAllInstruments,
         setLowPassFrequency, setHighPassFrequency,
         setReverbMix: setAudioEngineReverbMix, 
         setReverbDecay: setAudioEngineReverbDecay,
@@ -406,7 +407,7 @@ const App: React.FC = () => {
 
     const handleStart = useCallback(async () => {
         setIsLoading(true);
-        const result = await setup(kickDesignerParams);
+        const result = await setup(kickDesignerParams, drumKit);
         if (result) {
             setIsAudioEngineReady(true);
             setInstrumentAnalyserNodes(result.analysers.instrumentAnalysers);
@@ -583,9 +584,9 @@ const App: React.FC = () => {
             return newParams;
         });
         if (updateInstrumentParameter) {
-            updateInstrumentParameter(instrument, param, value);
+            updateInstrumentParameter(instrument, param, value, drumKit);
         }
-    }, [updateInstrumentParameter]);
+    }, [updateInstrumentParameter, drumKit]);
 
     const handleKickDesignerParamChange = useCallback((param: keyof KickDesignerParams, value: number) => {
         setKickDesignerParams(prev => ({ ...prev, [param]: value }));
@@ -595,9 +596,16 @@ const App: React.FC = () => {
     // and triggers a re-render of the kick sound buffer.
     useEffect(() => {
         if (isInitialized && rerenderKick) {
-            rerenderKick(kickDesignerParams);
+            rerenderKick(kickDesignerParams, drumKit);
         }
-    }, [isInitialized, rerenderKick, kickDesignerParams]);
+    }, [isInitialized, rerenderKick, kickDesignerParams, drumKit]);
+
+    // This effect listens for drumKit changes and re-renders all instruments
+    useEffect(() => {
+        if (isInitialized && rerenderAllInstruments) {
+            rerenderAllInstruments(kickDesignerParams, drumKit);
+        }
+    }, [isInitialized, rerenderAllInstruments, kickDesignerParams, drumKit]);
 
     const handleStartRecording = useCallback(() => {
         countdownTimeoutsRef.current.forEach(clearTimeout);
@@ -877,10 +885,10 @@ const App: React.FC = () => {
 
         // 1. Clear storage
         for (let i = 0; i < 4; i++) {
-            localStorage.removeItem(`cl607-pattern-${i}`);
+            safeRemoveItem(`cl607-pattern-${i}`);
         }
-        localStorage.removeItem('cl607-tooltipsEnabled');
-        localStorage.removeItem('cl607-showBeatNumbers');
+        safeRemoveItem('cl607-tooltipsEnabled');
+        safeRemoveItem('cl607-showBeatNumbers');
     
         // 2. Reset all state to defaults
         // Core sequencer state
@@ -1258,13 +1266,13 @@ const App: React.FC = () => {
         }
         // Only save if app is fully loaded to prevent overwriting on initial render
         if (isAppLoaded) {
-            localStorage.setItem('cl607-tooltipsEnabled', JSON.stringify(tooltipsEnabled));
+            safeSetItem('cl607-tooltipsEnabled', JSON.stringify(tooltipsEnabled));
         }
     }, [tooltipsEnabled, isAppLoaded]);
     
     useEffect(() => {
         if (isAppLoaded) {
-            localStorage.setItem('cl607-showBeatNumbers', JSON.stringify(showBeatNumbers));
+            safeSetItem('cl607-showBeatNumbers', JSON.stringify(showBeatNumbers));
         }
     }, [showBeatNumbers, isAppLoaded]);
 
@@ -1544,8 +1552,8 @@ const App: React.FC = () => {
                 {(isOpen) => <SampleRecorderMenu 
                     isAudioEngineReady={isAudioEngineReady} 
                     audioContext={audioContext}
-                    startRecording={handleStartRecording} 
-                    stopRecording={handleStopRecording} 
+                    startRecording={startRecording} 
+                    stopRecording={stopRecording} 
                     getRecordedAudioData={getRecordedAudioData}
                     setSampleAudioData={setSampleAudioData}
                     updateInstrumentParameter={updateInstrumentParameter}
@@ -1572,6 +1580,8 @@ const App: React.FC = () => {
                 onVisualizerChange={setVisualizerType}
                 visualizerStyle={visualizerStyle}
                 onVisualizerStyleChange={setVisualizerStyle}
+                drumKit={drumKit}
+                onDrumKitChange={setDrumKit}
                 onShiftPattern={handleShiftPattern}
                 isPerformanceMode={isPerformanceMode}
                 onTogglePerformanceMode={handleTogglePerformanceMode}

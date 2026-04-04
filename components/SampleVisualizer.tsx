@@ -41,12 +41,24 @@ const SampleVisualizer: React.FC<SampleVisualizerProps> = ({
         ctx.beginPath();
         ctx.strokeStyle = '#3b82f6';
         ctx.lineWidth = 1;
-        const sliceWidth = canvas.width / audioData.length;
-        for (let i = 0; i < audioData.length; i++) {
-            const x = i * sliceWidth;
-            const y = (audioData[i] + 1) / 2 * canvas.height;
-            if (i === 0) ctx.moveTo(x, y);
-            else ctx.lineTo(x, y);
+        
+        // Downsample for performance
+        const step = Math.ceil(audioData.length / canvas.width);
+        for (let i = 0; i < canvas.width; i++) {
+            let min = 1.0;
+            let max = -1.0;
+            for (let j = 0; j < step; j++) {
+                const idx = (i * step) + j;
+                if (idx < audioData.length) {
+                    const datum = audioData[idx];
+                    if (datum < min) min = datum;
+                    if (datum > max) max = datum;
+                }
+            }
+            const yMin = (min + 1) / 2 * canvas.height;
+            const yMax = (max + 1) / 2 * canvas.height;
+            ctx.moveTo(i, yMin);
+            ctx.lineTo(i, yMax);
         }
         ctx.stroke();
 

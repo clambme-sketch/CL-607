@@ -339,8 +339,8 @@ export const useAudioEngine = () => {
         return curve;
     };
     
-    const renderKick = async (context: AudioContext | OfflineAudioContext, params: KickDesignerParams, noiseData: Float32Array): Promise<AudioBuffer> => {
-        const baseDuration = 0.8 * params.decay;
+    const renderKick = async (context: AudioContext | OfflineAudioContext, params: KickDesignerParams, noiseData: Float32Array, drumKit: '808' | '909' | '727' = '808'): Promise<AudioBuffer> => {
+        const baseDuration = drumKit === '727' ? 0.3 * params.decay : 0.8 * params.decay;
         const duration = Math.max(0.1, baseDuration);
         const offlineCtx = new OfflineAudioContext(1, Math.ceil(context.sampleRate * (duration + 0.1)), context.sampleRate);
         const time = 0;
@@ -368,145 +368,342 @@ export const useAudioEngine = () => {
         saturator.oversample = '4x'; // CRITICAL FOR PREVENTING ALIASING
         saturator.connect(masterGain);
     
-        // --- KICK BODY (Clean Sine Oscillator with Pitch Drop) ---
-        const osc = offlineCtx.createOscillator();
-        osc.type = 'sine';
-    
-        const baseFreq = 50 * params.pitch;
-        osc.frequency.setValueAtTime(params.startFreq, time);
-        osc.frequency.exponentialRampToValueAtTime(baseFreq, time + params.pitchDropTime);
-    
-        const bodyGain = offlineCtx.createGain();
-        const attackTime = 0.002 + (params.attack * 0.01);
-        bodyGain.gain.setValueAtTime(0, time);
-        bodyGain.gain.linearRampToValueAtTime(params.bodyGain, time + attackTime);
-        bodyGain.gain.exponentialRampToValueAtTime(0.001, time + duration);
+        if (drumKit === '727') {
+            // Conga style kick
+            const osc = offlineCtx.createOscillator();
+            osc.type = 'sine';
+            const baseFreq = 120 * params.pitch;
+            osc.frequency.setValueAtTime(150 * params.pitch, time);
+            osc.frequency.exponentialRampToValueAtTime(baseFreq, time + 0.05);
+
+            const bodyGain = offlineCtx.createGain();
+            bodyGain.gain.setValueAtTime(0, time);
+            bodyGain.gain.linearRampToValueAtTime(0.8, time + 0.01);
+            bodyGain.gain.exponentialRampToValueAtTime(0.001, time + duration);
+            
+            osc.connect(bodyGain);
+            bodyGain.connect(saturator);
+            osc.start(time);
+            osc.stop(time + duration);
+        } else if (drumKit === '909') {
+            // 909 Kick (punchier, faster pitch drop, more click)
+            const osc = offlineCtx.createOscillator();
+            osc.type = 'sine';
+            const baseFreq = 55 * params.pitch;
+            osc.frequency.setValueAtTime(300 * params.pitch, time);
+            osc.frequency.exponentialRampToValueAtTime(baseFreq, time + 0.03);
+
+            const bodyGain = offlineCtx.createGain();
+            bodyGain.gain.setValueAtTime(0, time);
+            bodyGain.gain.linearRampToValueAtTime(0.9, time + 0.005);
+            bodyGain.gain.exponentialRampToValueAtTime(0.001, time + duration);
+            
+            osc.connect(bodyGain);
+            bodyGain.connect(saturator);
+
+            // 909 Click
+            const clickOsc = offlineCtx.createOscillator();
+            clickOsc.type = 'square';
+            clickOsc.frequency.setValueAtTime(1000, time);
+            clickOsc.frequency.exponentialRampToValueAtTime(100, time + 0.02);
+
+            const clickFilter = offlineCtx.createBiquadFilter();
+            clickFilter.type = 'highpass';
+            clickFilter.frequency.setValueAtTime(1000, time);
+
+            const clickGain = offlineCtx.createGain();
+            clickGain.gain.setValueAtTime(0, time);
+            clickGain.gain.linearRampToValueAtTime(0.3, time + 0.001);
+            clickGain.gain.exponentialRampToValueAtTime(0.001, time + 0.02);
+
+            clickOsc.connect(clickFilter);
+            clickFilter.connect(clickGain);
+            clickGain.connect(masterGain);
+
+            osc.start(time);
+            clickOsc.start(time);
+            osc.stop(time + duration);
+            clickOsc.stop(time + 0.02);
+        } else {
+            // --- KICK BODY (Clean Sine Oscillator with Pitch Drop) ---
+            const osc = offlineCtx.createOscillator();
+            osc.type = 'sine';
         
-        osc.connect(bodyGain);
-        bodyGain.connect(saturator);
+            const baseFreq = 50 * params.pitch;
+            osc.frequency.setValueAtTime(params.startFreq, time);
+            osc.frequency.exponentialRampToValueAtTime(baseFreq, time + params.pitchDropTime);
+        
+            const bodyGain = offlineCtx.createGain();
+            const attackTime = 0.002 + (params.attack * 0.01);
+            bodyGain.gain.setValueAtTime(0, time);
+            bodyGain.gain.linearRampToValueAtTime(params.bodyGain, time + attackTime);
+            bodyGain.gain.exponentialRampToValueAtTime(0.001, time + duration);
+            
+            osc.connect(bodyGain);
+            bodyGain.connect(saturator);
+        
+            // --- KICK CLICK (Noise part) ---
+            if (params.clickMix > 0.001) {
+                const noise = offlineCtx.createBufferSource();
+                const bufferSize = Math.min(Math.ceil(offlineCtx.sampleRate * 0.1), noiseData.length);
+                const buffer = offlineCtx.createBuffer(1, bufferSize, offlineCtx.sampleRate);
+                buffer.copyToChannel(noiseData.subarray(0, bufferSize), 0);
+                noise.buffer = buffer;
+        
+                const noiseFilter = offlineCtx.createBiquadFilter();
+                noiseFilter.type = 'lowpass';
+                noiseFilter.frequency.setValueAtTime(params.clickTone, time);
+        
+                const clickGain = offlineCtx.createGain();
+                clickGain.gain.setValueAtTime(0, time);
+                clickGain.gain.linearRampToValueAtTime(params.clickMix * 0.8, time + 0.001);
+                clickGain.gain.exponentialRampToValueAtTime(0.001, time + params.clickDecay);
+        
+                noise.connect(noiseFilter);
+                noiseFilter.connect(clickGain);
+                clickGain.connect(masterGain); // Connect click directly to master gain, bypassing body saturator
+        
+                noise.start(time);
+                noise.stop(time + params.clickDecay + 0.01);
+            }
+        
+            osc.start(time);
+            osc.stop(time + duration);
+        }
     
-        // --- KICK CLICK (Noise part) ---
-        if (params.clickMix > 0.001) {
+        return await offlineCtx.startRendering();
+    };
+
+
+    const renderSnare = async (context: AudioContext | OfflineAudioContext, params: { tone: number, decay: number, attack: number }, noiseData: Float32Array, drumKit: '808' | '909' | '727' = '808'): Promise<AudioBuffer> => {
+        const duration = drumKit === '727' ? 0.4 * params.decay : 0.2 * params.decay;
+        const offlineCtx = new OfflineAudioContext(1, Math.ceil(context.sampleRate * duration), context.sampleRate);
+        const time = 0;
+
+        if (drumKit === '727') {
+            // Timbale style
+            const osc1 = offlineCtx.createOscillator();
+            const osc2 = offlineCtx.createOscillator();
+            osc1.type = 'sine';
+            osc2.type = 'sine';
+            osc1.frequency.setValueAtTime(200 * params.tone, time);
+            osc2.frequency.setValueAtTime(350 * params.tone, time);
+            osc1.frequency.exponentialRampToValueAtTime(180 * params.tone, time + 0.1);
+
+            const oscGain = offlineCtx.createGain();
+            oscGain.gain.setValueAtTime(0, time);
+            oscGain.gain.linearRampToValueAtTime(0.8, time + 0.005);
+            oscGain.gain.exponentialRampToValueAtTime(0.001, time + duration);
+            
+            osc1.connect(oscGain);
+            osc2.connect(oscGain);
+            oscGain.connect(offlineCtx.destination);
+            
+            osc1.start(time);
+            osc2.start(time);
+            osc1.stop(time + duration);
+            osc2.stop(time + duration);
+        } else if (drumKit === '909') {
+            // 909 Snare (higher pitched body, different noise)
+            const osc1 = offlineCtx.createOscillator();
+            const osc2 = offlineCtx.createOscillator();
+            osc1.type = 'triangle';
+            osc2.type = 'sine';
+            osc1.frequency.setValueAtTime(250, time);
+            osc2.frequency.setValueAtTime(350, time);
+            osc1.frequency.exponentialRampToValueAtTime(150, time + 0.05);
+
+            const oscGain = offlineCtx.createGain();
+            oscGain.gain.setValueAtTime(0, time);
+            oscGain.gain.linearRampToValueAtTime(0.6, time + 0.001);
+            oscGain.gain.exponentialRampToValueAtTime(0.001, time + 0.1 * params.decay);
+            
+            osc1.connect(oscGain);
+            osc2.connect(oscGain);
+            oscGain.connect(offlineCtx.destination);
+
             const noise = offlineCtx.createBufferSource();
-            const bufferSize = Math.min(Math.ceil(offlineCtx.sampleRate * 0.1), noiseData.length);
+            const bufferSize = Math.min(Math.ceil(offlineCtx.sampleRate * duration), noiseData.length);
             const buffer = offlineCtx.createBuffer(1, bufferSize, offlineCtx.sampleRate);
             buffer.copyToChannel(noiseData.subarray(0, bufferSize), 0);
             noise.buffer = buffer;
-    
+
             const noiseFilter = offlineCtx.createBiquadFilter();
-            noiseFilter.type = 'lowpass';
-            noiseFilter.frequency.setValueAtTime(params.clickTone, time);
-    
-            const clickGain = offlineCtx.createGain();
-            clickGain.gain.setValueAtTime(0, time);
-            clickGain.gain.linearRampToValueAtTime(params.clickMix * 0.8, time + 0.001);
-            clickGain.gain.exponentialRampToValueAtTime(0.001, time + params.clickDecay);
-    
+            noiseFilter.type = 'bandpass';
+            noiseFilter.frequency.setValueAtTime(2000 * params.tone, time);
+            noiseFilter.Q.value = 0.5;
+
+            const noiseGain = offlineCtx.createGain();
+            noiseGain.gain.setValueAtTime(0, time);
+            noiseGain.gain.linearRampToValueAtTime(0.7, time + 0.002);
+            noiseGain.gain.exponentialRampToValueAtTime(0.001, time + duration);
+
             noise.connect(noiseFilter);
-            noiseFilter.connect(clickGain);
-            clickGain.connect(masterGain); // Connect click directly to master gain, bypassing body saturator
-    
+            noiseFilter.connect(noiseGain);
+            noiseGain.connect(offlineCtx.destination);
+            
+            osc1.start(time);
+            osc2.start(time);
             noise.start(time);
-            noise.stop(time + params.clickDecay + 0.01);
+            osc1.stop(time + duration);
+            osc2.stop(time + duration);
+            noise.stop(time + duration);
+        } else {
+            // --- 808 Snare Body (2 detuned triangle waves) ---
+            const osc1 = offlineCtx.createOscillator();
+            const osc2 = offlineCtx.createOscillator();
+            osc1.type = 'triangle';
+            osc2.type = 'triangle';
+            osc1.frequency.setValueAtTime(180, time);
+            osc2.frequency.setValueAtTime(330, time);
+
+            const oscGain = offlineCtx.createGain();
+            oscGain.gain.setValueAtTime(0, time);
+            oscGain.gain.linearRampToValueAtTime(0.5, time + 0.001); // Sharp attack, reduced gain
+            oscGain.gain.exponentialRampToValueAtTime(0.0001, time + 0.1 * params.decay); // Fast decay for the body
+            
+            osc1.connect(oscGain);
+            osc2.connect(oscGain);
+            oscGain.connect(offlineCtx.destination);
+
+            // --- 808 Snare Snap (filtered noise from pre-rendered buffer) ---
+            const noise = offlineCtx.createBufferSource();
+            const bufferSize = Math.min(
+                Math.ceil(offlineCtx.sampleRate * duration), 
+                noiseData.length
+            );
+            const buffer = offlineCtx.createBuffer(1, bufferSize, offlineCtx.sampleRate);
+            buffer.copyToChannel(noiseData.subarray(0, bufferSize), 0);
+            noise.buffer = buffer;
+
+            const noiseFilter = offlineCtx.createBiquadFilter();
+            noiseFilter.type = 'highpass';
+            noiseFilter.frequency.setValueAtTime(1500 * params.tone, time);
+
+            const noiseGain = offlineCtx.createGain();
+            const noiseAttackTime = 0.001 + (params.attack * 0.01);
+            noiseGain.gain.setValueAtTime(0, time);
+            noiseGain.gain.linearRampToValueAtTime(0.5, time + noiseAttackTime); // Reduced gain
+            noiseGain.gain.exponentialRampToValueAtTime(0.0001, time + duration);
+
+            noise.connect(noiseFilter);
+            noiseFilter.connect(noiseGain);
+            noiseGain.connect(offlineCtx.destination);
+            
+            osc1.start(time);
+            osc2.start(time);
+            noise.start(time);
+            osc1.stop(time + duration);
+            osc2.stop(time + duration);
+            noise.stop(time + duration);
         }
-    
-        osc.start(time);
-        osc.stop(time + duration);
-    
-        return await offlineCtx.startRendering();
-    };
-
-
-    const renderSnare = async (context: AudioContext | OfflineAudioContext, params: { tone: number, decay: number, attack: number }, noiseData: Float32Array): Promise<AudioBuffer> => {
-        const duration = 0.2 * params.decay;
-        const offlineCtx = new OfflineAudioContext(1, Math.ceil(context.sampleRate * duration), context.sampleRate);
-        const time = 0;
-
-        // --- 808 Snare Body (2 detuned triangle waves) ---
-        const osc1 = offlineCtx.createOscillator();
-        const osc2 = offlineCtx.createOscillator();
-        osc1.type = 'triangle';
-        osc2.type = 'triangle';
-        osc1.frequency.setValueAtTime(180, time);
-        osc2.frequency.setValueAtTime(330, time);
-
-        const oscGain = offlineCtx.createGain();
-        oscGain.gain.setValueAtTime(0, time);
-        oscGain.gain.linearRampToValueAtTime(0.5, time + 0.001); // Sharp attack, reduced gain
-        oscGain.gain.exponentialRampToValueAtTime(0.0001, time + 0.1 * params.decay); // Fast decay for the body
-        
-        osc1.connect(oscGain);
-        osc2.connect(oscGain);
-        oscGain.connect(offlineCtx.destination);
-
-        // --- 808 Snare Snap (filtered noise from pre-rendered buffer) ---
-        const noise = offlineCtx.createBufferSource();
-        const bufferSize = Math.min(
-            Math.ceil(offlineCtx.sampleRate * duration), 
-            noiseData.length
-        );
-        const buffer = offlineCtx.createBuffer(1, bufferSize, offlineCtx.sampleRate);
-        buffer.copyToChannel(noiseData.subarray(0, bufferSize), 0);
-        noise.buffer = buffer;
-
-        const noiseFilter = offlineCtx.createBiquadFilter();
-        noiseFilter.type = 'highpass';
-        noiseFilter.frequency.setValueAtTime(1500 * params.tone, time);
-
-        const noiseGain = offlineCtx.createGain();
-        const noiseAttackTime = 0.001 + (params.attack * 0.01);
-        noiseGain.gain.setValueAtTime(0, time);
-        noiseGain.gain.linearRampToValueAtTime(0.5, time + noiseAttackTime); // Reduced gain
-        noiseGain.gain.exponentialRampToValueAtTime(0.0001, time + duration);
-
-        noise.connect(noiseFilter);
-        noiseFilter.connect(noiseGain);
-        noiseGain.connect(offlineCtx.destination);
-        
-        osc1.start(time);
-        osc2.start(time);
-        noise.start(time);
-        osc1.stop(time + duration);
-        osc2.stop(time + duration);
-        noise.stop(time + duration);
 
         return await offlineCtx.startRendering();
     };
 
-    const renderHiHat = async (context: AudioContext | OfflineAudioContext, params: { pitch: number, decay: number }, noiseData: Float32Array): Promise<AudioBuffer> => {
-        const duration = 0.05 * params.decay;
+    const renderHiHat = async (context: AudioContext | OfflineAudioContext, params: { pitch: number, decay: number }, noiseData: Float32Array, drumKit: '808' | '909' | '727' = '808'): Promise<AudioBuffer> => {
+        const duration = drumKit === '727' ? 0.1 * params.decay : 0.05 * params.decay;
         const offlineCtx = new OfflineAudioContext(1, Math.ceil(context.sampleRate * duration), context.sampleRate);
         const time = 0;
 
-        const noise = offlineCtx.createBufferSource();
-        const bufferSize = Math.min(
-            Math.ceil(offlineCtx.sampleRate * duration),
-            noiseData.length
-        );
-        const buffer = offlineCtx.createBuffer(1, bufferSize, offlineCtx.sampleRate);
-        buffer.copyToChannel(noiseData.subarray(0, bufferSize), 0);
-        noise.buffer = buffer;
+        if (drumKit === '727') {
+            // Maracas style
+            const noise = offlineCtx.createBufferSource();
+            const bufferSize = Math.min(Math.ceil(offlineCtx.sampleRate * duration), noiseData.length);
+            const buffer = offlineCtx.createBuffer(1, bufferSize, offlineCtx.sampleRate);
+            buffer.copyToChannel(noiseData.subarray(0, bufferSize), 0);
+            noise.buffer = buffer;
 
-        const bandpass = offlineCtx.createBiquadFilter();
-        bandpass.type = "bandpass";
-        bandpass.frequency.setValueAtTime(10000 * params.pitch, time);
-        bandpass.Q.setValueAtTime(0.5, time);
-        
-        const highpass = offlineCtx.createBiquadFilter();
-        highpass.type = "highpass";
-        highpass.frequency.setValueAtTime(7000, time);
-        
-        const gain = offlineCtx.createGain();
-        gain.gain.setValueAtTime(0.8, time); // Reduced gain from 1
-        gain.gain.exponentialRampToValueAtTime(0.01, time + duration);
+            const bandpass = offlineCtx.createBiquadFilter();
+            bandpass.type = "bandpass";
+            bandpass.frequency.setValueAtTime(6000 * params.pitch, time);
+            bandpass.Q.setValueAtTime(1.5, time);
+            
+            const highpass = offlineCtx.createBiquadFilter();
+            highpass.type = "highpass";
+            highpass.frequency.setValueAtTime(4000, time);
+            
+            const gain = offlineCtx.createGain();
+            gain.gain.setValueAtTime(0, time);
+            gain.gain.linearRampToValueAtTime(0.6, time + 0.01);
+            gain.gain.exponentialRampToValueAtTime(0.01, time + duration);
 
-        noise.connect(bandpass);
-        bandpass.connect(highpass);
-        highpass.connect(gain);
-        gain.connect(offlineCtx.destination);
-        
-        noise.start(time);
-        noise.stop(time + duration);
+            noise.connect(bandpass);
+            bandpass.connect(highpass);
+            highpass.connect(gain);
+            gain.connect(offlineCtx.destination);
+            
+            noise.start(time);
+            noise.stop(time + duration);
+        } else if (drumKit === '909') {
+            // 909 HiHat (metallic, multiple oscillators)
+            const osc1 = offlineCtx.createOscillator();
+            const osc2 = offlineCtx.createOscillator();
+            const osc3 = offlineCtx.createOscillator();
+            osc1.type = 'square';
+            osc2.type = 'square';
+            osc3.type = 'square';
+            osc1.frequency.setValueAtTime(200 * params.pitch, time);
+            osc2.frequency.setValueAtTime(300 * params.pitch, time);
+            osc3.frequency.setValueAtTime(400 * params.pitch, time);
+
+            const bandpass = offlineCtx.createBiquadFilter();
+            bandpass.type = "bandpass";
+            bandpass.frequency.setValueAtTime(8000, time);
+            bandpass.Q.setValueAtTime(1.2, time);
+
+            const highpass = offlineCtx.createBiquadFilter();
+            highpass.type = "highpass";
+            highpass.frequency.setValueAtTime(7000, time);
+
+            const gain = offlineCtx.createGain();
+            gain.gain.setValueAtTime(0.8, time);
+            gain.gain.exponentialRampToValueAtTime(0.01, time + duration);
+
+            osc1.connect(bandpass);
+            osc2.connect(bandpass);
+            osc3.connect(bandpass);
+            bandpass.connect(highpass);
+            highpass.connect(gain);
+            gain.connect(offlineCtx.destination);
+
+            osc1.start(time);
+            osc2.start(time);
+            osc3.start(time);
+            osc1.stop(time + duration);
+            osc2.stop(time + duration);
+            osc3.stop(time + duration);
+        } else {
+            const noise = offlineCtx.createBufferSource();
+            const bufferSize = Math.min(
+                Math.ceil(offlineCtx.sampleRate * duration),
+                noiseData.length
+            );
+            const buffer = offlineCtx.createBuffer(1, bufferSize, offlineCtx.sampleRate);
+            buffer.copyToChannel(noiseData.subarray(0, bufferSize), 0);
+            noise.buffer = buffer;
+
+            const bandpass = offlineCtx.createBiquadFilter();
+            bandpass.type = "bandpass";
+            bandpass.frequency.setValueAtTime(10000 * params.pitch, time);
+            bandpass.Q.setValueAtTime(0.5, time);
+            
+            const highpass = offlineCtx.createBiquadFilter();
+            highpass.type = "highpass";
+            highpass.frequency.setValueAtTime(7000, time);
+            
+            const gain = offlineCtx.createGain();
+            gain.gain.setValueAtTime(0.8, time); // Reduced gain from 1
+            gain.gain.exponentialRampToValueAtTime(0.01, time + duration);
+
+            noise.connect(bandpass);
+            bandpass.connect(highpass);
+            highpass.connect(gain);
+            gain.connect(offlineCtx.destination);
+            
+            noise.start(time);
+            noise.stop(time + duration);
+        }
         return await offlineCtx.startRendering();
     };
 
@@ -548,77 +745,176 @@ export const useAudioEngine = () => {
         return await offlineCtx.startRendering();
     };
 
-    const renderClave = async (context: AudioContext | OfflineAudioContext, params: { pitch: number, decay: number }): Promise<AudioBuffer> => {
-        const duration = 0.1 * params.decay;
+    const renderClave = async (context: AudioContext | OfflineAudioContext, params: { pitch: number, decay: number }, drumKit: '808' | '909' | '727' = '808'): Promise<AudioBuffer> => {
+        const duration = drumKit === '727' ? 0.2 * params.decay : 0.1 * params.decay;
         const offlineCtx = new OfflineAudioContext(1, Math.ceil(context.sampleRate * duration), context.sampleRate);
         const time = 0;
         
-        const osc1 = offlineCtx.createOscillator();
-        const osc2 = offlineCtx.createOscillator();
-        osc1.type = 'sine';
-        osc2.type = 'sine';
-        osc1.frequency.setValueAtTime(2200 * params.pitch, time);
-        osc2.frequency.setValueAtTime(2215 * params.pitch, time);
-        
-        const gain = offlineCtx.createGain();
-        // Reduced gain to 0.5 to prevent clipping when oscillators are summed
-        gain.gain.setValueAtTime(0.5, time);
-        gain.gain.exponentialRampToValueAtTime(0.001, time + duration);
-        
-        osc1.connect(gain);
-        osc2.connect(gain);
-        gain.connect(offlineCtx.destination);
-        
-        osc1.start(time);
-        osc2.start(time);
-        osc1.stop(time + duration);
-        osc2.stop(time + duration);
+        if (drumKit === '727') {
+            // Agogo style
+            const osc1 = offlineCtx.createOscillator();
+            const osc2 = offlineCtx.createOscillator();
+            osc1.type = 'sine';
+            osc2.type = 'sine';
+            osc1.frequency.setValueAtTime(800 * params.pitch, time);
+            osc2.frequency.setValueAtTime(1200 * params.pitch, time);
+
+            const gainNode = offlineCtx.createGain();
+            gainNode.gain.setValueAtTime(0, time);
+            gainNode.gain.linearRampToValueAtTime(0.8, time + 0.005);
+            gainNode.gain.exponentialRampToValueAtTime(0.001, time + duration);
+
+            osc1.connect(gainNode);
+            osc2.connect(gainNode);
+            gainNode.connect(offlineCtx.destination);
+
+            osc1.start(time);
+            osc2.start(time);
+            osc1.stop(time + duration);
+            osc2.stop(time + duration);
+        } else if (drumKit === '909') {
+            // 909 Rimshot
+            const osc1 = offlineCtx.createOscillator();
+            const osc2 = offlineCtx.createOscillator();
+            const osc3 = offlineCtx.createOscillator();
+            osc1.type = 'sine';
+            osc2.type = 'sine';
+            osc3.type = 'sine';
+            osc1.frequency.setValueAtTime(1700 * params.pitch, time);
+            osc2.frequency.setValueAtTime(1800 * params.pitch, time);
+            osc3.frequency.setValueAtTime(1900 * params.pitch, time);
+
+            const gainNode = offlineCtx.createGain();
+            gainNode.gain.setValueAtTime(0, time);
+            gainNode.gain.linearRampToValueAtTime(0.9, time + 0.002);
+            gainNode.gain.exponentialRampToValueAtTime(0.001, time + duration);
+
+            osc1.connect(gainNode);
+            osc2.connect(gainNode);
+            osc3.connect(gainNode);
+            gainNode.connect(offlineCtx.destination);
+
+            osc1.start(time);
+            osc2.start(time);
+            osc3.start(time);
+            osc1.stop(time + duration);
+            osc2.stop(time + duration);
+            osc3.stop(time + duration);
+        } else {
+            const osc1 = offlineCtx.createOscillator();
+            const osc2 = offlineCtx.createOscillator();
+            osc1.type = 'sine';
+            osc2.type = 'sine';
+            osc1.frequency.setValueAtTime(2200 * params.pitch, time);
+            osc2.frequency.setValueAtTime(2215 * params.pitch, time);
+            
+            const gain = offlineCtx.createGain();
+            // Reduced gain to 0.5 to prevent clipping when oscillators are summed
+            gain.gain.setValueAtTime(0.5, time);
+            gain.gain.exponentialRampToValueAtTime(0.001, time + duration);
+            
+            osc1.connect(gain);
+            osc2.connect(gain);
+            gain.connect(offlineCtx.destination);
+            
+            osc1.start(time);
+            osc2.start(time);
+            osc1.stop(time + duration);
+            osc2.stop(time + duration);
+        }
         return await offlineCtx.startRendering();
     };
     
-    const renderCowbell = async (context: AudioContext | OfflineAudioContext, params: { pitch: number, decay: number, attack: number }): Promise<AudioBuffer> => {
-        const duration = 0.5 * params.decay;
+    const renderCowbell = async (context: AudioContext | OfflineAudioContext, params: { pitch: number, decay: number, attack: number }, drumKit: '808' | '909' | '727' = '808'): Promise<AudioBuffer> => {
+        const duration = drumKit === '727' ? 0.3 * params.decay : 0.5 * params.decay;
         const offlineCtx = new OfflineAudioContext(1, Math.ceil(context.sampleRate * duration), context.sampleRate);
         const time = 0;
         
-        const osc1 = offlineCtx.createOscillator();
-        const osc2 = offlineCtx.createOscillator();
-        osc1.type = 'square';
-        osc2.type = 'square';
-        osc1.frequency.value = 540 * params.pitch;
-        osc2.frequency.value = 810 * params.pitch;
-        
-        const lowpass = offlineCtx.createBiquadFilter();
-        lowpass.type = 'lowpass';
-        lowpass.frequency.value = 6000;
-        
-        const bandpass = offlineCtx.createBiquadFilter();
-        bandpass.type = 'bandpass';
-        bandpass.frequency.value = 1200 * params.pitch;
-        bandpass.Q.value = 1.2;
-        
-        const gain = offlineCtx.createGain();
-        const attackTime = 0.001 + params.attack * 0.01;
-        gain.gain.setValueAtTime(0, time);
-        // Reduced peak gain to 0.5 to prevent clipping from summed square waves
-        gain.gain.linearRampToValueAtTime(0.5, time + attackTime);
-        gain.gain.exponentialRampToValueAtTime(0.0001, time + duration);
-        
-        osc1.connect(lowpass);
-        osc2.connect(lowpass);
-        lowpass.connect(bandpass);
-        bandpass.connect(gain);
-        gain.connect(offlineCtx.destination);
-        
-        osc1.start(time);
-        osc2.start(time);
-        osc1.stop(time + duration);
-        osc2.stop(time + duration);
+        if (drumKit === '727') {
+            // Whistle style
+            const osc = offlineCtx.createOscillator();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(2000 * params.pitch, time);
+            osc.frequency.linearRampToValueAtTime(2200 * params.pitch, time + 0.1);
+
+            const gainNode = offlineCtx.createGain();
+            gainNode.gain.setValueAtTime(0, time);
+            gainNode.gain.linearRampToValueAtTime(0.7, time + 0.05);
+            gainNode.gain.exponentialRampToValueAtTime(0.001, time + duration);
+
+            osc.connect(gainNode);
+            gainNode.connect(offlineCtx.destination);
+
+            osc.start(time);
+            osc.stop(time + duration);
+        } else if (drumKit === '909') {
+            // 909 Crash (simplified)
+            const osc1 = offlineCtx.createOscillator();
+            const osc2 = offlineCtx.createOscillator();
+            osc1.type = 'square';
+            osc2.type = 'square';
+            osc1.frequency.setValueAtTime(300 * params.pitch, time);
+            osc2.frequency.setValueAtTime(450 * params.pitch, time);
+
+            const bandpass = offlineCtx.createBiquadFilter();
+            bandpass.type = 'bandpass';
+            bandpass.frequency.setValueAtTime(6000, time);
+            bandpass.Q.value = 1.5;
+
+            const gainNode = offlineCtx.createGain();
+            gainNode.gain.setValueAtTime(0, time);
+            gainNode.gain.linearRampToValueAtTime(0.8, time + 0.01);
+            gainNode.gain.exponentialRampToValueAtTime(0.001, time + duration);
+
+            osc1.connect(bandpass);
+            osc2.connect(bandpass);
+            bandpass.connect(gainNode);
+            gainNode.connect(offlineCtx.destination);
+
+            osc1.start(time);
+            osc2.start(time);
+            osc1.stop(time + duration);
+            osc2.stop(time + duration);
+        } else {
+            const osc1 = offlineCtx.createOscillator();
+            const osc2 = offlineCtx.createOscillator();
+            osc1.type = 'square';
+            osc2.type = 'square';
+            osc1.frequency.value = 540 * params.pitch;
+            osc2.frequency.value = 810 * params.pitch;
+            
+            const lowpass = offlineCtx.createBiquadFilter();
+            lowpass.type = 'lowpass';
+            lowpass.frequency.value = 6000;
+            
+            const bandpass = offlineCtx.createBiquadFilter();
+            bandpass.type = 'bandpass';
+            bandpass.frequency.value = 1200 * params.pitch;
+            bandpass.Q.value = 1.2;
+            
+            const gain = offlineCtx.createGain();
+            const attackTime = 0.001 + params.attack * 0.01;
+            gain.gain.setValueAtTime(0, time);
+            // Reduced peak gain to 0.5 to prevent clipping from summed square waves
+            gain.gain.linearRampToValueAtTime(0.5, time + attackTime);
+            gain.gain.exponentialRampToValueAtTime(0.0001, time + duration);
+            
+            osc1.connect(lowpass);
+            osc2.connect(lowpass);
+            lowpass.connect(bandpass);
+            bandpass.connect(gain);
+            gain.connect(offlineCtx.destination);
+            
+            osc1.start(time);
+            osc2.start(time);
+            osc1.stop(time + duration);
+            osc2.stop(time + duration);
+        }
         return await offlineCtx.startRendering();
     };
 
 
-    const setup = useCallback(async (kickDesignerParams: KickDesignerParams): Promise<{ analysers: AllAnalyserNodes, context: AudioContext } | null> => {
+    const setup = useCallback(async (kickDesignerParams: KickDesignerParams, drumKit: '808' | '909' | '727' = '808'): Promise<{ analysers: AllAnalyserNodes, context: AudioContext } | null> => {
         if (!audioContextRef.current) {
             try {
                 const context = new (window.AudioContext || (window as any).webkitAudioContext)();
@@ -1021,12 +1317,12 @@ export const useAudioEngine = () => {
                     snapBuffer, claveBuffer, cowbellBuffer
                 ] = await Promise.all([
                     renderAirhorn(context),
-                    renderKick(context, kickDesignerParams, noiseBufferDataRef.current!),
-                    renderSnare(context, snare as { tone: number, decay: number, attack: number }, noiseBufferDataRef.current!),
-                    renderHiHat(context, hihat as { pitch: number, decay: number }, noiseBufferDataRef.current!),
-                    renderSnap(context, snap as { pitch: number, decay: number, attack: number }, noiseBufferDataRef.current!),
-                    renderClave(context, clave as { pitch: number, decay: number }),
-                    renderCowbell(context, cowbell as { pitch: number, decay: number, attack: number }),
+                    renderKick(context, kickDesignerParams, noiseBufferDataRef.current!, drumKit),
+                    renderSnare(context, snare as { tone: number, decay: number, attack: number }, noiseBufferDataRef.current!, drumKit),
+                    renderHiHat(context, hihat as { pitch: number, decay: number }, noiseBufferDataRef.current!, drumKit),
+                    renderSnap(context, snap as { pitch: number, decay: number, attack: number }, noiseBufferDataRef.current!, drumKit),
+                    renderClave(context, clave as { pitch: number, decay: number }, drumKit),
+                    renderCowbell(context, cowbell as { pitch: number, decay: number, attack: number }, drumKit),
                 ]);
 
                 airhornBufferRef.current = airhornBuffer;
@@ -1081,7 +1377,7 @@ export const useAudioEngine = () => {
         if (instrument === 'sample') {
             if (sampleSourceRef.current) {
                 try {
-                    sampleSourceRef.current.stop();
+                    sampleSourceRef.current.stop(playTime);
                 } catch (e) {
                     // Ignore error if already stopped
                 }
@@ -1575,7 +1871,7 @@ export const useAudioEngine = () => {
         return wavBlob;
     }, [instrumentParamsRef]);
 
-    const updateInstrumentParameter = useCallback(async (instrument: Instrument, param: keyof InstrumentParams, value: number) => {
+    const updateInstrumentParameter = useCallback(async (instrument: Instrument, param: keyof InstrumentParams, value: number, drumKit: '808' | '909' | '727' = '808') => {
         if (instrument === 'kick') return; // Kick is handled separately by rerenderKick
 
         const context = audioContextRef.current;
@@ -1614,24 +1910,24 @@ export const useAudioEngine = () => {
             switch (instrument) {
                 case 'snare':
                     if (noiseBufferDataRef.current) {
-                        newBuffer = await renderSnare(context, currentParams.snare as { tone: number; decay: number; attack: number; }, noiseBufferDataRef.current);
+                        newBuffer = await renderSnare(context, currentParams.snare as { tone: number; decay: number; attack: number; }, noiseBufferDataRef.current, drumKit);
                     }
                     break;
                 case 'hihat':
                     if (noiseBufferDataRef.current) {
-                        newBuffer = await renderHiHat(context, currentParams.hihat as { pitch: number, decay: number }, noiseBufferDataRef.current);
+                        newBuffer = await renderHiHat(context, currentParams.hihat as { pitch: number, decay: number }, noiseBufferDataRef.current, drumKit);
                     }
                     break;
                 case 'snap':
                     if (noiseBufferDataRef.current) {
-                        newBuffer = await renderSnap(context, currentParams.snap as { pitch: number, decay: number, attack: number }, noiseBufferDataRef.current);
+                        newBuffer = await renderSnap(context, currentParams.snap as { pitch: number, decay: number, attack: number }, noiseBufferDataRef.current, drumKit);
                     }
                     break;
                 case 'clave':
-                    newBuffer = await renderClave(context, currentParams.clave as { pitch: number, decay: number });
+                    newBuffer = await renderClave(context, currentParams.clave as { pitch: number, decay: number }, drumKit);
                     break;
                 case 'cowbell':
-                    newBuffer = await renderCowbell(context, currentParams.cowbell as { pitch: number, decay: number, attack: number });
+                    newBuffer = await renderCowbell(context, currentParams.cowbell as { pitch: number, decay: number, attack: number }, drumKit);
                     break;
             }
         } catch (error) {
@@ -1643,14 +1939,40 @@ export const useAudioEngine = () => {
         }
     }, []);
     
-    const rerenderKick = useCallback(async (kickDesignerParams: KickDesignerParams) => {
+    const rerenderKick = useCallback(async (kickDesignerParams: KickDesignerParams, drumKit: '808' | '909' | '727' = '808') => {
         const context = audioContextRef.current;
         if (!context || !noiseBufferDataRef.current) return;
         try {
-            const newBuffer = await renderKick(context, kickDesignerParams, noiseBufferDataRef.current);
+            const newBuffer = await renderKick(context, kickDesignerParams, noiseBufferDataRef.current, drumKit);
             instrumentBuffersRef.current.kick = newBuffer;
         } catch (error) {
             console.error(`Error re-rendering kick:`, error);
+        }
+    }, []);
+
+    const rerenderAllInstruments = useCallback(async (kickDesignerParams: KickDesignerParams, drumKit: '808' | '909' | '727') => {
+        const context = audioContextRef.current;
+        if (!context || !noiseBufferDataRef.current) return;
+        
+        const currentParams = instrumentParamsRef.current;
+        try {
+            const [kickBuffer, snareBuffer, hihatBuffer, snapBuffer, claveBuffer, cowbellBuffer] = await Promise.all([
+                renderKick(context, kickDesignerParams, noiseBufferDataRef.current, drumKit),
+                renderSnare(context, currentParams.snare as { tone: number; decay: number; attack: number; }, noiseBufferDataRef.current, drumKit),
+                renderHiHat(context, currentParams.hihat as { pitch: number, decay: number }, noiseBufferDataRef.current, drumKit),
+                renderSnap(context, currentParams.snap as { pitch: number, decay: number, attack: number }, noiseBufferDataRef.current, drumKit),
+                renderClave(context, currentParams.clave as { pitch: number, decay: number }, drumKit),
+                renderCowbell(context, currentParams.cowbell as { pitch: number, decay: number, attack: number }, drumKit)
+            ]);
+
+            instrumentBuffersRef.current.kick = kickBuffer;
+            instrumentBuffersRef.current.snare = snareBuffer;
+            instrumentBuffersRef.current.hihat = hihatBuffer;
+            instrumentBuffersRef.current.snap = snapBuffer;
+            instrumentBuffersRef.current.clave = claveBuffer;
+            instrumentBuffersRef.current.cowbell = cowbellBuffer;
+        } catch (error) {
+            console.error("Error re-rendering all instruments:", error);
         }
     }, []);
 
@@ -1931,7 +2253,7 @@ export const useAudioEngine = () => {
     }, []);
 
     return {
-        setup, playKick, playSnare, playHiHat, playSnap, playClave, playCowbell, playSample, startRecording, stopRecording, getRecordedAudioData, setSampleAudioData, renderBeatToBuffer, updateInstrumentParameter, rerenderKick,
+        setup, playKick, playSnare, playHiHat, playSnap, playClave, playCowbell, playSample, startRecording, stopRecording, getRecordedAudioData, setSampleAudioData, renderBeatToBuffer, updateInstrumentParameter, rerenderKick, rerenderAllInstruments,
         setLowPassFrequency, setHighPassFrequency, setReverbMix, setReverbDecay, setReverbSource, setDelayMix, setDelayTime, setDelayFeedback, setDelaySource, setKickSidechainAmount,
         setMasterVolume, setCrushAmount, setTapeSaturationMix, setTapeSaturationAmount, setTapeSaturationTone,
         setEnvelopeFilterMix, setEnvelopeFilterAmount, setEnvelopeFilterBaseFreq, setEnvelopeFilterQ,

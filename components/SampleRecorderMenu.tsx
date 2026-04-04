@@ -29,6 +29,7 @@ const SampleRecorderMenu: React.FC<SampleRecorderMenuProps> = ({
 }) => {
     const [isRecording, setIsRecording] = useState(false);
     const [fullAudioData, setFullAudioData] = useState<Float32Array>(new Float32Array(0));
+    const [originalAudioData, setOriginalAudioData] = useState<Float32Array>(new Float32Array(0));
     const [trimRange, setTrimRange] = useState({ start: 0, end: 1 });
     const [message, setMessage] = useState<string | null>(null);
     const recordingTimeoutRef = React.useRef<number | null>(null);
@@ -51,7 +52,9 @@ const SampleRecorderMenu: React.FC<SampleRecorderMenuProps> = ({
             const arrayBuffer = await file.arrayBuffer();
             const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
             const channelData = audioBuffer.getChannelData(0);
-            setFullAudioData(new Float32Array(channelData));
+            const data = new Float32Array(channelData);
+            setFullAudioData(data);
+            setOriginalAudioData(data);
             setTrimRange({ start: 0, end: 1 });
             setMessage("Sample loaded.");
             setTimeout(() => setMessage(null), 3000);
@@ -74,7 +77,7 @@ const SampleRecorderMenu: React.FC<SampleRecorderMenuProps> = ({
                 if (data.length > 0) {
                     setFullAudioData(data);
                 }
-            }, 100);
+            }, 250);
         }
         return () => {
             if (intervalId) window.clearInterval(intervalId);
@@ -86,6 +89,7 @@ const SampleRecorderMenu: React.FC<SampleRecorderMenuProps> = ({
         stopRecording();
         setIsRecording(false);
         setFullAudioData(data);
+        setOriginalAudioData(data);
         setTrimRange({ start: 0, end: 1 });
         if (recordingTimeoutRef.current) {
             window.clearTimeout(recordingTimeoutRef.current);
@@ -166,6 +170,14 @@ const SampleRecorderMenu: React.FC<SampleRecorderMenuProps> = ({
         setFullAudioData(reversed);
         setTrimRange({ start: 0, end: 1 });
         setMessage("Audio reversed.");
+        setTimeout(() => setMessage(null), 3000);
+    };
+
+    const handleRevert = () => {
+        if (originalAudioData.length === 0) return;
+        setFullAudioData(originalAudioData);
+        setTrimRange({ start: 0, end: 1 });
+        setMessage("Reverted to original recording.");
         setTimeout(() => setMessage(null), 3000);
     };
 
@@ -331,6 +343,12 @@ const SampleRecorderMenu: React.FC<SampleRecorderMenuProps> = ({
                             className={getButtonStyle(visualizerStyle, 'secondary', false, false, 'flex-1 px-4 py-2 text-xs')}
                         >
                             FADE IN
+                        </button>
+                        <button
+                            onClick={handleRevert}
+                            className={getButtonStyle(visualizerStyle, 'secondary', false, false, 'flex-1 px-4 py-2 text-xs')}
+                        >
+                            REVERT
                         </button>
                         <button
                             onClick={() => playSample(1)}

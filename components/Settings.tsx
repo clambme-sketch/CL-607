@@ -9,6 +9,8 @@ interface SettingsProps {
     onVisualizerChange: (type: VisualizerType) => void;
     visualizerStyle: VisualizerStyle;
     onVisualizerStyleChange: (style: VisualizerStyle) => void;
+    drumKit: '808' | '909' | '727';
+    onDrumKitChange: (kit: '808' | '909' | '727') => void;
     onShiftPattern: (direction: 'left' | 'right') => void;
     isPerformanceMode: boolean;
     onTogglePerformanceMode: () => void;
@@ -74,6 +76,8 @@ const Settings: React.FC<SettingsProps> = ({
     onVisualizerChange, 
     visualizerStyle,
     onVisualizerStyleChange,
+    drumKit,
+    onDrumKitChange,
     onShiftPattern, 
     isPerformanceMode, 
     onTogglePerformanceMode, 
@@ -252,6 +256,35 @@ const Settings: React.FC<SettingsProps> = ({
                                         checked={visualizerStyle === 'cyberpunk'}
                                         onChange={onVisualizerStyleChange}
                                         label="Cyberpunk"
+                                    />
+                                </div>
+                            </div>
+                            <div className="flex flex-col gap-3">
+                                <h4 className="font-bold text-xs text-gray-400 uppercase tracking-wider">Drum Kit</h4>
+                                <div className="flex flex-col gap-2">
+                                    <RadioButton
+                                        type="drumKit"
+                                        id="kit-808"
+                                        value="808"
+                                        checked={drumKit === '808'}
+                                        onChange={onDrumKitChange}
+                                        label="Classic 808"
+                                    />
+                                    <RadioButton
+                                        type="drumKit"
+                                        id="kit-909"
+                                        value="909"
+                                        checked={drumKit === '909'}
+                                        onChange={onDrumKitChange}
+                                        label="Roland 909"
+                                    />
+                                    <RadioButton
+                                        type="drumKit"
+                                        id="kit-727"
+                                        value="727"
+                                        checked={drumKit === '727'}
+                                        onChange={onDrumKitChange}
+                                        label="Roland 727 (Latin)"
                                     />
                                 </div>
                             </div>
