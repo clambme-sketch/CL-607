@@ -3,239 +3,507 @@ import { Grid } from '../types';
 import { INSTRUMENTS, INSTRUMENT_LABELS } from '../constants';
 
 // --- VISUAL CONSTANTS ---
-const VIEWBOX_WIDTH = 1000;
-const VIEWBOX_HEIGHT = 400;
-const STAFF_HEIGHT = VIEWBOX_HEIGHT / INSTRUMENTS.length;
-const START_X = 40;
-const END_X = VIEWBOX_WIDTH - 20;
-const STAFF_WIDTH = END_X - START_X;
+const VIEWBOX_WIDTH = 1060;
+const TOP_PADDING = 28;
+const BOTTOM_PADDING = 12;
+const STAFF_HEIGHT = 58;
+const VIEWBOX_HEIGHT = TOP_PADDING + STAFF_HEIGHT * INSTRUMENTS.length + BOTTOM_PADDING;
 
-const NOTE_COLOR = "var(--note-color)";
-const STAFF_COLOR = "var(--staff-color)";
+const START_X = 96;
+const END_X = VIEWBOX_WIDTH - 24;
+const CLEF_AND_TIMESIG_WIDTH = 64;
+const NOTES_START_X = START_X + CLEF_AND_TIMESIG_WIDTH;
+const NOTES_END_X = END_X - 18;
+const NOTES_WIDTH = NOTES_END_X - NOTES_START_X;
 
-// New constants for improved note shapes
-const STEM_HEIGHT = 28; // Slightly longer stems
-const STEM_WIDTH = 1.5;
-const NOTE_HEAD_PATH = "M-5.2,1.5 C -6.2,5.5 1.8,6 4.2,2.5 C 5.2,-1.5 -0.8,-2 -3.2,1.5 Z"; // A more calligraphic note head shape
-const STEM_X_OFFSET = 4.2; // The x-position of the stem relative to the note's center, based on the path above.
+const NOTE_COLOR = 'var(--note-color)';
+const STAFF_COLOR = 'var(--staff-color)';
 
-// --- Rhythmic Parsing Logic ---
+// Note & Stem Geometry
+const STEM_HEIGHT = 25;
+const STEM_WIDTH = 1.65;
+const STEM_X_OFFSET = 4.6;
+const BEAM_THICKNESS = 3.6;
+const BEAM_SPACING = 5.6;
 
-type NoteElement = { type: 'note'; step: number; color: string; duration: '16n' | '8n' | 'qn' | '8nd'; };
-type RestElement = { type: 'rest'; step: number; duration: '16r' | '8r' | 'qr' | 'hr' | 'wr' | '8rd'; };
+// --- Rhythmic Parsing Types ---
+type NoteDuration = '16n' | '8n' | '8nd' | 'qn';
+type RestDuration = '16r' | '8r' | '8rd' | 'qr' | 'wr';
+
+interface NoteElement {
+    type: 'note';
+    step: number;
+    color: string;
+    duration: NoteDuration;
+}
+
+interface RestElement {
+    type: 'rest';
+    step: number;
+    duration: RestDuration;
+}
+
 type NotationElement = NoteElement | RestElement;
-type Beam = { startStep: number; endStep: number; y: number; };
 
-// This is the core logic. It converts a raw boolean grid into musically correct notation.
-const parseGridToNotation = (grid: boolean[], color: string, beatsPerMeasure: number): { notation: NotationElement[], beams: Beam[] } => {
+interface SecondaryBeamSegment {
+    startStep: number;
+    endStep: number;
+    stubDirection?: 'left' | 'right';
+}
+
+interface BeamGroup {
+    startStep: number;
+    endStep: number;
+    secondarySegments: SecondaryBeamSegment[];
+}
+
+/**
+ * Converts a boolean step grid for one instrument into standard engraved percussion notation.
+ * Evaluates each 4-step (16th-note) beat cell so every rhythm combination (all 16 per beat)
+ * produces authentic notation with proper note durations, rests, dots, and beam groupings.
+ */
+const parseGridToNotation = (
+    grid: boolean[],
+    color: string,
+    beatsPerMeasure: number
+): { notation: NotationElement[]; beams: BeamGroup[]; beamedSteps: Set<number> } => {
     const numSteps = beatsPerMeasure * 4;
-    
-    // Rule: Whole note rest for an entirely empty track
-    if (!grid.some(step => step)) {
-        return { notation: [{ type: 'rest', step: 0, duration: 'wr' }], beams: [] };
+    const activeSlice = grid.slice(0, numSteps);
+
+    // Entire measure empty -> single centered Whole Rest
+    if (!activeSlice.some(Boolean)) {
+        return {
+            notation: [{ type: 'rest', step: 0, duration: 'wr' }],
+            beams: [],
+            beamedSteps: new Set<number>(),
+        };
     }
 
     const notation: NotationElement[] = [];
-    let i = 0;
-    while (i < numSteps) {
-        const b = (step: number) => grid[step] || false;
+    const beams: BeamGroup[] = [];
+    const beamedSteps = new Set<number>();
 
-        const isFirstStepOfBeat = i % 4 === 0;
+    for (let beat = 0; beat < beatsPerMeasure; beat++) {
+        const beatStart = beat * 4;
+        const activeOffsets: number[] = [];
 
-        // Apply special beat-level rules only at the start of a beat.
-        if (isFirstStepOfBeat) {
-             // NEW RULE: Dotted eighth note + sixteenth note (e.g., x . . x)
-            if (b(i) && !b(i+1) && !b(i+2) && b(i+3)) {
-                notation.push({ type: 'note', step: i, duration: '8nd', color });
-                notation.push({ type: 'note', step: i+3, duration: '16n', color });
-                i += 4;
-                continue;
-            }
-
-            // NEW RULE: Dotted eighth rest + sixteenth note (e.g., . . . x)
-            if (!b(i) && !b(i+1) && !b(i+2) && b(i+3)) {
-                notation.push({ type: 'rest', step: i, duration: '8rd' });
-                notation.push({ type: 'note', step: i+3, duration: '16n', color });
-                i += 4;
-                continue;
-            }
-            
-            // Rule: Full beat rest
-            if (!b(i) && !b(i + 1) && !b(i + 2) && !b(i + 3)) {
-                notation.push({ type: 'rest', step: i, duration: 'qr' });
-                i += 4;
-                continue;
-            }
-            // Rule: Single note on downbeat is a quarter note
-            if (b(i) && !b(i + 1) && !b(i + 2) && !b(i + 3)) {
-                notation.push({ type: 'note', step: i, duration: 'qn', color });
-                i += 4;
-                continue;
-            }
-            // Rule: Eighth rest + eighth note for a note on step 3 of the beat
-            if (!b(i) && !b(i + 1) && b(i + 2) && !b(i + 3)) {
-                notation.push({ type: 'rest', step: i, duration: '8r' });
-                notation.push({ type: 'note', step: i + 2, duration: '8n', color });
-                i += 4;
-                continue;
+        for (let offset = 0; offset < 4; offset++) {
+            if (grid[beatStart + offset]) {
+                activeOffsets.push(offset);
             }
         }
 
-        // --- Fallback grouping for more complex rhythms ---
-        
-        // If we find two consecutive rests on a strong beat division, group them into an eighth rest.
-        if (!b(i) && !b(i + 1) && (i % 2 === 0)) {
-            notation.push({ type: 'rest', step: i, duration: '8r' });
-            i += 2;
+        // 1. Full beat of silence -> Quarter Rest
+        if (activeOffsets.length === 0) {
+            notation.push({ type: 'rest', step: beatStart, duration: 'qr' });
             continue;
         }
 
-        // Default to 16th notes or rests for everything else.
-        if (b(i)) {
-            notation.push({ type: 'note', step: i, duration: '16n', color });
-        } else {
-            notation.push({ type: 'rest', step: i, duration: '16r' });
+        // Special case: single hit on the "e" of the beat ([false, true, false, false])
+        // Engraved as: 16th rest (downbeat), 16th note ("e"), 8th rest ("&")
+        if (activeOffsets.length === 1 && activeOffsets[0] === 1) {
+            notation.push({ type: 'rest', step: beatStart, duration: '16r' });
+            notation.push({ type: 'note', step: beatStart + 1, color, duration: '16n' });
+            notation.push({ type: 'rest', step: beatStart + 2, duration: '8r' });
+            continue;
         }
-        i++;
-    }
 
-    // --- Beaming logic: group consecutive 16th notes within each beat ---
-    const beams: Beam[] = [];
-    for (let beat = 0; beat < beatsPerMeasure; beat++) {
-        const beatStart = beat * 4;
-        const beatEnd = beatStart + 3;
-        
-        let currentBeam: NoteElement[] = [];
-        const notesInBeat = notation.filter(el => el.type === 'note' && (el.duration === '16n' || el.duration === '8nd') && el.step >= beatStart && el.step <= beatEnd) as NoteElement[];
-        
-        for (let j = 0; j < notesInBeat.length; j++) {
-            const note = notesInBeat[j];
-            const nextNote = notesInBeat[j+1];
+        // 2. Leading silence before the first hit in this beat
+        const firstOffset = activeOffsets[0];
+        if (firstOffset === 1) {
+            notation.push({ type: 'rest', step: beatStart, duration: '16r' });
+        } else if (firstOffset === 2) {
+            notation.push({ type: 'rest', step: beatStart, duration: '8r' });
+        } else if (firstOffset === 3) {
+            notation.push({ type: 'rest', step: beatStart, duration: '8rd' });
+        }
 
-            // A dotted eighth note connects to a following 16th note.
-            if (note.duration === '8nd' && nextNote && nextNote.duration === '16n' && nextNote.step === note.step + 3) {
-                beams.push({
-                    startStep: note.step,
-                    endStep: nextNote.step,
-                    y: 0,
-                });
-                continue; // Skip to next note after creating the beam
-            }
-            
-            // Standard 16th note beaming
-            if (note.duration === '16n' && nextNote && nextNote.duration === '16n' && nextNote.step === note.step + 1) {
-                if(currentBeam.length === 0) currentBeam.push(note);
-                currentBeam.push(nextNote);
+        // 3. Emit notes within the beat (each sustains until the next hit in the beat or beat end)
+        const beatNotes: NoteElement[] = [];
+        for (let idx = 0; idx < activeOffsets.length; idx++) {
+            const currentOffset = activeOffsets[idx];
+            const nextOffset = idx + 1 < activeOffsets.length ? activeOffsets[idx + 1] : 4;
+            const spanSteps = nextOffset - currentOffset;
+
+            let duration: NoteDuration;
+            if (spanSteps === 4) {
+                duration = 'qn';
+            } else if (spanSteps === 3) {
+                duration = '8nd';
+            } else if (spanSteps === 2) {
+                duration = '8n';
             } else {
-                if (currentBeam.length > 1) {
-                    beams.push({
-                        startStep: currentBeam[0].step,
-                        endStep: currentBeam[currentBeam.length - 1].step,
-                        y: 0,
-                    });
-                }
-                currentBeam = [];
+                duration = '16n';
             }
+
+            const noteEl: NoteElement = {
+                type: 'note',
+                step: beatStart + currentOffset,
+                color,
+                duration,
+            };
+            notation.push(noteEl);
+            beatNotes.push(noteEl);
         }
-        if (currentBeam.length > 1) {
+
+        // 4. Build beam group if there are 2 or more notes in this beat
+        if (beatNotes.length >= 2) {
+            beatNotes.forEach(n => beamedSteps.add(n.step));
+
+            const secondarySegments: SecondaryBeamSegment[] = [];
+            let i = 0;
+            while (i < beatNotes.length) {
+                if (beatNotes[i].duration === '16n') {
+                    let j = i;
+                    while (j + 1 < beatNotes.length && beatNotes[j + 1].duration === '16n') {
+                        j++;
+                    }
+                    if (j > i) {
+                        // Connected 16th notes share a continuous secondary beam
+                        secondarySegments.push({
+                            startStep: beatNotes[i].step,
+                            endStep: beatNotes[j].step,
+                        });
+                    } else {
+                        // Isolated 16th note within a beamed group gets a fractional stub beam pointing inward
+                        const stubDirection = i === 0 ? 'right' : 'left';
+                        secondarySegments.push({
+                            startStep: beatNotes[i].step,
+                            endStep: beatNotes[i].step,
+                            stubDirection,
+                        });
+                    }
+                    i = j + 1;
+                } else {
+                    i++;
+                }
+            }
+
             beams.push({
-                startStep: currentBeam[0].step,
-                endStep: currentBeam[currentBeam.length - 1].step,
-                y: 0,
+                startStep: beatNotes[0].step,
+                endStep: beatNotes[beatNotes.length - 1].step,
+                secondarySegments,
             });
         }
     }
 
-    return { notation, beams };
+    return { notation, beams, beamedSteps };
 };
 
-// --- SVG Components (High Quality Paths) ---
+// --- Engraved SVG Subcomponents ---
 
-const PercussionClef: React.FC<{ y: number }> = ({ y }) => (
-    <g transform={`translate(5, ${y}) scale(0.8)`}>
-        <path d="M0 -15 L0 15" stroke={STAFF_COLOR} strokeWidth="3" />
-        <path d="M-5 -10 L10 -10 M-5 10 L10 10" stroke={STAFF_COLOR} strokeWidth="5" />
+const PercussionClef: React.FC<{ x: number; y: number }> = ({ x, y }) => (
+    <g transform={`translate(${x}, ${y})`}>
+        <rect x="-3.5" y="-10" width="2.4" height="20" fill={STAFF_COLOR} rx="0.5" />
+        <rect x="1.5" y="-10" width="2.4" height="20" fill={STAFF_COLOR} rx="0.5" />
     </g>
 );
 
-const Note: React.FC<{ x: number; y: number; color: string; duration: '16n' | '8n' | 'qn' | '8nd'; flagged: boolean }> = ({ x, y, color, duration, flagged }) => {
+const TimeSignature: React.FC<{ x: number; y: number; beats: number }> = ({ x, y, beats }) => (
+    <g transform={`translate(${x}, ${y})`} fill={STAFF_COLOR} className="select-none">
+        <text
+            x="0"
+            y="-3"
+            fontSize="13"
+            fontWeight="800"
+            fontFamily="Georgia, serif"
+            textAnchor="middle"
+        >
+            {beats}
+        </text>
+        <text
+            x="0"
+            y="11"
+            fontSize="13"
+            fontWeight="800"
+            fontFamily="Georgia, serif"
+            textAnchor="middle"
+        >
+            4
+        </text>
+    </g>
+);
+
+const AugmentationDot: React.FC<{ cx: number; cy: number; fill: string }> = ({ cx, cy, fill }) => (
+    <circle
+        cx={cx}
+        cy={cy}
+        r="2.35"
+        fill={fill}
+        stroke="rgba(0,0,0,0.25)"
+        strokeWidth="0.5"
+    />
+);
+
+const Note: React.FC<{
+    x: number;
+    y: number;
+    color: string;
+    duration: NoteDuration;
+    flagged: boolean;
+}> = ({ x, y, color, duration, flagged }) => {
     const isDotted = duration === '8nd';
     const baseDuration = isDotted ? '8n' : duration;
+    const stemX = x + STEM_X_OFFSET;
+    const stemTopY = y - STEM_HEIGHT;
 
     return (
         <g>
-            <path d={NOTE_HEAD_PATH} transform={`translate(${x}, ${y})`} fill={color} />
-            {isDotted && <circle cx={x + 10} cy={y + 3} r="2" fill={NOTE_COLOR} />}
-            <line x1={x + STEM_X_OFFSET} y1={y} x2={x + STEM_X_OFFSET} y2={y - STEM_HEIGHT} stroke={NOTE_COLOR} strokeWidth={STEM_WIDTH} />
-            
-            {/* Single flag for 8th notes */}
+            {/* Stem */}
+            <line
+                x1={stemX}
+                y1={y - 1}
+                x2={stemX}
+                y2={stemTopY}
+                stroke={NOTE_COLOR}
+                strokeWidth={STEM_WIDTH}
+                strokeLinecap="butt"
+            />
+
+            {/* Engraved Tilted Oval Notehead */}
+            <ellipse
+                cx="0"
+                cy="0"
+                rx="5.7"
+                ry="3.9"
+                transform={`translate(${x}, ${y}) rotate(-28)`}
+                fill={color}
+            />
+
+            {/* Augmentation Dot for Dotted Notes (placed in upper space above the staff line) */}
+            {isDotted && (
+                <AugmentationDot cx={x + 11.5} cy={y - 5.2} fill={color} />
+            )}
+
+            {/* Engraved Calligraphic Single Flag (8th Note) */}
             {flagged && baseDuration === '8n' && (
                 <path
-                    d="M0,0 C 5,2 9,6 5,16 C 8,13 8,6 0,3"
+                    d="M 0,0
+                       C 0.5,2.2 4.2,4.2 6.8,7.4
+                       C 9.2,10.4 9.6,14.5 7.4,18.8
+                       C 6.9,19.6 6.2,19.3 6.5,18.4
+                       C 7.8,14.6 7.1,11.0 4.5,8.4
+                       C 2.8,6.7 1.2,5.8 0,5.4 Z"
                     fill={NOTE_COLOR}
-                    transform={`translate(${x + STEM_X_OFFSET}, ${y - STEM_HEIGHT})`}
+                    transform={`translate(${stemX - 0.3}, ${stemTopY})`}
                 />
             )}
-            
-            {/* Double flag for 16th notes */}
+
+            {/* Engraved Calligraphic Double Flag (16th Note) */}
             {flagged && baseDuration === '16n' && (
-                <path
-                    d="M0,0 C 5,2 9,6 5,16 C 8,13 8,6 0,3 M0,7 C 5,9 9,13 5,23 C 8,20 8,13 0,10"
-                    fill={NOTE_COLOR}
-                    transform={`translate(${x + STEM_X_OFFSET}, ${y - STEM_HEIGHT})`}
-                />
+                <g transform={`translate(${stemX - 0.3}, ${stemTopY})`} fill={NOTE_COLOR}>
+                    <path
+                        d="M 0,0
+                           C 0.5,2.0 4.2,3.8 6.8,6.8
+                           C 9.0,9.4 9.4,13.0 7.5,16.8
+                           C 7.0,17.5 6.3,17.2 6.6,16.4
+                           C 7.8,13.0 7.1,9.8 4.5,7.5
+                           C 2.8,6.0 1.2,5.2 0,4.8 Z"
+                    />
+                    <path
+                        d="M 0,6.8
+                           C 0.5,8.8 4.2,10.6 6.8,13.6
+                           C 9.0,16.2 9.4,19.8 7.5,23.6
+                           C 7.0,24.3 6.3,24.0 6.6,23.2
+                           C 7.8,19.8 7.1,16.6 4.5,14.3
+                           C 2.8,12.8 1.2,12.0 0,11.6 Z"
+                    />
+                </g>
             )}
         </g>
     );
 };
 
-
-const Rest: React.FC<{ x: number; y: number; duration: '16r' | '8r' | 'qr' | 'hr' | 'wr' | '8rd' }> = ({ x, y, duration }) => {
+/**
+ * Calligraphic Engraved Rests (modeled after SMuFL / Bravura music typography)
+ */
+const Rest: React.FC<{ x: number; y: number; duration: RestDuration }> = ({ x, y, duration }) => {
     switch (duration) {
-        case 'wr': // Whole Rest - hangs from the line above center
-            return <rect x={x - 10} y={y - 8} width="20" height="4" fill={NOTE_COLOR} rx="1" />;
-        case 'hr': // Half Rest - sits on the center line
-            return <rect x={x - 10} y={y - 4} width="20" height="4" fill={NOTE_COLOR} rx="1" />;
-        case 'qr': // Quarter Rest - A sharper, modern "Z" shape that resembles a "3"
-            return <path d="M-3.5,-12 L5,-6 L-5.5,1 L6,8 L-1,14" transform={`translate(${x}, ${y}) scale(0.9)`} stroke={NOTE_COLOR} strokeWidth="3" fill="none" strokeLinejoin="round" strokeLinecap="round" />;
-        case '8r': // Eighth Rest - A "backwards r" shape with a bulb and tail
-            return <path d="M-3,-10 C-3,-14 4,-13 4,-8 C4,-3 0,-4 0,0 L6,10" transform={`translate(${x}, ${y})`} stroke={NOTE_COLOR} strokeWidth="2.5" fill="none" strokeLinecap="round" />;
-        case '8rd': // Dotted Eighth Rest
+        case 'wr':
+            // Whole Rest: solid engraved block hanging directly below the staff line with subtle reference ledger
             return (
-                 <g>
-                    <path d="M-3,-10 C-3,-14 4,-13 4,-8 C4,-3 0,-4 0,0 L6,10" transform={`translate(${x}, ${y})`} stroke={NOTE_COLOR} strokeWidth="2.5" fill="none" strokeLinecap="round" />
-                    <circle cx={x + 9} cy={y + 6} r="2" fill={NOTE_COLOR} />
+                <g transform={`translate(${x}, ${y})`}>
+                    <line x1="-10" y1="0" x2="10" y2="0" stroke={NOTE_COLOR} strokeWidth="1.6" opacity="0.7" />
+                    <rect x="-6.5" y="0" width="13" height="5" fill={NOTE_COLOR} rx="0.6" />
                 </g>
             );
-        case '16r': // Sixteenth Rest - A "backwards f" shape with two bulbs
-            return <path d="M-3,-16 C-3,-20 4,-19 4,-14 C4,-9 0,-10 0,-6 M-3,-10 C-3,-14 4,-13 4,-8 C4,-3 0,-4 0,0 L6,10" transform={`translate(${x}, ${y})`} stroke={NOTE_COLOR} strokeWidth="2.5" fill="none" strokeLinecap="round" />;
-        default: return null;
+
+        case 'qr':
+            // Quarter Rest: authentic calligraphic Bravura-style silhouette (top right-slant, thick middle slash, bottom C-crook)
+            return (
+                <g transform={`translate(${x}, ${y})`}>
+                    <path
+                        d="M -1.6,-13.2
+                           L 4.3,-5.5
+                           C 4.7,-5.0 4.6,-4.3 4.0,-3.7
+                           C 1.7,-1.5 -0.6,0.5 -0.6,2.1
+                           C -0.6,3.5 1.1,5.0 4.1,7.3
+                           C 4.5,7.6 4.4,8.2 3.8,8.2
+                           C 1.7,7.1 -0.8,7.3 -1.6,9.0
+                           C -2.3,10.5 -1.1,12.2 0.4,13.3
+                           C 0.7,13.5 0.3,14.0 -0.2,13.8
+                           C -3.4,12.4 -5.3,9.5 -4.2,6.7
+                           C -3.3,4.5 -0.8,4.2 1.3,5.3
+                           L -4.0,0.4
+                           C -4.5,-0.1 -4.4,-0.7 -3.8,-1.3
+                           C -1.4,-3.6 0.8,-5.6 0.8,-7.3
+                           C 0.8,-8.7 -0.6,-10.4 -2.5,-12.4
+                           C -2.9,-12.8 -2.2,-13.6 -1.6,-13.2 Z"
+                        fill={NOTE_COLOR}
+                    />
+                </g>
+            );
+
+        case '8r':
+        case '8rd':
+            // Eighth Rest: round crook-bulb on upper left, swooping hook to upper right, diagonal slash stem down-left
+            return (
+                <g transform={`translate(${x}, ${y})`}>
+                    {/* Diagonal slash stem slanting down-left */}
+                    <path
+                        d="M 3.4,-8.2 L 5.0,-7.6 L -1.2,9.8 L -2.9,9.2 Z"
+                        fill={NOTE_COLOR}
+                    />
+                    {/* Swooping crook arm connecting bulb to top of stem */}
+                    <path
+                        d="M -2.2,-3.2
+                           C 0.4,-2.6 2.6,-4.4 4.2,-7.6
+                           L 3.4,-8.2
+                           C 1.8,-5.6 -0.2,-4.5 -2.0,-5.2 Z"
+                        fill={NOTE_COLOR}
+                    />
+                    {/* Engraved round bulb */}
+                    <ellipse
+                        cx="-2.5"
+                        cy="-5.5"
+                        rx="2.55"
+                        ry="2.25"
+                        transform="rotate(-18 -2.5 -5.5)"
+                        fill={NOTE_COLOR}
+                    />
+                    {/* Augmentation Dot for Dotted Eighth Rest (in upper space above staff line) */}
+                    {duration === '8rd' && (
+                        <AugmentationDot cx={8.8} cy={-5.2} fill={NOTE_COLOR} />
+                    )}
+                </g>
+            );
+
+        case '16r':
+            // Sixteenth Rest: two stacked crook-bulbs on the left + longer diagonal slash stem down-left
+            return (
+                <g transform={`translate(${x}, ${y})`}>
+                    {/* Diagonal slash stem slanting down-left */}
+                    <path
+                        d="M 4.2,-10.6 L 5.8,-10.0 L -1.8,12.2 L -3.5,11.6 Z"
+                        fill={NOTE_COLOR}
+                    />
+                    {/* Upper crook arm & bulb */}
+                    <path
+                        d="M -1.5,-5.8
+                           C 1.0,-5.2 3.2,-7.0 4.9,-10.0
+                           L 4.1,-10.6
+                           C 2.5,-8.1 0.5,-7.0 -1.3,-7.7 Z"
+                        fill={NOTE_COLOR}
+                    />
+                    <ellipse
+                        cx="-1.8"
+                        cy="-8.0"
+                        rx="2.45"
+                        ry="2.15"
+                        transform="rotate(-18 -1.8 -8.0)"
+                        fill={NOTE_COLOR}
+                    />
+                    {/* Lower crook arm & bulb */}
+                    <path
+                        d="M -3.5,0.4
+                           C -1.0,1.0 1.2,-0.8 2.8,-3.8
+                           L 2.0,-4.4
+                           C 0.4,-1.9 -1.6,-0.8 -3.3,-1.5 Z"
+                        fill={NOTE_COLOR}
+                    />
+                    <ellipse
+                        cx="-3.8"
+                        cy="-1.8"
+                        rx="2.45"
+                        ry="2.15"
+                        transform="rotate(-18 -3.8 -1.8)"
+                        fill={NOTE_COLOR}
+                    />
+                </g>
+            );
+
+        default:
+            return null;
     }
 };
 
-const Beam: React.FC<{ x1: number; y1: number; x2: number; y2: number; isDotted?: boolean }> = ({ x1, y1, x2, y2, isDotted = false }) => {
-    const beamWidth = 3.5;
-    const beamSpacing = 5;
+const BeamGroupRenderer: React.FC<{
+    group: BeamGroup;
+    staffY: number;
+    getStepX: (step: number) => number;
+}> = ({ group, staffY, getStepX }) => {
+    const primaryY = staffY - STEM_HEIGHT;
+    const secondaryY = primaryY + BEAM_SPACING;
+    const x1 = getStepX(group.startStep) + STEM_X_OFFSET;
+    const x2 = getStepX(group.endStep) + STEM_X_OFFSET;
+    const stubLength = 11;
 
-    // A dotted eighth beamed to a sixteenth
-    if (isDotted) {
-        const secondaryBeamLength = 10; // The length of the "flag" part of the beam
-        return (
-            <g>
-                {/* Main beam connecting both notes */}
-                <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={NOTE_COLOR} strokeWidth={beamWidth} strokeLinecap="butt" />
-                {/* Secondary beam attached to the 16th note's stem to show it's a 16th */}
-                {/* It starts at the 16th note's stem (x2) and goes left. Since y1 and y2 are the same, we can use either. */}
-                <line x1={x2} y1={y2 + beamSpacing} x2={x2 - secondaryBeamLength} y2={y2 + beamSpacing} stroke={NOTE_COLOR} strokeWidth={beamWidth} strokeLinecap="butt" />
-            </g>
-        );
-    }
-
-    // Double beam for 16ths
     return (
         <g>
-            <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={NOTE_COLOR} strokeWidth={beamWidth} strokeLinecap="butt" />
-            <line x1={x1} y1={y1 + beamSpacing} x2={x2} y2={y2 + beamSpacing} stroke={NOTE_COLOR} strokeWidth={beamWidth} strokeLinecap="butt" />
+            {/* Primary (8th-note level) beam across the entire beat group */}
+            <rect
+                x={x1 - STEM_WIDTH / 2}
+                y={primaryY}
+                width={Math.max(1, x2 - x1 + STEM_WIDTH)}
+                height={BEAM_THICKNESS}
+                fill={NOTE_COLOR}
+                rx="0.4"
+            />
+
+            {/* Secondary (16th-note level) full or fractional stub beams */}
+            {group.secondarySegments.map((seg, idx) => {
+                if (seg.stubDirection === 'right') {
+                    const sx = getStepX(seg.startStep) + STEM_X_OFFSET - STEM_WIDTH / 2;
+                    return (
+                        <rect
+                            key={idx}
+                            x={sx}
+                            y={secondaryY}
+                            width={stubLength}
+                            height={BEAM_THICKNESS}
+                            fill={NOTE_COLOR}
+                            rx="0.4"
+                        />
+                    );
+                }
+                if (seg.stubDirection === 'left') {
+                    const ex = getStepX(seg.endStep) + STEM_X_OFFSET + STEM_WIDTH / 2;
+                    return (
+                        <rect
+                            key={idx}
+                            x={ex - stubLength}
+                            y={secondaryY}
+                            width={stubLength}
+                            height={BEAM_THICKNESS}
+                            fill={NOTE_COLOR}
+                            rx="0.4"
+                        />
+                    );
+                }
+                const sx = getStepX(seg.startStep) + STEM_X_OFFSET - STEM_WIDTH / 2;
+                const ex = getStepX(seg.endStep) + STEM_X_OFFSET + STEM_WIDTH / 2;
+                return (
+                    <rect
+                        key={idx}
+                        x={sx}
+                        y={secondaryY}
+                        width={Math.max(1, ex - sx)}
+                        height={BEAM_THICKNESS}
+                        fill={NOTE_COLOR}
+                        rx="0.4"
+                    />
+                );
+            })}
         </g>
     );
 };
@@ -249,97 +517,223 @@ interface NotationVisualizerProps {
     beatsPerMeasure: number;
 }
 
-const NotationVisualizer: React.FC<NotationVisualizerProps> = ({ isActive, grid, instrumentColors, beatsPerMeasure }) => {
+const NotationVisualizer: React.FC<NotationVisualizerProps> = ({
+    isActive,
+    grid,
+    instrumentColors,
+    beatsPerMeasure,
+}) => {
     const numSteps = beatsPerMeasure * 4;
-    const STEP_WIDTH = STAFF_WIDTH / numSteps;
+    const stepWidth = NOTES_WIDTH / numSteps;
+
+    const getStepX = (step: number) => NOTES_START_X + (step + 0.42) * stepWidth;
 
     const processedNotation = useMemo(() => {
-        return INSTRUMENTS.map((_, instrumentIndex) => {
-            const { notation, beams } = parseGridToNotation(grid[instrumentIndex] || [], instrumentColors[instrumentIndex], beatsPerMeasure);
-            const beamedSteps = new Set<number>();
-            beams.forEach(b => {
-                for (let s = b.startStep; s <= b.endStep; s++) {
-                    beamedSteps.add(s);
-                }
-            });
-            return { notation, beams, beamedSteps };
-        });
-    }, [grid, instrumentColors, beatsPerMeasure]);
-    
+        if (!isActive) return [];
+        return INSTRUMENTS.map((_, instrumentIndex) =>
+            parseGridToNotation(
+                grid[instrumentIndex] || [],
+                instrumentColors[instrumentIndex],
+                beatsPerMeasure
+            )
+        );
+    }, [isActive, grid, instrumentColors, beatsPerMeasure]);
+
     if (!isActive) {
-        return <div className="h-48 bg-gray-900 rounded-md w-full" />;
+        return <div className="h-48 bg-gray-900/50 rounded-md w-full" />;
     }
 
     return (
-        <div className="notation-visualizer bg-gray-900 rounded-md w-full overflow-hidden">
-            <svg viewBox={`0 0 ${VIEWBOX_WIDTH} ${VIEWBOX_HEIGHT}`} className="w-full h-auto">
+        <div className="notation-visualizer bg-gray-900/50 rounded-lg w-full overflow-hidden p-2 sm:p-3">
+            <svg
+                viewBox={`0 0 ${VIEWBOX_WIDTH} ${VIEWBOX_HEIGHT}`}
+                className="w-full h-auto select-none"
+                role="img"
+                aria-label="Rhythmic notation score"
+            >
+                {/* Top Beat Header Markers & Vertical Beat Subdivision Guides */}
+                {Array.from({ length: beatsPerMeasure }).map((_, beatIdx) => {
+                    const beatStartStep = beatIdx * 4;
+                    const beatDividerX = NOTES_START_X + beatStartStep * stepWidth;
+                    const beatNumberX = getStepX(beatStartStep);
+
+                    return (
+                        <g key={`beat-guide-${beatIdx}`}>
+                            {/* Beat Number Header */}
+                            <text
+                                x={beatNumberX}
+                                y={17}
+                                fill={NOTE_COLOR}
+                                opacity="0.55"
+                                fontSize="11"
+                                fontWeight="700"
+                                textAnchor="middle"
+                                letterSpacing="0.08em"
+                            >
+                                BEAT {beatIdx + 1}
+                            </text>
+
+                            {/* Internal Beat Divider Line (for Beats 2..N) */}
+                            {beatIdx > 0 && (
+                                <line
+                                    x1={beatDividerX}
+                                    y1={TOP_PADDING + 8}
+                                    x2={beatDividerX}
+                                    y2={VIEWBOX_HEIGHT - BOTTOM_PADDING - 8}
+                                    stroke={STAFF_COLOR}
+                                    strokeWidth="1"
+                                    strokeDasharray="3,4"
+                                    opacity="0.45"
+                                />
+                            )}
+                        </g>
+                    );
+                })}
+
+                {/* System Left Spine Connecting All Staves */}
+                <line
+                    x1={START_X}
+                    y1={TOP_PADDING + STAFF_HEIGHT / 2 - 14}
+                    x2={START_X}
+                    y2={TOP_PADDING + STAFF_HEIGHT * (INSTRUMENTS.length - 1) + STAFF_HEIGHT / 2 + 14}
+                    stroke={STAFF_COLOR}
+                    strokeWidth="2.2"
+                />
+
                 {INSTRUMENTS.map((instrument, instrumentIndex) => {
-                    const staffY = STAFF_HEIGHT * instrumentIndex + STAFF_HEIGHT / 2;
+                    const staffY = TOP_PADDING + STAFF_HEIGHT * instrumentIndex + STAFF_HEIGHT / 2 + 4;
                     const { notation, beams, beamedSteps } = processedNotation[instrumentIndex];
+                    const instColor = instrumentColors[instrumentIndex];
 
                     return (
                         <g key={instrument}>
-                            {/* Staff Line and Labels */}
-                            <line x1={START_X} y1={staffY} x2={END_X} y2={staffY} stroke={STAFF_COLOR} strokeWidth="1.5" />
-                            <text x="35" y={staffY + 5} fill="var(--note-color)" opacity="0.6" fontSize="12" fontWeight="bold" textAnchor="end">
+                            {/* Instrument Label & Color Swatch Dot */}
+                            <circle
+                                cx="14"
+                                cy={staffY}
+                                r="3.5"
+                                fill={instColor}
+                            />
+                            <text
+                                x={START_X - 10}
+                                y={staffY + 4}
+                                fill={NOTE_COLOR}
+                                opacity="0.85"
+                                fontSize="11"
+                                fontWeight="700"
+                                textAnchor="end"
+                                letterSpacing="0.05em"
+                            >
                                 {INSTRUMENT_LABELS[instrument]}
                             </text>
 
-                            {/* Clef for the first staff */}
+                            {/* Horizontal Percussion Staff Line */}
+                            <line
+                                x1={START_X}
+                                y1={staffY}
+                                x2={END_X}
+                                y2={staffY}
+                                stroke={STAFF_COLOR}
+                                strokeWidth="1.5"
+                            />
+
+                            {/* Subtle 16th-Step Tick Marks on Staff */}
+                            {Array.from({ length: numSteps }).map((_, stepIdx) => {
+                                const tickX = getStepX(stepIdx);
+                                const isDownbeat = stepIdx % 4 === 0;
+                                return (
+                                    <line
+                                        key={`tick-${stepIdx}`}
+                                        x1={tickX}
+                                        y1={staffY - (isDownbeat ? 4 : 2.2)}
+                                        x2={tickX}
+                                        y2={staffY + (isDownbeat ? 4 : 2.2)}
+                                        stroke={STAFF_COLOR}
+                                        strokeWidth={isDownbeat ? '1.2' : '0.8'}
+                                        opacity={isDownbeat ? '0.45' : '0.22'}
+                                    />
+                                );
+                            })}
+
+                            {/* Percussion Clef & Time Signature on First Staff (Clef on all staves) */}
+                            <PercussionClef x={START_X + 16} y={staffY} />
                             {instrumentIndex === 0 && (
-                                <PercussionClef y={staffY} />
+                                <TimeSignature x={START_X + 38} y={staffY} beats={beatsPerMeasure} />
                             )}
-                            
-                            {/* Bar Lines */}
-                            <line x1={START_X} y1={staffY-15} x2={START_X} y2={staffY+15} stroke={STAFF_COLOR} strokeWidth="2" />
-                            <line x1={END_X} y1={staffY-15} x2={END_X} y2={staffY+15} stroke={STAFF_COLOR} strokeWidth="4" />
 
-                            {/* Render Notation */}
+                            {/* Start & End Repeat Barlines */}
+                            <line
+                                x1={START_X}
+                                y1={staffY - 14}
+                                x2={START_X}
+                                y2={staffY + 14}
+                                stroke={STAFF_COLOR}
+                                strokeWidth="2.5"
+                            />
+                            {/* Double Final Repeat Barline */}
+                            <line
+                                x1={END_X - 5}
+                                y1={staffY - 14}
+                                x2={END_X - 5}
+                                y2={staffY + 14}
+                                stroke={STAFF_COLOR}
+                                strokeWidth="1.5"
+                            />
+                            <line
+                                x1={END_X}
+                                y1={staffY - 14}
+                                x2={END_X}
+                                y2={staffY + 14}
+                                stroke={STAFF_COLOR}
+                                strokeWidth="4"
+                            />
+                            {/* Repeat Dots at End of Staff */}
+                            <circle cx={END_X - 10} cy={staffY - 5} r="1.7" fill={STAFF_COLOR} />
+                            <circle cx={END_X - 10} cy={staffY + 5} r="1.7" fill={STAFF_COLOR} />
+
+                            {/* Render Notes and Rests */}
                             {notation.map((el, idx) => {
-                                let x;
                                 if (el.type === 'rest') {
-                                    switch (el.duration) {
-                                        case 'wr':
-                                            x = START_X + STAFF_WIDTH / 2;
-                                            break;
-                                        case 'hr':
-                                            x = START_X + (el.step * STEP_WIDTH) + (4 * STEP_WIDTH); // Center of 8 steps
-                                            break;
-                                        case 'qr':
-                                            x = START_X + el.step * STEP_WIDTH + (STEP_WIDTH * 2);
-                                            break;
-                                        case '8rd':
-                                            // Center the rest part over the first two 16th slots
-                                            x = START_X + el.step * STEP_WIDTH + STEP_WIDTH;
-                                            break;
-                                        default:
-                                            x = START_X + el.step * STEP_WIDTH + (STEP_WIDTH / 2);
-                                    }
-                                } else {
-                                     x = START_X + el.step * STEP_WIDTH + (STEP_WIDTH / 2);
+                                    const x =
+                                        el.duration === 'wr'
+                                            ? NOTES_START_X + NOTES_WIDTH / 2
+                                            : getStepX(el.step);
+                                    return (
+                                        <Rest
+                                            key={`${instrument}-rest-${idx}`}
+                                            x={x}
+                                            y={staffY}
+                                            duration={el.duration}
+                                        />
+                                    );
                                 }
 
-                                if (el.type === 'note') {
-                                    const isDotted = el.duration === '8nd';
-                                    const baseDuration = isDotted ? '8n' : el.duration;
-                                    const isFlagged = baseDuration !== 'qn' && !beamedSteps.has(el.step);
-                                    return <Note key={`${instrument}-${idx}`} x={x} y={staffY} color={el.color} duration={el.duration} flagged={isFlagged} />;
-                                } else {
-                                    return <Rest key={`${instrument}-${idx}`} x={x} y={staffY} duration={el.duration} />;
-                                }
+                                const x = getStepX(el.step);
+                                const isDotted = el.duration === '8nd';
+                                const baseDuration = isDotted ? '8n' : el.duration;
+                                const isFlagged = baseDuration !== 'qn' && !beamedSteps.has(el.step);
+
+                                return (
+                                    <Note
+                                        key={`${instrument}-note-${idx}`}
+                                        x={x}
+                                        y={staffY}
+                                        color={el.color}
+                                        duration={el.duration}
+                                        flagged={isFlagged}
+                                    />
+                                );
                             })}
 
-                            {/* Render Beams */}
-                            {beams.map((beam, idx) => {
-                                const startNote = notation.find(n => n.step === beam.startStep) as NoteElement;
-                                const isDottedBeam = startNote && startNote.duration === '8nd';
-                                
-                                const x1 = START_X + beam.startStep * STEP_WIDTH + STEP_WIDTH / 2 + STEM_X_OFFSET;
-                                const y1 = staffY - STEM_HEIGHT;
-                                const x2 = START_X + beam.endStep * STEP_WIDTH + STEP_WIDTH / 2 + STEM_X_OFFSET;
-                                const y2 = staffY - STEM_HEIGHT;
-                                return <Beam key={`${instrument}-beam-${idx}`} x1={x1} y1={y1} x2={x2} y2={y2} isDotted={isDottedBeam}/>;
-                            })}
+                            {/* Render Primary & Secondary Beams */}
+                            {beams.map((beamGroup, idx) => (
+                                <BeamGroupRenderer
+                                    key={`${instrument}-beam-${idx}`}
+                                    group={beamGroup}
+                                    staffY={staffY}
+                                    getStepX={getStepX}
+                                />
+                            ))}
                         </g>
                     );
                 })}

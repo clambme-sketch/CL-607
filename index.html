@@ -8,7 +8,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&family=Lexend:wght@400;500;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,600;0,700;1,600&family=Dancing+Script:wght@700&family=IBM+Plex+Mono:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700;800&family=Lexend:wght@400;500;700&family=Outfit:wght@500;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
       body {
         font-family: 'Lexend', sans-serif;
@@ -34,11 +34,339 @@
           --note-color: #d1d5db; /* gray-300 */
           --staff-color: #4b5563; /* gray-600 */
       }
+      .theme-braun .notation-visualizer,
+      .theme-bauhaus .notation-visualizer {
+          --note-color: #1c1c1a;
+          --staff-color: #78746a;
+      }
+      .theme-nagra .notation-visualizer {
+          --note-color: #d9325e;
+          --staff-color: #945285;
+      }
+      .theme-koto .notation-visualizer {
+          --note-color: #d4af37;
+          --staff-color: #5c4b51;
+      }
+      .theme-cyberpunk .notation-visualizer {
+          --note-color: #fcee0a;
+          --staff-color: #00ff9f;
+      }
+      .theme-minimal .notation-visualizer {
+          --note-color: #f4f4f5;
+          --staff-color: #3f3f46;
+      }
       .draggable-section {
         transition: transform 0.2s cubic-bezier(0.2, 0, 0, 1);
       }
+      .theme-minimal .draggable-section {
+        transition: none !important;
+      }
       .tooltips-disabled [role="tooltip"] {
         display: none !important;
+      }
+
+      /* ==========================================================================
+         CULTURED HARDWARE THEME OVERRIDES & BESPOKE FADER MECHANICS
+         ========================================================================== */
+
+      /* 0. MONOLITH DARK (Ultra-Efficient Minimalist Masterpiece Mode) */
+      .theme-minimal {
+        font-family: 'Plus Jakarta Sans', sans-serif;
+      }
+      .theme-minimal *,
+      .theme-minimal *::before,
+      .theme-minimal *::after {
+        box-shadow: none !important;
+        text-shadow: none !important;
+      }
+      .theme-minimal .bg-gray-900\/50,
+      .theme-minimal .bg-gray-800\/50,
+      .theme-minimal .bg-gray-900 {
+        background-color: #0e0e11 !important;
+        border: 1px solid #222226 !important;
+        border-radius: 0px !important;
+      }
+      .theme-minimal .text-gray-100,
+      .theme-minimal .text-white {
+        color: #f4f4f5 !important;
+      }
+      .theme-minimal .text-gray-300 {
+        color: #d4d4d8 !important;
+      }
+      .theme-minimal .text-gray-400 {
+        color: #a1a1aa !important;
+      }
+      .theme-minimal .text-gray-500 {
+        color: #71717a !important;
+      }
+      .theme-minimal select {
+        background-color: #09090b !important;
+        color: #f4f4f5 !important;
+        border: 1px solid #27272a !important;
+        border-radius: 0px !important;
+        font-family: 'IBM Plex Mono', monospace !important;
+      }
+      .theme-minimal input[type="range"] {
+        -webkit-appearance: none;
+        appearance: none;
+        background: #222226 !important;
+        height: 2px !important;
+        border-radius: 0px !important;
+      }
+      .theme-minimal input[type="range"]::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 10px;
+        height: 18px;
+        border-radius: 0px;
+        background: #f4f4f5;
+        border: 1px solid #09090b;
+        cursor: pointer;
+      }
+
+      /* 1. KRONBERG '68 (Dieter Rams / Braun Functionalism) */
+      .theme-default,
+      .theme-braun,
+      .theme-bauhaus,
+      .theme-nagra,
+      .theme-koto,
+      .theme-cyberpunk {
+        contain: layout style;
+      }
+      .theme-braun {
+        font-family: 'Plus Jakarta Sans', sans-serif;
+      }
+      .theme-braun .bg-gray-900\/50,
+      .theme-braun .bg-gray-800\/50 {
+        background-color: #e6e3da !important;
+        border: 1px solid #ccc8bc !important;
+        border-radius: 6px !important;
+        box-shadow: inset 0 1px 2px rgba(0,0,0,0.05) !important;
+      }
+      .theme-braun .text-gray-100,
+      .theme-braun .text-white {
+        color: #1c1c1a !important;
+      }
+      .theme-braun .text-gray-300 {
+        color: #2e2d2a !important;
+      }
+      .theme-braun .text-gray-400 {
+        color: #52504a !important;
+      }
+      .theme-braun .text-gray-500 {
+        color: #6e6b63 !important;
+      }
+      .theme-braun select {
+        background-color: #f4f2ec !important;
+        color: #1c1c1a !important;
+        border: 1px solid #b8b4a8 !important;
+      }
+      .theme-braun input[type="range"] {
+        -webkit-appearance: none;
+        appearance: none;
+        background: #323230 !important;
+        height: 4px !important;
+        border-radius: 2px !important;
+        box-shadow: inset 0 1px 1px rgba(0,0,0,0.6) !important;
+      }
+      .theme-braun input[type="range"]::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 14px;
+        height: 20px;
+        border-radius: 3px;
+        background: linear-gradient(180deg, #faf8f5 0%, #dcd9d0 100%);
+        border: 1px solid #78756c;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.35), inset 0 1px 0 #fff;
+        cursor: pointer;
+      }
+
+      /* 2. DESSAU '26 (Weimar / Bauhaus Constructivist Atelier) */
+      .theme-bauhaus {
+        font-family: 'Outfit', sans-serif;
+      }
+      .theme-bauhaus .bg-gray-900\/50,
+      .theme-bauhaus .bg-gray-800\/50 {
+        background-color: #ebe4d5 !important;
+        border: 2px solid #141413 !important;
+        border-radius: 0px !important;
+        box-shadow: 3px 3px 0px #141413 !important;
+      }
+      .theme-bauhaus .text-gray-100,
+      .theme-bauhaus .text-white,
+      .theme-bauhaus .text-gray-300 {
+        color: #141413 !important;
+      }
+      .theme-bauhaus .text-gray-400,
+      .theme-bauhaus .text-gray-500 {
+        color: #383632 !important;
+        font-weight: 700 !important;
+      }
+      .theme-bauhaus select {
+        background-color: #f4efe4 !important;
+        color: #141413 !important;
+        border: 2px solid #141413 !important;
+        border-radius: 0px !important;
+        font-weight: 700 !important;
+      }
+      .theme-bauhaus input[type="range"] {
+        -webkit-appearance: none;
+        appearance: none;
+        background: #141413 !important;
+        height: 6px !important;
+        border-radius: 0px !important;
+      }
+      .theme-bauhaus input[type="range"]::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 16px;
+        height: 16px;
+        border-radius: 0px;
+        background: #d62828;
+        border: 2px solid #141413;
+        box-shadow: 2px 2px 0px #141413;
+        cursor: pointer;
+      }
+
+      /* 3. SUNSET (Golden Hour Horizon & Sculpted Cumulus Cloud Menus) */
+      .theme-nagra {
+        font-family: 'Plus Jakarta Sans', sans-serif;
+      }
+      .theme-nagra .bg-gray-900\/50,
+      .theme-nagra .bg-gray-800\/50 {
+        background: linear-gradient(180deg, #fffefc 0%, #ffefe5 65%, #fcd6c8 100%) !important;
+        border: 1.5px solid #ffffff !important;
+        border-radius: 30px !important;
+        box-shadow: 0 4px 12px rgba(68, 20, 76, 0.12), inset 0 2px 3px #ffffff !important;
+      }
+      .theme-nagra .text-gray-100,
+      .theme-nagra .text-white {
+        color: #3b1547 !important;
+      }
+      .theme-nagra .text-gray-300 {
+        color: #561f61 !important;
+      }
+      .theme-nagra .text-gray-400 {
+        color: #7d3875 !important;
+      }
+      .theme-nagra .text-gray-500 {
+        color: #964e84 !important;
+      }
+      .theme-nagra select {
+        background: linear-gradient(180deg, #ffffff 0%, #ffe9dc 100%) !important;
+        color: #3b1547 !important;
+        border: 1.5px solid #ffffff !important;
+        border-radius: 999px !important;
+        font-weight: 700 !important;
+        box-shadow: 0 2px 6px rgba(68, 20, 76, 0.1) !important;
+      }
+      .theme-nagra input[type="range"] {
+        -webkit-appearance: none;
+        appearance: none;
+        background: linear-gradient(90deg, #4a154b 0%, #d9325e 48%, #ff7b54 82%, #ffd166 100%) !important;
+        height: 6px !important;
+        border: 1px solid #ffffff !important;
+        border-radius: 999px !important;
+      }
+      .theme-nagra input[type="range"]::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 18px;
+        height: 18px;
+        border-radius: 999px;
+        background: #ff9466;
+        border: 2px solid #ffffff;
+        box-shadow: 0 1px 4px rgba(68, 20, 76, 0.35);
+        cursor: pointer;
+      }
+
+      /* 4. KYOTO URUSHI (Lacquerware, Hinoki & 24k Maki-e Gold) */
+      .theme-koto {
+        font-family: 'Plus Jakarta Sans', sans-serif;
+      }
+      .theme-koto .bg-gray-900\/50,
+      .theme-koto .bg-gray-800\/50 {
+        background-color: #161118 !important;
+        border: 1px solid rgba(212, 175, 55, 0.22) !important;
+        border-radius: 12px !important;
+        box-shadow: none !important;
+      }
+      .theme-koto .text-gray-100,
+      .theme-koto .text-white {
+        color: #f2ece1 !important;
+      }
+      .theme-koto .text-gray-300 {
+        color: #dfd5c5 !important;
+      }
+      .theme-koto .text-gray-400 {
+        color: #b5a692 !important;
+      }
+      .theme-koto .text-gray-500 {
+        color: #8c7d6b !important;
+      }
+      .theme-koto select {
+        background-color: #120d14 !important;
+        color: #e6c665 !important;
+        border: 1px solid rgba(212, 175, 55, 0.35) !important;
+        border-radius: 8px !important;
+      }
+      .theme-koto input[type="range"] {
+        -webkit-appearance: none;
+        appearance: none;
+        background: #0d090f !important;
+        height: 5px !important;
+        border: 1px solid rgba(212, 175, 55, 0.25) !important;
+        border-radius: 999px !important;
+      }
+      .theme-koto input[type="range"]::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 16px;
+        height: 16px;
+        border-radius: 999px;
+        background: #d4af37;
+        border: 1px solid #f7e7a9;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.6);
+        cursor: pointer;
+      }
+
+      /* 5. SHIBUYA '88 (Cyber-Brutalist Deck) */
+      .theme-cyberpunk {
+        font-family: 'JetBrains Mono', monospace;
+      }
+      .theme-cyberpunk .bg-gray-900\/50,
+      .theme-cyberpunk .bg-gray-800\/50 {
+        background-color: #08080c !important;
+        border: 1px solid rgba(0, 255, 159, 0.3) !important;
+        border-radius: 0px !important;
+        box-shadow: 3px 3px 0px rgba(0, 255, 159, 0.15) !important;
+      }
+      .theme-cyberpunk .text-gray-100,
+      .theme-cyberpunk .text-white {
+        color: #fcee0a !important;
+      }
+      .theme-cyberpunk .text-gray-300,
+      .theme-cyberpunk .text-gray-400 {
+        color: #00ff9f !important;
+      }
+      .theme-cyberpunk input[type="range"] {
+        -webkit-appearance: none;
+        appearance: none;
+        background: #050508 !important;
+        height: 6px !important;
+        border: 1px solid #00ff9f !important;
+        border-radius: 0px !important;
+      }
+      .theme-cyberpunk input[type="range"]::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 12px;
+        height: 20px;
+        border-radius: 0px;
+        background: #fcee0a;
+        border: 2px solid #00ff9f;
+        box-shadow: 2px 2px 0px #ff003c;
+        cursor: pointer;
       }
     </style>
   <script type="importmap">

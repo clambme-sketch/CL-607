@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import Sequencer from './components/Sequencer';
 import Controls from './components/Controls';
-import Effects from './components/Effects';
+import Effects, { getDelayDivisionTimeSeconds } from './components/Effects';
 import { useAudioEngine, AllAnalyserNodes } from './hooks/useAudioEngine';
-import type { Grid, Instrument, AllInstrumentParams, InstrumentParams, KickDesignerParams, SavedPattern, VisualizerType, VisualizerStyle } from './types';
+import type { Grid, Instrument, AllInstrumentParams, InstrumentParams, KickDesignerParams, SavedPattern, VisualizerType, VisualizerStyle, LiveRecording, StutterDivision, BeatRepeatDivision, DelayDivision } from './types';
 import { INSTRUMENTS, INSTRUMENT_LABELS, DEFAULT_TEMPO, MIN_FILTER_FREQ, MAX_FILTER_FREQ, BASE_INSTRUMENT_COLORS_HSL } from './constants';
 import NotationVisualizer from './components/NotationVisualizer';
 import CollapsibleSection from './components/CollapsibleSection';
@@ -13,7 +13,7 @@ import XYFilterPad from './components/XYFilterPad';
 import LoFiRadio from './components/LoFiRadio';
 import Settings from './components/Settings';
 import Tooltip from './components/Tooltip';
-import { getButtonStyle, safeGetItem, safeSetItem, safeRemoveItem } from './utils';
+import { getButtonStyle, getThemeSurface, safeGetItem, safeSetItem, safeRemoveItem } from './utils';
 
 const createInitialGrid = (numSteps: number): Grid => {
     return Array(INSTRUMENTS.length).fill(null).map(() => Array(numSteps).fill(false));
@@ -83,11 +83,68 @@ type ChainMode = 'off' | 'ab' | 'aab' | 'aaab' | 'aabb';
 
 export type EffectName = 'lowPass' | 'highPass' | 'sidechain' | 'crush' | 'tape' | 'envelope' | 'reverb' | 'delay';
 
+const sliderToFreq = (value: number): number => {
+    const min = Math.log(MIN_FILTER_FREQ);
+    const max = Math.log(MAX_FILTER_FREQ);
+    const scale = (max - min) / 100;
+    return Math.exp(min + scale * value);
+};
+
+const freqToSlider = (freq: number): number => {
+    if (freq <= MIN_FILTER_FREQ) return 0;
+    if (freq >= MAX_FILTER_FREQ) return 100;
+    const min = Math.log(MIN_FILTER_FREQ);
+    const max = Math.log(MAX_FILTER_FREQ);
+    const scale = (max - min) / 100;
+    return (Math.log(freq) - min) / scale;
+};
+
+const STUTTER_DIVISIONS: StutterDivision[] = ['1/4', '1/8', '1/8T', '1/16', '1/16T', '1/32'];
+
+const BEAT_REPEAT_DIVISIONS: { id: BeatRepeatDivision; label: string; steps: number; tooltip: string }[] = [
+    { id: '2BEATS', label: '2 BEATS', steps: 8, tooltip: 'Repeat a 2-beat (half-bar / 8-step) phrase' },
+    { id: '1BEAT', label: '1 BEAT', steps: 4, tooltip: 'Repeat a 1-beat (quarter-note / 4-step) phrase' },
+    { id: '1/2BEAT', label: '1/2 BEAT', steps: 2, tooltip: 'Repeat a 1/2-beat (eighth-note / 2-step) phrase' },
+    { id: '1/4BEAT', label: '1/4 BEAT', steps: 1, tooltip: 'Repeat a 1/4-beat (sixteenth-note / 1-step) slice' },
+];
+
+const getBeatRepeatSteps = (div: BeatRepeatDivision, numSteps: number): number => {
+    switch (div) {
+        case '2BEATS': return Math.min(8, Math.max(1, numSteps));
+        case '1BEAT': return Math.min(4, Math.max(1, numSteps));
+        case '1/2BEAT': return Math.min(2, Math.max(1, numSteps));
+        case '1/4BEAT': return 1;
+        default: return 4;
+    }
+};
+
+const DJ_EFFECT_SHORTCUT_OPTIONS: {
+    id: EffectName;
+    shortName: string;
+    menuName: string;
+    paramLabel: string;
+    accentClass: string;
+    tooltip: string;
+}[] = [
+    { id: 'delay', shortName: 'DELAY', menuName: 'DELAY', paramLabel: 'MIX', accentClass: 'accent-green-500', tooltip: 'Adjust Delay wet/dry mix (click name to switch effect)' },
+    { id: 'reverb', shortName: 'REVERB', menuName: 'REVERB', paramLabel: 'MIX', accentClass: 'accent-purple-500', tooltip: 'Adjust Reverb wet/dry mix (click name to switch effect)' },
+    { id: 'tape', shortName: 'TAPE SAT', menuName: 'TAPE SATURATION', paramLabel: 'MIX', accentClass: 'accent-yellow-500', tooltip: 'Adjust Tape Saturation wet/dry mix (click name to switch effect)' },
+    { id: 'envelope', shortName: 'ENV FILTER', menuName: 'ENVELOPE FILTER', paramLabel: 'MIX', accentClass: 'accent-pink-500', tooltip: 'Adjust Envelope Filter wet/dry mix (click name to switch effect)' },
+    { id: 'crush', shortName: 'BITCRUSH', menuName: 'BITCRUSHER', paramLabel: 'MIX', accentClass: 'accent-orange-500', tooltip: 'Adjust Bitcrusher intensity (click name to switch effect)' },
+    { id: 'sidechain', shortName: 'SIDECHAIN', menuName: 'KICK SIDECHAIN', paramLabel: 'MIX', accentClass: 'accent-blue-500', tooltip: 'Adjust Kick Sidechain ducking amount (click name to switch effect)' },
+    { id: 'lowPass', shortName: 'LOW PASS', menuName: 'LOW PASS FILTER', paramLabel: 'FREQ', accentClass: 'accent-blue-500', tooltip: 'Adjust Low Pass Filter cutoff frequency (click name to switch effect)' },
+    { id: 'highPass', shortName: 'HIGH PASS', menuName: 'HIGH PASS FILTER', paramLabel: 'FREQ', accentClass: 'accent-blue-500', tooltip: 'Adjust High Pass Filter cutoff frequency (click name to switch effect)' },
+];
+
 const DEFAULT_DJ_SETTINGS = {
     randomizeIntensity: 3,
     chainMode: 'off' as ChainMode,
     isolatorGains: { low: 1, mid: 1, high: 1 },
     lofiMix: 0,
+    stutterDivision: '1/16' as StutterDivision,
+    stutterSource: 'all' as Instrument | 'all',
+    beatRepeatDivision: '1BEAT' as BeatRepeatDivision,
+    tapeStopDuration: 0.64,
 };
 
 const DEFAULT_EFFECTS_SETTINGS = {
@@ -100,6 +157,7 @@ const DEFAULT_EFFECTS_SETTINGS = {
     delayTime: 0.27,
     delayFeedback: 0.3,
     delaySource: 'all' as Instrument | 'all',
+    delaySyncDivision: null as DelayDivision | null,
     kickSidechainAmount: 0,
     kickSidechainThreshold: -20,
     kickSidechainRatio: 4,
@@ -127,6 +185,8 @@ const App: React.FC = () => {
     const [isLoading, setIsLoading] = useState<boolean>(false);
     const [isPreparingDrag, setIsPreparingDrag] = useState<boolean>(false);
     const [dragBlobUrl, setDragBlobUrl] = useState<string | null>(null);
+    const [exportMeasures, setExportMeasures] = useState<number>(1);
+    const [exportIncludeTail, setExportIncludeTail] = useState<boolean>(false);
     const [beatsPerMeasure, setBeatsPerMeasure] = useState<number>(4);
     const [grids, setGrids] = useState<{ a: Grid, b: Grid }>({
         a: createInitialGrid(16),
@@ -148,6 +208,7 @@ const App: React.FC = () => {
     const [delayTime, setDelayTime] = useState(DEFAULT_EFFECTS_SETTINGS.delayTime);
     const [delayFeedback, setDelayFeedback] = useState(DEFAULT_EFFECTS_SETTINGS.delayFeedback);
     const [delaySource, setDelaySource] = useState<Instrument | 'all'>(DEFAULT_EFFECTS_SETTINGS.delaySource);
+    const [delaySyncDivision, setDelaySyncDivision] = useState<DelayDivision | null>(DEFAULT_EFFECTS_SETTINGS.delaySyncDivision);
     const [kickSidechainAmount, setKickSidechainAmount] = useState(DEFAULT_EFFECTS_SETTINGS.kickSidechainAmount);
     const [kickSidechainThreshold, setKickSidechainThreshold] = useState(DEFAULT_EFFECTS_SETTINGS.kickSidechainThreshold);
     const [kickSidechainRatio, setKickSidechainRatio] = useState(DEFAULT_EFFECTS_SETTINGS.kickSidechainRatio);
@@ -160,13 +221,38 @@ const App: React.FC = () => {
     const [envelopeFilterBaseFreq, setEnvelopeFilterBaseFreq] = useState(DEFAULT_EFFECTS_SETTINGS.envelopeFilterBaseFreq);
     const [envelopeFilterQ, setEnvelopeFilterQ] = useState(DEFAULT_EFFECTS_SETTINGS.envelopeFilterQ);
     const [isRandomizeActive, setIsRandomizeActive] = useState<boolean>(false);
+    const [isXyFilterHeld, setIsXyFilterHeld] = useState<boolean>(false);
+    const [isTapeStopActive, setIsTapeStopActive] = useState<boolean>(false);
+    const [tapeStopDuration, setTapeStopDuration] = useState<number>(DEFAULT_DJ_SETTINGS.tapeStopDuration);
+    const tapeStopStartTimeRef = useRef<number>(0);
+    const tapeStopReleaseTimerRef = useRef<number | null>(null);
+    const [isStutterActive, setIsStutterActive] = useState<boolean>(false);
+    const [isStutterHeld, setIsStutterHeld] = useState<boolean>(false);
+    const [stutterDivision, setStutterDivision] = useState<StutterDivision>(DEFAULT_DJ_SETTINGS.stutterDivision);
+    const [stutterSource, setStutterSource] = useState<Instrument | 'all'>(DEFAULT_DJ_SETTINGS.stutterSource);
+    const [isBeatRepeatActive, setIsBeatRepeatActive] = useState<boolean>(false);
+    const [isBeatRepeatHeld, setIsBeatRepeatHeld] = useState<boolean>(false);
+    const [beatRepeatDivision, setBeatRepeatDivision] = useState<BeatRepeatDivision>(DEFAULT_DJ_SETTINGS.beatRepeatDivision);
+    const [ beatRepeatAnchorStep, setBeatRepeatAnchorStep ] = useState<number>(0);
+    const beatRepeatAnchorStepRef = useRef<number>(0);
+    const isBeatRepeatActiveRef = useRef<boolean>(false);
+    const beatRepeatDivisionRef = useRef<BeatRepeatDivision>(DEFAULT_DJ_SETTINGS.beatRepeatDivision);
+    const stutterSourceRef = useRef<Instrument | 'all'>(DEFAULT_DJ_SETTINGS.stutterSource);
+    const [djShortcutEffects, setDjShortcutEffects] = useState<[EffectName, EffectName]>(['delay', 'reverb']);
+    const [openDjShortcutDropdown, setOpenDjShortcutDropdown] = useState<0 | 1 | null>(null);
+    const djShortcutsRef = useRef<HTMLDivElement | null>(null);
     const [randomizeIntensity, setRandomizeIntensity] = useState<number>(DEFAULT_DJ_SETTINGS.randomizeIntensity);
     const [chainMode, setChainMode] = useState<ChainMode>(DEFAULT_DJ_SETTINGS.chainMode);
     const [hueRotate, setHueRotate] = useState<number>(0);
     const [isColorAnimating, setIsColorAnimating] = useState<boolean>(false);
     const [isRecording, setIsRecording] = useState<boolean>(false);
+    const [isLiveRecording, setIsLiveRecording] = useState<boolean>(false);
+    const [liveRecordings, setLiveRecordings] = useState<LiveRecording[]>([]);
+    const liveRecordingCounterRef = useRef<number>(1);
+    const [fullAudioData, setFullAudioData] = useState<Float32Array>(() => new Float32Array(0));
+    const [originalAudioData, setOriginalAudioData] = useState<Float32Array>(() => new Float32Array(0));
+    const [trimRange, setTrimRange] = useState<{ start: number; end: number }>({ start: 0, end: 1 });
     const [isRendering, setIsRendering] = useState<boolean>(false);
-    const [countdown, setCountdown] = useState<number | null>(null);
     const [instrumentAnalyserNodes, setInstrumentAnalyserNodes] = useState<Record<Instrument, AnalyserNode | null>>({ kick: null, snare: null, hihat: null, snap: null, clave: null, cowbell: null, sample: null });
     const [effectAnalysers, setEffectAnalysers] = useState<Omit<AllAnalyserNodes, 'instrumentAnalysers'>>(initialEffectAnalysers);
     const [audioContext, setAudioContext] = useState<AudioContext | null>(null);
@@ -197,14 +283,50 @@ const App: React.FC = () => {
 
     // New state for Settings
     const [visualizerType, setVisualizerType] = useState<VisualizerType>('waveform');
-    const [visualizerStyle, setVisualizerStyle] = useState<VisualizerStyle>('default');
+    const [visualizerStyle, setVisualizerStyle] = useState<VisualizerStyle>(() => {
+        const savedSlowMode = safeGetItem('cl607-slowComputerMode');
+        if (savedSlowMode !== null) {
+            try {
+                if (JSON.parse(savedSlowMode)) return 'minimal';
+            } catch {}
+        }
+        const savedStyle = safeGetItem('cl607-visualizerStyle');
+        const validStyles: VisualizerStyle[] = ['default', 'cyberpunk', 'braun', 'bauhaus', 'nagra', 'koto', 'minimal'];
+        if (savedStyle && validStyles.includes(savedStyle as VisualizerStyle)) {
+            return savedStyle as VisualizerStyle;
+        }
+        return 'default';
+    });
     const [drumKit, setDrumKit] = useState<'808' | '909' | '727'>('808');
     const [isPerformanceMode, setIsPerformanceMode] = useState<boolean>(true);
+    const [isSlowComputerMode, setIsSlowComputerMode] = useState<boolean>(() => {
+        const savedSlowMode = safeGetItem('cl607-slowComputerMode');
+        if (savedSlowMode !== null) {
+            try {
+                return Boolean(JSON.parse(savedSlowMode));
+            } catch {}
+        }
+        return safeGetItem('cl607-visualizerStyle') === 'minimal';
+    });
     const [tooltipsEnabled, setTooltipsEnabled] = useState<boolean>(true);
     const [showBeatNumbers, setShowBeatNumbers] = useState<boolean>(false);
+    const [isInvertColors, setIsInvertColors] = useState<boolean>(() => {
+        const savedInvert = safeGetItem('cl607-invertColors');
+        if (savedInvert !== null) {
+            try {
+                return Boolean(JSON.parse(savedInvert));
+            } catch {}
+        }
+        return false;
+    });
+    const preSlowSettingsRef = useRef<{ visualizerStyle: VisualizerStyle; isPerformanceMode: boolean; tooltipsEnabled: boolean }>({
+        visualizerStyle: 'default',
+        isPerformanceMode: true,
+        tooltipsEnabled: true,
+    });
     
     // Keyboard drumming state
-    const [keyboardDrummingEnabled, setKeyboardDrummingEnabled] = useState<boolean>(false);
+    const [keyboardDrummingEnabled, setKeyboardDrummingEnabled] = useState<boolean>(true);
     const [keyboardMap, setKeyboardMap] = useState<Record<string, Instrument>>({
         'a': 'kick',
         's': 'snare',
@@ -230,24 +352,30 @@ const App: React.FC = () => {
     const sectionsContainerRef = useRef<HTMLDivElement>(null);
     const draggedItemIndexRef = useRef<number | null>(null);
 
-    // --- Cappuccino Mode State ---
+    // --- Cappuccino Mode & Editable Header Title State ---
     const [isCappuccinoMode, setIsCappuccinoMode] = useState(false);
+    const [customTitle, setCustomTitle] = useState<string>('CL-607 Drum Machine');
+    const [isEditingTitle, setIsEditingTitle] = useState<boolean>(false);
+    const titleInputRef = useRef<HTMLInputElement | null>(null);
     const titleClickRef = useRef({ count: 0, lastTime: 0 });
 
 
     // FIX: Initialize useRef with null to provide an initial value and prevent errors.
     const animationFrameRef = useRef<number | null>(null);
-    const countdownTimeoutsRef = useRef<number[]>([]);
+    const recordingTimeoutRef = useRef<number | null>(null);
     const scrambleIntervalRef = useRef<number | null>(null);
 
     const schedulerTimerRef = useRef<number | null>(null);
+    const schedulerWorkerRef = useRef<Worker | null>(null);
     const visualizerTimerRef = useRef<number | null>(null);
     const nextNoteTime = useRef<number>(0.0);
     const currentStepRef = useRef<number>(0);
     const chainCounterRef = useRef(0);
+    const notesInQueueRef = useRef<Array<{ step: number; time: number }>>([]);
 
     const gridsRef = useRef(grids);
     const volumesRef = useRef(volumes);
+    const tempoRef = useRef(tempo);
     const isRandomizeActiveRef = useRef(isRandomizeActive);
     const randomizeIntensityRef = useRef(randomizeIntensity);
     const instrumentParamsRef = useRef(instrumentParams);
@@ -265,6 +393,7 @@ const App: React.FC = () => {
     useEffect(() => {
         gridsRef.current = grids;
         volumesRef.current = volumes;
+        tempoRef.current = tempo;
         isRandomizeActiveRef.current = isRandomizeActive;
         randomizeIntensityRef.current = randomizeIntensity;
         instrumentParamsRef.current = instrumentParams;
@@ -273,7 +402,10 @@ const App: React.FC = () => {
         activePatternRef.current = activePattern;
         instrumentVisibilityRef.current = instrumentVisibility;
         beatsPerMeasureRef.current = beatsPerMeasure;
-    }, [grids, volumes, isRandomizeActive, randomizeIntensity, instrumentParams, swing, chainMode, activePattern, instrumentVisibility, beatsPerMeasure]);
+        isBeatRepeatActiveRef.current = isBeatRepeatActive || isBeatRepeatHeld;
+        beatRepeatDivisionRef.current = beatRepeatDivision;
+        stutterSourceRef.current = stutterSource;
+    }, [grids, volumes, tempo, isRandomizeActive, randomizeIntensity, instrumentParams, swing, chainMode, activePattern, instrumentVisibility, beatsPerMeasure, isBeatRepeatActive, isBeatRepeatHeld, beatRepeatDivision, stutterSource]);
 
     // When the user manually changes the pattern or chain mode, reset the counter.
     useEffect(() => {
@@ -292,6 +424,41 @@ const App: React.FC = () => {
         const savedBeatNumbers = safeGetItem('cl607-showBeatNumbers');
         if (savedBeatNumbers !== null) {
             setShowBeatNumbers(JSON.parse(savedBeatNumbers));
+        }
+
+        const savedInvert = safeGetItem('cl607-invertColors');
+        if (savedInvert !== null) {
+            setIsInvertColors(JSON.parse(savedInvert));
+        }
+
+        const savedKeyboardDrumming = safeGetItem('cl607-keyboardDrummingEnabled');
+        if (savedKeyboardDrumming !== null) {
+            setKeyboardDrummingEnabled(JSON.parse(savedKeyboardDrumming));
+        }
+
+        const savedStyle = safeGetItem('cl607-visualizerStyle');
+        const validStyles: VisualizerStyle[] = ['default', 'cyberpunk', 'braun', 'bauhaus', 'nagra', 'koto', 'minimal'];
+        if (savedStyle && validStyles.includes(savedStyle as VisualizerStyle)) {
+            setVisualizerStyle(savedStyle as VisualizerStyle);
+            if (savedStyle === 'minimal') {
+                setIsSlowComputerMode(true);
+                setIsPerformanceMode(true);
+            }
+        }
+
+        const savedSlowMode = safeGetItem('cl607-slowComputerMode');
+        if (savedSlowMode !== null) {
+            const parsedSlow = JSON.parse(savedSlowMode);
+            setIsSlowComputerMode(parsedSlow);
+            if (parsedSlow) {
+                setVisualizerStyle('minimal');
+                setIsPerformanceMode(true);
+            }
+        }
+
+        const savedTitle = safeGetItem('cl607-customTitle');
+        if (savedTitle && savedTitle.trim()) {
+            setCustomTitle(savedTitle);
         }
 
         // Load patterns
@@ -378,7 +545,7 @@ const App: React.FC = () => {
 
 
     const { 
-        setup, playKick, playSnare, playHiHat, playSnap, playClave, playCowbell, playSample, startRecording, stopRecording, getRecordedAudioData, setSampleAudioData, renderBeatToBuffer, updateInstrumentParameter, rerenderKick, rerenderAllInstruments,
+        setup, playKick, playSnare, playHiHat, playSnap, playClave, playCowbell, playSample, startRecording, stopRecording, startLiveRecording, stopLiveRecording, getRecordedAudioData, setSampleAudioData, renderBeatToBuffer, updateInstrumentParameter, rerenderKick, rerenderAllInstruments,
         setLowPassFrequency, setHighPassFrequency,
         setReverbMix: setAudioEngineReverbMix, 
         setReverbDecay: setAudioEngineReverbDecay,
@@ -388,6 +555,8 @@ const App: React.FC = () => {
         setDelayFeedback: setAudioEngineDelayFeedback, 
         setDelaySource: setAudioEngineDelaySource,
         setKickSidechainAmount: setAudioEngineKickSidechainAmount,
+        setKickSidechainThreshold: setAudioEngineKickSidechainThreshold,
+        setKickSidechainRatio: setAudioEngineKickSidechainRatio,
         setMasterVolume: setAudioEngineMasterVolume,
         setCrushAmount: setAudioEngineCrushAmount,
         setTapeSaturationMix: setAudioEngineTapeSaturationMix,
@@ -403,11 +572,16 @@ const App: React.FC = () => {
         setLofiMix: setAudioEngineLofiMix,
         setIsoGain,
         playAirhorn,
+        setTapeStop,
+        updateTapeStopDuration,
+        setStutterState,
+        updateStutterParams,
+        syncStutterTransport,
     } = useAudioEngine();
 
     const handleStart = useCallback(async () => {
         setIsLoading(true);
-        const result = await setup(kickDesignerParams, drumKit);
+        const result = await setup(kickDesignerParams, drumKit, instrumentParams);
         if (result) {
             setIsAudioEngineReady(true);
             setInstrumentAnalyserNodes(result.analysers.instrumentAnalysers);
@@ -427,7 +601,7 @@ const App: React.FC = () => {
             setIsInitialized(true);
         }
         setIsLoading(false);
-    }, [setup, kickDesignerParams]);
+    }, [setup, kickDesignerParams, drumKit, instrumentParams]);
     
     const playSoundAtTime = useCallback((instrument: Instrument, volume: number, time: number, params: Partial<InstrumentParams>) => {
         switch (instrument) {
@@ -443,15 +617,35 @@ const App: React.FC = () => {
 
     useEffect(() => {
         if (!audioContext || !isPlaying) {
-            clearTimeout(schedulerTimerRef.current!);
-            schedulerTimerRef.current = null;
+            if (schedulerTimerRef.current) {
+                clearInterval(schedulerTimerRef.current);
+                schedulerTimerRef.current = null;
+            }
+            if (schedulerWorkerRef.current) {
+                schedulerWorkerRef.current.postMessage('stop');
+                schedulerWorkerRef.current.terminate();
+                schedulerWorkerRef.current = null;
+            }
+            notesInQueueRef.current = [];
+            const src = stutterSourceRef.current;
+            const srcVol = src === 'all' ? 0.7 : (volumesRef.current[INSTRUMENTS.indexOf(src)] ?? 0.7);
+            syncStutterTransport(false, 0, tempoRef.current, false, src, srcVol);
             return;
         }
         
-        const schedulerAheadTime = 0.1;
-        const schedulerInterval = 25.0;
+        // 180ms Web Audio hardware lookahead polled every 15ms from a dedicated background Worker thread
+        // guarantees rock-solid, sample-accurate beats even during heavy UI interaction or tab switches.
+        const schedulerAheadTime = 0.18;
+        const schedulerInterval = 15.0;
+        let isFirstBeatAfterTransportStart = true;
 
         const scheduler = () => {
+            const now = audioContext.currentTime;
+            // Guard against large clock jumps (e.g. system sleep or suspended tab wakeup)
+            if (nextNoteTime.current < now - 0.06) {
+                nextNoteTime.current = now;
+            }
+
             const currentVolumes = volumesRef.current;
             const randomizeActive = isRandomizeActiveRef.current;
             const intensity = randomizeIntensityRef.current;
@@ -459,12 +653,14 @@ const App: React.FC = () => {
             const currentSwing = swingRef.current;
             const visibility = instrumentVisibilityRef.current;
             const currentBPM = beatsPerMeasureRef.current;
+            const currentTempo = tempoRef.current;
             const numSteps = currentBPM * 4;
             
             while (nextNoteTime.current < audioContext.currentTime + schedulerAheadTime) {
                 let patternToUse = activePatternRef.current;
+                const beatRepeatOn = isBeatRepeatActiveRef.current;
 
-                if (currentStepRef.current === 0) {
+                if (currentStepRef.current === 0 && !beatRepeatOn) {
                     const mode = chainModeRef.current;
                     if (mode !== 'off') {
                         let counter = chainCounterRef.current;
@@ -488,51 +684,122 @@ const App: React.FC = () => {
                         chainCounterRef.current = counter;
                         if (nextPattern !== patternToUse) {
                             patternToUse = nextPattern;
+                            activePatternRef.current = nextPattern;
                             setActivePattern(nextPattern); 
                         }
                     }
                 }
                 
                 const grid = gridsRef.current[patternToUse];
-                const secondsPerStep = 60.0 / tempo / 4.0;
+                const secondsPerStep = 60.0 / currentTempo / 4.0;
+                const scheduledStep = currentStepRef.current;
+                const scheduledTime = nextNoteTime.current;
+
+                // Lock Stutter's master beat clock to the exact AudioContext timestamp of every quarter-note beat
+                if (scheduledStep % 4 === 0) {
+                    const src = stutterSourceRef.current;
+                    const srcVol = src === 'all' ? 0.7 : (currentVolumes[INSTRUMENTS.indexOf(src)] ?? 0.7);
+                    syncStutterTransport(true, scheduledTime, currentTempo, isFirstBeatAfterTransportStart, src, srcVol);
+                    isFirstBeatAfterTransportStart = false;
+                }
+
+                const repeatSteps = getBeatRepeatSteps(beatRepeatDivisionRef.current, numSteps);
+                const anchorStep = ((beatRepeatAnchorStepRef.current % numSteps) + numSteps) % numSteps;
+                const effectiveStep = beatRepeatOn
+                    ? (anchorStep + (scheduledStep % repeatSteps)) % numSteps
+                    : scheduledStep;
+
+                notesInQueueRef.current.push({ step: effectiveStep, time: scheduledTime });
+                if (notesInQueueRef.current.length > 64) {
+                    notesInQueueRef.current.shift();
+                }
                 
                 const stepToPlay = randomizeActive
-                    ? calculateRandomizeStep(currentStepRef.current, intensity, numSteps)
-                    : currentStepRef.current;
+                    ? calculateRandomizeStep(effectiveStep, intensity, numSteps)
+                    : effectiveStep;
     
                 if (stepToPlay > -1) {
-                    INSTRUMENTS.forEach((instrument, instrumentIndex) => {
+                    for (let instrumentIndex = 0; instrumentIndex < INSTRUMENTS.length; instrumentIndex++) {
                         if (visibility[instrumentIndex] && grid[instrumentIndex]?.[stepToPlay] && currentVolumes[instrumentIndex] > 0) {
-                            playSoundAtTime(instrument, currentVolumes[instrumentIndex], nextNoteTime.current, allParams[instrument]);
+                            const instrument = INSTRUMENTS[instrumentIndex];
+                            playSoundAtTime(instrument, currentVolumes[instrumentIndex], scheduledTime, allParams[instrument]);
                         }
-                    });
+                    }
                 }
                 
                 const swingFactor = 0.5 + (currentSwing * 0.25);
-                const isOddStep = currentStepRef.current % 2 !== 0;
+                const isOddStep = scheduledStep % 2 !== 0;
                 const stepDuration = isOddStep 
                     ? (1 - swingFactor) * 2 * secondsPerStep 
                     : swingFactor * 2 * secondsPerStep;
     
                 nextNoteTime.current += stepDuration;
-                currentStepRef.current = (currentStepRef.current + 1) % numSteps;
+                currentStepRef.current = (scheduledStep + 1) % numSteps;
             }
-            schedulerTimerRef.current = window.setTimeout(scheduler, schedulerInterval);
         };
 
         scheduler();
 
-        return () => {
-            clearTimeout(schedulerTimerRef.current!);
-            schedulerTimerRef.current = null;
+        let workerUrl: string | null = null;
+        try {
+            const workerBlob = new Blob(
+                [
+                    `let timerId = null;
+                    self.onmessage = function(e) {
+                        if (e.data === 'start') {
+                            if (timerId) clearInterval(timerId);
+                            timerId = setInterval(function() { self.postMessage('tick'); }, ${schedulerInterval});
+                        } else if (e.data === 'stop') {
+                            if (timerId) clearInterval(timerId);
+                            timerId = null;
+                        }
+                    };`
+                ],
+                { type: 'application/javascript' }
+            );
+            workerUrl = URL.createObjectURL(workerBlob);
+            const worker = new Worker(workerUrl);
+            worker.onmessage = scheduler;
+            worker.postMessage('start');
+            schedulerWorkerRef.current = worker;
+        } catch {
+            schedulerTimerRef.current = window.setInterval(scheduler, schedulerInterval);
         }
-    }, [isPlaying, tempo, audioContext, playSoundAtTime]);
+
+        return () => {
+            if (schedulerTimerRef.current) {
+                clearInterval(schedulerTimerRef.current);
+                schedulerTimerRef.current = null;
+            }
+            if (schedulerWorkerRef.current) {
+                schedulerWorkerRef.current.postMessage('stop');
+                schedulerWorkerRef.current.terminate();
+                schedulerWorkerRef.current = null;
+            }
+            if (workerUrl) {
+                URL.revokeObjectURL(workerUrl);
+            }
+        };
+    }, [isPlaying, audioContext, playSoundAtTime, syncStutterTransport]);
     
     const instrumentColors = useMemo(() => {
-        return BASE_INSTRUMENT_COLORS_HSL.map(baseColor => {
-            return `hsl(${baseColor.h}, ${baseColor.s}%, ${baseColor.l}%)`;
-        });
-    }, []);
+        switch (visualizerStyle) {
+            case 'braun':
+                return ['#ea5b0c', '#d9381e', '#2563eb', '#0d9488', '#2d6a4f', '#d97706', '#6d28d9'];
+            case 'bauhaus':
+                return ['#d62828', '#184e9c', '#e5a000', '#0f766e', '#15803d', '#c2410c', '#6b21a8'];
+            case 'nagra':
+                return ['#ff4d5e', '#ff7b3d', '#f59e0b', '#e84393', '#a855f7', '#fb7185', '#f97316'];
+            case 'koto':
+                return ['#d9462f', '#d4af37', '#e08238', '#5c9e73', '#4f75b8', '#c99b3b', '#b85d79'];
+            case 'cyberpunk':
+                return ['#ff003c', '#fcee0a', '#00f0ff', '#00ff9f', '#ff00a0', '#ff6600', '#9d00ff'];
+            default:
+                return BASE_INSTRUMENT_COLORS_HSL.map(baseColor => {
+                    return `hsl(${baseColor.h}, ${baseColor.s}%, ${baseColor.l}%)`;
+                });
+        }
+    }, [visualizerStyle]);
 
     useEffect(() => {
         if (!audioContext || !isPlaying) {
@@ -542,13 +809,18 @@ const App: React.FC = () => {
         }
 
         const visualizerLoop = () => {
-            const numSteps = beatsPerMeasure * 4;
-            const secondsPerStep = 60.0 / tempo / 4.0;
-            // Add a small offset to prevent floating point inaccuracies from showing the previous step
-            const timeElapsed = audioContext.currentTime - nextNoteTime.current + (secondsPerStep * numSteps);
-            const stepToShow = Math.floor((timeElapsed / secondsPerStep + currentStepRef.current) % numSteps);
+            const currentTime = audioContext.currentTime;
+            const queue = notesInQueueRef.current;
+            let stepToShow: number | null = null;
 
-            setCurrentStep(stepToShow);
+            while (queue.length > 0 && queue[0].time <= currentTime + 0.008) {
+                stepToShow = queue[0].step;
+                queue.shift();
+            }
+
+            if (stepToShow !== null) {
+                setCurrentStep(prev => (prev === stepToShow ? prev : stepToShow));
+            }
             
             visualizerTimerRef.current = requestAnimationFrame(visualizerLoop);
         };
@@ -557,14 +829,17 @@ const App: React.FC = () => {
 
         return () => {
             if (visualizerTimerRef.current) cancelAnimationFrame(visualizerTimerRef.current);
-        }
-    }, [isPlaying, audioContext, tempo, beatsPerMeasure]);
+        };
+    }, [isPlaying, audioContext]);
 
 
     const handleToggleStep = useCallback((instrumentIndex: number, stepIndex: number) => {
         setGrids(prevGrids => {
-            const newGrid = prevGrids[activePattern].map(row => [...row]);
-            newGrid[instrumentIndex][stepIndex] = !newGrid[instrumentIndex][stepIndex];
+            const currentGrid = prevGrids[activePattern];
+            const newGrid = [...currentGrid];
+            const targetRow = [...newGrid[instrumentIndex]];
+            targetRow[stepIndex] = !targetRow[stepIndex];
+            newGrid[instrumentIndex] = targetRow;
             return { ...prevGrids, [activePattern]: newGrid };
         });
     }, [activePattern]);
@@ -592,52 +867,154 @@ const App: React.FC = () => {
         setKickDesignerParams(prev => ({ ...prev, [param]: value }));
     }, []);
     
-    // This effect listens for any changes to the kick designer parameters
-    // and triggers a re-render of the kick sound buffer.
+    const kickDesignerParamsRef = useRef(kickDesignerParams);
+    const drumKitRef = useRef(drumKit);
+    const prevKickDesignerParamsRef = useRef(kickDesignerParams);
+    const prevDrumKitRef = useRef(drumKit);
+
     useEffect(() => {
-        if (isInitialized && rerenderKick) {
-            rerenderKick(kickDesignerParams, drumKit);
-        }
-    }, [isInitialized, rerenderKick, kickDesignerParams, drumKit]);
+        kickDesignerParamsRef.current = kickDesignerParams;
+        drumKitRef.current = drumKit;
+    }, [kickDesignerParams, drumKit]);
 
-    // This effect listens for drumKit changes and re-renders all instruments
+    // This effect listens ONLY for changes to the kick designer parameters
+    // and triggers a re-render of the kick sound buffer without re-rendering other instruments.
     useEffect(() => {
-        if (isInitialized && rerenderAllInstruments) {
-            rerenderAllInstruments(kickDesignerParams, drumKit);
+        if (!isInitialized || !rerenderKick) return;
+        if (prevKickDesignerParamsRef.current !== kickDesignerParams) {
+            prevKickDesignerParamsRef.current = kickDesignerParams;
+            rerenderKick(kickDesignerParams, drumKitRef.current);
         }
-    }, [isInitialized, rerenderAllInstruments, kickDesignerParams, drumKit]);
+    }, [isInitialized, rerenderKick, kickDesignerParams]);
 
-    const handleStartRecording = useCallback(() => {
-        countdownTimeoutsRef.current.forEach(clearTimeout);
-        countdownTimeoutsRef.current = [];
-        setCountdown(3);
+    // This effect listens ONLY for drumKit changes and re-renders all instruments
+    useEffect(() => {
+        if (!isInitialized || !rerenderAllInstruments) return;
+        if (prevDrumKitRef.current !== drumKit) {
+            prevDrumKitRef.current = drumKit;
+            rerenderAllInstruments(kickDesignerParamsRef.current, drumKit);
+        }
+    }, [isInitialized, rerenderAllInstruments, drumKit]);
 
-        const t1 = window.setTimeout(() => setCountdown(2), 1000);
-        const t2 = window.setTimeout(() => setCountdown(1), 2000);
-        const t3 = window.setTimeout(() => {
-            setCountdown(null);
-            setIsRecording(true);
-            startRecording();
-        }, 3000);
-        
-        countdownTimeoutsRef.current = [t1, t2, t3];
-    }, [startRecording]);
+    // Poll live recorded PCM data while recording so the Sample Recorder waveform updates in real time
+    useEffect(() => {
+        let intervalId: number | undefined;
+        if (isRecording) {
+            intervalId = window.setInterval(() => {
+                const data = getRecordedAudioData();
+                if (data.length > 0) {
+                    setFullAudioData(data);
+                }
+            }, 250);
+        }
+        return () => {
+            if (intervalId !== undefined) window.clearInterval(intervalId);
+        };
+    }, [isRecording, getRecordedAudioData]);
 
-    const handleStopRecording = useCallback(() => {
-        if (countdown !== null) {
-            countdownTimeoutsRef.current.forEach(clearTimeout);
-            countdownTimeoutsRef.current = [];
-            setCountdown(null);
+    // Sync trimmed sample audio data to the audio engine whenever fullAudioData or trimRange changes (when not recording)
+    useEffect(() => {
+        if (!isAudioEngineReady || isRecording) return;
+        if (fullAudioData.length === 0) {
+            setSampleAudioData(new Float32Array(0));
             return;
         }
+        const startIndex = Math.floor(trimRange.start * fullAudioData.length);
+        const endIndex = Math.floor(trimRange.end * fullAudioData.length);
+        const trimmed = fullAudioData.subarray(startIndex, endIndex);
+        setSampleAudioData(trimmed);
+    }, [fullAudioData, trimRange, isRecording, isAudioEngineReady, setSampleAudioData]);
 
-        if (isRecording) {
-            stopRecording();
-            setIsRecording(false);
+    const finalizeRecording = useCallback(() => {
+        const data = getRecordedAudioData();
+        stopRecording();
+        setIsRecording(false);
+        setFullAudioData(data);
+        setOriginalAudioData(data);
+        setTrimRange({ start: 0, end: 1 });
+        if (recordingTimeoutRef.current) {
+            window.clearTimeout(recordingTimeoutRef.current);
+            recordingTimeoutRef.current = null;
         }
-    }, [countdown, isRecording, stopRecording]);
+    }, [getRecordedAudioData, stopRecording]);
 
-    const handleDownload = useCallback(async () => {
+    const handleToggleRecording = useCallback(() => {
+        if (!isAudioEngineReady) return;
+        if (isRecording) {
+            finalizeRecording();
+        } else {
+            if (recordingTimeoutRef.current) {
+                window.clearTimeout(recordingTimeoutRef.current);
+                recordingTimeoutRef.current = null;
+            }
+            setFullAudioData(new Float32Array(0));
+            setTrimRange({ start: 0, end: 1 });
+            setIsRecording(true);
+            startRecording();
+
+            // Auto-stop after 10 seconds safety cap
+            recordingTimeoutRef.current = window.setTimeout(() => {
+                finalizeRecording();
+            }, 10000);
+        }
+    }, [isAudioEngineReady, isRecording, finalizeRecording, startRecording]);
+
+    const handleToggleLiveRecording = useCallback(() => {
+        if (!isAudioEngineReady) return;
+        if (isLiveRecording) {
+            const result = stopLiveRecording();
+            setIsLiveRecording(false);
+            if (result && result.blob && result.duration > 0.05) {
+                const id = `live-rec-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+                const num = liveRecordingCounterRef.current++;
+                const now = new Date();
+                const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                const url = URL.createObjectURL(result.blob);
+                const newRec: LiveRecording = {
+                    id,
+                    name: `Live Memo #${num}`,
+                    url,
+                    blob: result.blob,
+                    duration: result.duration,
+                    createdAt: timeStr,
+                };
+                setLiveRecordings(prev => [newRec, ...prev]);
+            }
+        } else {
+            if (audioContext && audioContext.state === 'suspended') {
+                audioContext.resume();
+            }
+            const started = startLiveRecording();
+            if (started) {
+                setIsLiveRecording(true);
+            }
+        }
+    }, [isAudioEngineReady, isLiveRecording, stopLiveRecording, startLiveRecording, audioContext]);
+
+    const handleDeleteLiveRecording = useCallback((id: string) => {
+        setLiveRecordings(prev => {
+            const target = prev.find(r => r.id === id);
+            if (target) {
+                URL.revokeObjectURL(target.url);
+            }
+            return prev.filter(r => r.id !== id);
+        });
+    }, []);
+
+    const handleClearAllLiveRecordings = useCallback(() => {
+        setLiveRecordings(prev => {
+            prev.forEach(r => URL.revokeObjectURL(r.url));
+            return [];
+        });
+    }, []);
+
+    const handleRenameLiveRecording = useCallback((id: string, newName: string) => {
+        const trimmed = newName.trim();
+        if (!trimmed) return;
+        setLiveRecordings(prev => prev.map(r => r.id === id ? { ...r, name: trimmed } : r));
+    }, []);
+
+    const handleDownload = useCallback(async (customFilename?: string, measuresOverride?: number, includeTailOverride?: boolean) => {
         setIsRendering(true);
         try {
             const wavBlob = await renderBeatToBuffer(
@@ -666,11 +1043,28 @@ const App: React.FC = () => {
                 envelopeFilterQ,
                 instrumentVisibility,
                 isolatorGains,
-                lofiMix
+                lofiMix,
+                activePattern,
+                chainMode,
+                kickSidechainThreshold,
+                kickSidechainRatio,
+                isRandomizeActive,
+                randomizeIntensity,
+                isStutterActive || isStutterHeld,
+                stutterDivision,
+                isBeatRepeatActive || isBeatRepeatHeld,
+                beatRepeatDivision,
+                beatRepeatAnchorStep,
+                stutterSource,
+                measuresOverride ?? exportMeasures,
+                includeTailOverride ?? exportIncludeTail
             );
 
             if (wavBlob) {
-                const filename = `CL-607 - ${tempo}bpm.wav`;
+                const defaultBase = `drums_bpm${tempo}`;
+                const rawBase = (customFilename ?? defaultBase).trim().replace(/\.wav$/i, '');
+                const sanitizedBase = rawBase.replace(/[:/\\?%*|"<>]/g, '_').trim() || defaultBase;
+                const filename = `${sanitizedBase}.wav`;
                 const url = URL.createObjectURL(wavBlob);
                 const a = document.createElement('a');
                 a.style.display = 'none';
@@ -682,23 +1076,25 @@ const App: React.FC = () => {
                 document.body.removeChild(a);
             } else {
                 console.error("Rendering failed, received null blob.");
-                alert("Sorry, there was an error rendering your beat.");
             }
         } catch (error) {
             console.error("Failed to render beat:", error);
-            alert("Sorry, there was an error rendering your beat.");
         } finally {
             setIsRendering(false);
         }
     }, [
         renderBeatToBuffer, grids, volumes, tempo, swing, masterVolume, lowPassFreq, highPassFreq,
-        reverbMix, reverbDecay, reverbSource, delayMix, delayTime, delayFeedback, delaySource, kickSidechainAmount,
+        reverbMix, reverbDecay, reverbSource, delayMix, delayTime, delayFeedback, delaySource,
+        kickSidechainAmount, kickSidechainThreshold, kickSidechainRatio,
         crushAmount, tapeSaturationMix, tapeSaturationAmount, tapeSaturationTone,
         envelopeFilterMix, envelopeFilterAmount, envelopeFilterBaseFreq, envelopeFilterQ,
-        effectsEnabled, instrumentVisibility, isolatorGains, lofiMix,
+        effectsEnabled, instrumentVisibility, isolatorGains, lofiMix, activePattern, chainMode,
+        isRandomizeActive, randomizeIntensity, isStutterActive, isStutterHeld, stutterDivision,
+        isBeatRepeatActive, isBeatRepeatHeld, beatRepeatDivision, beatRepeatAnchorStep, stutterSource,
+        exportMeasures, exportIncludeTail
     ]);
 
-    const handlePrepareDrag = useCallback(async () => {
+    const handlePrepareDrag = useCallback(async (measuresOverride?: number, includeTailOverride?: boolean) => {
         setIsPreparingDrag(true);
         try {
             const wavBlob = await renderBeatToBuffer(
@@ -727,31 +1123,65 @@ const App: React.FC = () => {
                 envelopeFilterQ,
                 instrumentVisibility,
                 isolatorGains,
-                lofiMix
+                lofiMix,
+                activePattern,
+                chainMode,
+                kickSidechainThreshold,
+                kickSidechainRatio,
+                isRandomizeActive,
+                randomizeIntensity,
+                isStutterActive || isStutterHeld,
+                stutterDivision,
+                isBeatRepeatActive || isBeatRepeatHeld,
+                beatRepeatDivision,
+                beatRepeatAnchorStep,
+                stutterSource,
+                measuresOverride ?? exportMeasures,
+                includeTailOverride ?? exportIncludeTail
             );
 
             if (wavBlob) {
-                if (dragBlobUrl) {
-                    URL.revokeObjectURL(dragBlobUrl);
-                }
-                const url = URL.createObjectURL(wavBlob);
-                setDragBlobUrl(url);
+                setDragBlobUrl(prev => {
+                    if (prev) URL.revokeObjectURL(prev);
+                    return URL.createObjectURL(wavBlob);
+                });
             } else {
                 console.error("Rendering failed, received null blob.");
-                alert("Sorry, there was an error rendering your beat.");
             }
         } catch (error) {
             console.error("Failed to render beat for drag:", error);
-            alert("Sorry, there was an error rendering your beat.");
         } finally {
             setIsPreparingDrag(false);
         }
     }, [
         renderBeatToBuffer, grids, volumes, tempo, swing, masterVolume, lowPassFreq, highPassFreq,
-        reverbMix, reverbDecay, reverbSource, delayMix, delayTime, delayFeedback, delaySource, kickSidechainAmount,
+        reverbMix, reverbDecay, reverbSource, delayMix, delayTime, delayFeedback, delaySource,
+        kickSidechainAmount, kickSidechainThreshold, kickSidechainRatio,
         crushAmount, tapeSaturationMix, tapeSaturationAmount, tapeSaturationTone,
         envelopeFilterMix, envelopeFilterAmount, envelopeFilterBaseFreq, envelopeFilterQ,
-        effectsEnabled, instrumentVisibility, isolatorGains, lofiMix, dragBlobUrl
+        effectsEnabled, instrumentVisibility, isolatorGains, lofiMix, activePattern, chainMode,
+        isRandomizeActive, randomizeIntensity, isStutterActive, isStutterHeld, stutterDivision,
+        isBeatRepeatActive, isBeatRepeatHeld, beatRepeatDivision, beatRepeatAnchorStep, stutterSource,
+        exportMeasures, exportIncludeTail
+    ]);
+
+    // Invalidate prepared dragBlobUrl whenever any beat, effect, instrument, or Live DJ parameter changes
+    // so dragging always reflects the latest sound and settings.
+    useEffect(() => {
+        setDragBlobUrl(prev => {
+            if (prev) URL.revokeObjectURL(prev);
+            return null;
+        });
+    }, [
+        grids, volumes, tempo, swing, masterVolume, lowPassFreq, highPassFreq,
+        reverbMix, reverbDecay, reverbSource, delayMix, delayTime, delayFeedback, delaySource,
+        kickSidechainAmount, kickSidechainThreshold, kickSidechainRatio,
+        crushAmount, tapeSaturationMix, tapeSaturationAmount, tapeSaturationTone,
+        envelopeFilterMix, envelopeFilterAmount, envelopeFilterBaseFreq, envelopeFilterQ,
+        effectsEnabled, instrumentVisibility, isolatorGains, lofiMix, activePattern, chainMode,
+        isRandomizeActive, randomizeIntensity, isXyFilterHeld, isStutterActive, isStutterHeld, stutterDivision,
+        isBeatRepeatActive, isBeatRepeatHeld, beatRepeatDivision, beatRepeatAnchorStep, stutterSource,
+        instrumentParams, kickDesignerParams, drumKit, fullAudioData, trimRange, exportMeasures, exportIncludeTail
     ]);
 
     const handlePlayToggle = useCallback(() => {
@@ -763,6 +1193,7 @@ const App: React.FC = () => {
             }
             nextNoteTime.current = audioContext.currentTime;
             currentStepRef.current = 0;
+            notesInQueueRef.current = [];
             setCurrentStep(null);
         }
         
@@ -797,13 +1228,21 @@ const App: React.FC = () => {
         setBeatsPerMeasure(patternToLoad.beatsPerMeasure || 4);
         setGrids(patternToLoad.grids);
         setVolumes(patternToLoad.volumes);
+        tempoRef.current = patternToLoad.tempo;
         setTempo(patternToLoad.tempo);
         setInstrumentParams(patternToLoad.instrumentParams);
         setSwing(patternToLoad.swing ?? 0);
+        if (isInitialized && rerenderAllInstruments) {
+            rerenderAllInstruments(kickDesignerParamsRef.current, drumKitRef.current, patternToLoad.instrumentParams);
+            if (updateInstrumentParameter && patternToLoad.instrumentParams.sample) {
+                updateInstrumentParameter('sample', 'highPass', patternToLoad.instrumentParams.sample.highPass ?? MIN_FILTER_FREQ, drumKitRef.current);
+                updateInstrumentParameter('sample', 'lowPass', patternToLoad.instrumentParams.sample.lowPass ?? MAX_FILTER_FREQ, drumKitRef.current);
+            }
+        }
         
         setActivePattern('a');
         setCurrentPatternIndex(newIndex);
-    }, [currentPatternIndex, savedPatterns]);
+    }, [currentPatternIndex, savedPatterns, isInitialized, rerenderAllInstruments, updateInstrumentParameter]);
 
     const handleClearPattern = useCallback(() => {
         const numSteps = beatsPerMeasure * 4;
@@ -823,20 +1262,49 @@ const App: React.FC = () => {
     }, []);
 
     const handleFilterInteractionStart = useCallback(() => toggleXyFilter(true), [toggleXyFilter]);
-    const handleFilterInteractionEnd = useCallback(() => toggleXyFilter(false), [toggleXyFilter]);
+    const handleFilterInteractionEnd = useCallback(() => {
+        if (!isXyFilterHeld) {
+            toggleXyFilter(false);
+        }
+    }, [toggleXyFilter, isXyFilterHeld]);
     const handleFilterChange = useCallback((freq: number, drive: number) => setXyFilterParams(freq, drive), [setXyFilterParams]);
+    const handleToggleXyFilterHold = useCallback((held: boolean, freq: number, drive: number) => {
+        setIsXyFilterHeld(held);
+        if (held) {
+            toggleXyFilter(true);
+            setXyFilterParams(freq, drive);
+        } else {
+            toggleXyFilter(false);
+        }
+    }, [toggleXyFilter, setXyFilterParams]);
 
-    const handleTempoChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => setTempo(Number(e.target.value)), []);
-    const handleSwingChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => setSwing(Number(e.target.value)), []);
+    const handleTempoChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+        const nextTempo = Number(e.target.value);
+        tempoRef.current = nextTempo;
+        setTempo(nextTempo);
+    }, []);
+    const handleDirectTempoChange = useCallback((nextTempo: number) => {
+        tempoRef.current = nextTempo;
+        setTempo(nextTempo);
+    }, []);
+    const handleSwingChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+        const nextSwing = Number(e.target.value);
+        swingRef.current = nextSwing;
+        setSwing(nextSwing);
+    }, []);
     const handleMasterVolumeChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => setMasterVolume(Number(e.target.value)), []);
     
     const handleRandomizePressStart = useCallback(() => {
         setIsRandomizeActive(true);
         if (scrambleIntervalRef.current) clearInterval(scrambleIntervalRef.current);
+        if (visualizerStyle === 'minimal' || isSlowComputerMode) {
+            setRandomizeButtonText('ACTIVE');
+            return;
+        }
         scrambleIntervalRef.current = window.setInterval(() => {
             setRandomizeButtonText(scramble('RANDOMIZE'));
         }, 60);
-    }, []);
+    }, [visualizerStyle, isSlowComputerMode]);
 
     const handleRandomizePressEnd = useCallback(() => {
         setIsRandomizeActive(false);
@@ -852,6 +1320,242 @@ const App: React.FC = () => {
     const handleIsolatorGainChange = useCallback((band: 'low' | 'mid' | 'high', value: number) => {
         setIsolatorGains(prev => ({ ...prev, [band]: value }));
     }, []);
+
+    const handleTapeStopStart = useCallback(() => {
+        if (tapeStopReleaseTimerRef.current) {
+            clearTimeout(tapeStopReleaseTimerRef.current);
+            tapeStopReleaseTimerRef.current = null;
+        }
+        tapeStopStartTimeRef.current = performance.now();
+        setIsTapeStopActive(true);
+        setTapeStop(true, tapeStopDuration, tempoRef.current);
+    }, [setTapeStop, tapeStopDuration]);
+
+    const handleTapeStopEnd = useCallback(() => {
+        setTapeStop(false, tapeStopDuration, tempoRef.current);
+        const elapsedMs = performance.now() - tapeStopStartTimeRef.current;
+        const fullBrakeMs = tapeStopDuration * 1000;
+        if (elapsedMs < fullBrakeMs) {
+            if (tapeStopReleaseTimerRef.current) {
+                clearTimeout(tapeStopReleaseTimerRef.current);
+            }
+            tapeStopReleaseTimerRef.current = window.setTimeout(() => {
+                setIsTapeStopActive(false);
+                tapeStopReleaseTimerRef.current = null;
+            }, Math.max(0, fullBrakeMs - elapsedMs));
+        } else {
+            setIsTapeStopActive(false);
+        }
+    }, [setTapeStop, tapeStopDuration]);
+
+    const handleTapeStopDurationChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+        const nextDur = Number(e.target.value);
+        setTapeStopDuration(nextDur);
+        updateTapeStopDuration(nextDur, tempoRef.current);
+    }, [updateTapeStopDuration]);
+
+    const getStutterSourceVolume = useCallback((source: Instrument | 'all') => {
+        if (source === 'all') return 0.7;
+        const idx = INSTRUMENTS.indexOf(source);
+        return idx !== -1 ? volumesRef.current[idx] : 0.7;
+    }, []);
+
+    const handleStutterPressStart = useCallback(() => {
+        setIsStutterActive(true);
+        setStutterState(true, false, stutterDivision, tempoRef.current, stutterSource, getStutterSourceVolume(stutterSource));
+    }, [setStutterState, stutterDivision, stutterSource, getStutterSourceVolume]);
+
+    const handleStutterPressEnd = useCallback(() => {
+        if (isStutterHeld) {
+            setIsStutterActive(true);
+            setStutterState(true, true, stutterDivision, tempoRef.current, stutterSource, getStutterSourceVolume(stutterSource));
+            return;
+        }
+        setIsStutterActive(false);
+        setStutterState(false, false, stutterDivision, tempoRef.current, stutterSource, getStutterSourceVolume(stutterSource));
+    }, [isStutterHeld, setStutterState, stutterDivision, stutterSource, getStutterSourceVolume]);
+
+    const handleToggleStutterHold = useCallback(() => {
+        const nextHeld = !isStutterHeld;
+        setIsStutterHeld(nextHeld);
+        setIsStutterActive(nextHeld);
+        setStutterState(nextHeld, nextHeld, stutterDivision, tempoRef.current, stutterSource, getStutterSourceVolume(stutterSource));
+    }, [isStutterHeld, setStutterState, stutterDivision, stutterSource, getStutterSourceVolume]);
+
+    const handleStutterDivisionChange = useCallback((div: StutterDivision) => {
+        setStutterDivision(div);
+        updateStutterParams(div, tempoRef.current, stutterSource, getStutterSourceVolume(stutterSource));
+    }, [updateStutterParams, stutterSource, getStutterSourceVolume]);
+
+    const handleStutterSourceChange = useCallback((e: React.ChangeEvent<HTMLSelectElement>) => {
+        const nextSource = e.target.value as Instrument | 'all';
+        setStutterSource(nextSource);
+        updateStutterParams(stutterDivision, tempoRef.current, nextSource, getStutterSourceVolume(nextSource));
+    }, [stutterDivision, updateStutterParams, getStutterSourceVolume]);
+
+    const computeBeatRepeatAnchor = useCallback((div: BeatRepeatDivision) => {
+        const numSteps = beatsPerMeasureRef.current * 4;
+        const repeatSteps = getBeatRepeatSteps(div, numSteps);
+        const rawStep = currentStep ?? ((currentStepRef.current - 1 + numSteps) % numSteps);
+        let anchor = Math.floor(rawStep / repeatSteps) * repeatSteps;
+
+        // If repeating a short slice (1 or 2 steps) and that slice in the active grid has no notes,
+        // snap to the most recent active step so Beat Repeater always loops an audible hit.
+        if (repeatSteps <= 2) {
+            const grid = gridsRef.current[activePatternRef.current];
+            const visibility = instrumentVisibilityRef.current;
+            const hasActiveHitInSlice = (startStep: number) => {
+                for (let offset = 0; offset < repeatSteps; offset++) {
+                    const s = (startStep + offset) % numSteps;
+                    for (let i = 0; i < INSTRUMENTS.length; i++) {
+                        if (visibility[i] && grid[i]?.[s]) return true;
+                    }
+                }
+                return false;
+            };
+            if (!hasActiveHitInSlice(anchor)) {
+                for (let back = 1; back < numSteps; back++) {
+                    const candidate = Math.floor(((rawStep - back + numSteps) % numSteps) / repeatSteps) * repeatSteps;
+                    if (hasActiveHitInSlice(candidate)) {
+                        anchor = candidate;
+                        break;
+                    }
+                }
+            }
+        }
+        return anchor;
+    }, [currentStep]);
+
+    const handleBeatRepeatPressStart = useCallback(() => {
+        if (!isBeatRepeatHeld) {
+            const anchor = computeBeatRepeatAnchor(beatRepeatDivisionRef.current);
+            beatRepeatAnchorStepRef.current = anchor;
+            setBeatRepeatAnchorStep(anchor);
+        }
+        isBeatRepeatActiveRef.current = true;
+        setIsBeatRepeatActive(true);
+    }, [isBeatRepeatHeld, computeBeatRepeatAnchor]);
+
+    const handleBeatRepeatPressEnd = useCallback(() => {
+        if (isBeatRepeatHeld) {
+            isBeatRepeatActiveRef.current = true;
+            setIsBeatRepeatActive(true);
+            return;
+        }
+        isBeatRepeatActiveRef.current = false;
+        setIsBeatRepeatActive(false);
+    }, [isBeatRepeatHeld]);
+
+    const handleToggleBeatRepeatHold = useCallback(() => {
+        const nextHeld = !isBeatRepeatHeld;
+        if (nextHeld && !isBeatRepeatActiveRef.current) {
+            const anchor = computeBeatRepeatAnchor(beatRepeatDivisionRef.current);
+            beatRepeatAnchorStepRef.current = anchor;
+            setBeatRepeatAnchorStep(anchor);
+        }
+        isBeatRepeatActiveRef.current = nextHeld;
+        setIsBeatRepeatHeld(nextHeld);
+        setIsBeatRepeatActive(nextHeld);
+    }, [isBeatRepeatHeld, computeBeatRepeatAnchor]);
+
+    const handleBeatRepeatDivisionChange = useCallback((div: BeatRepeatDivision) => {
+        beatRepeatDivisionRef.current = div;
+        setBeatRepeatDivision(div);
+        if (isBeatRepeatActiveRef.current) {
+            const anchor = computeBeatRepeatAnchor(div);
+            beatRepeatAnchorStepRef.current = anchor;
+            setBeatRepeatAnchorStep(anchor);
+        }
+    }, [computeBeatRepeatAnchor]);
+
+    const handleSelectDjShortcutEffect = useCallback((slotIndex: 0 | 1, effect: EffectName) => {
+        setDjShortcutEffects(prev => {
+            const next: [EffectName, EffectName] = [...prev] as [EffectName, EffectName];
+            next[slotIndex] = effect;
+            return next;
+        });
+        setOpenDjShortcutDropdown(null);
+    }, []);
+
+    const handleToggleDjShortcutEffect = useCallback((effect: EffectName) => {
+        setEffectsEnabled(prev => {
+            const nextEnabled = !prev[effect];
+            if (nextEnabled) {
+                // If turning ON an effect whose mix is currently 0, give it an audible default mix
+                switch (effect) {
+                    case 'delay':
+                        if (delayMix === 0) setDelayMix(0.35);
+                        break;
+                    case 'reverb':
+                        if (reverbMix === 0) setReverbMix(0.35);
+                        break;
+                    case 'tape':
+                        if (tapeSaturationMix === 0) setTapeSaturationMix(0.35);
+                        break;
+                    case 'envelope':
+                        if (envelopeFilterMix === 0) setEnvelopeFilterMix(0.35);
+                        break;
+                    case 'crush':
+                        if (crushAmount === 0) setCrushAmount(0.35);
+                        break;
+                    case 'sidechain':
+                        if (kickSidechainAmount === 0) setKickSidechainAmount(0.4);
+                        break;
+                }
+            }
+            return { ...prev, [effect]: nextEnabled };
+        });
+    }, [delayMix, reverbMix, tapeSaturationMix, envelopeFilterMix, crushAmount, kickSidechainAmount]);
+
+    const handleDjShortcutValueChange = useCallback((effect: EffectName, rawValue: number) => {
+        setEffectsEnabled(prev => (prev[effect] ? prev : { ...prev, [effect]: true }));
+        switch (effect) {
+            case 'delay':
+                setDelayMix(rawValue);
+                break;
+            case 'reverb':
+                setReverbMix(rawValue);
+                break;
+            case 'tape':
+                setTapeSaturationMix(rawValue);
+                break;
+            case 'envelope':
+                setEnvelopeFilterMix(rawValue);
+                break;
+            case 'crush':
+                setCrushAmount(rawValue);
+                break;
+            case 'sidechain':
+                setKickSidechainAmount(rawValue);
+                break;
+            case 'lowPass':
+                setLowPassFreq(sliderToFreq(rawValue));
+                break;
+            case 'highPass':
+                setHighPassFreq(sliderToFreq(rawValue));
+                break;
+        }
+    }, []);
+
+    useEffect(() => {
+        if (openDjShortcutDropdown === null) return;
+        const handleOutsideClick = (e: MouseEvent) => {
+            if (djShortcutsRef.current && !djShortcutsRef.current.contains(e.target as Node)) {
+                setOpenDjShortcutDropdown(null);
+            }
+        };
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') {
+                setOpenDjShortcutDropdown(null);
+            }
+        };
+        document.addEventListener('mousedown', handleOutsideClick);
+        document.addEventListener('keydown', handleKeyDown);
+        return () => {
+            document.removeEventListener('mousedown', handleOutsideClick);
+            document.removeEventListener('keydown', handleKeyDown);
+        };
+    }, [openDjShortcutDropdown]);
 
     const handleShiftPattern = useCallback((direction: 'left' | 'right') => {
         setGrids(prevGrids => {
@@ -876,6 +1580,62 @@ const App: React.FC = () => {
     }, [activePattern]);
 
     const handleTogglePerformanceMode = useCallback(() => setIsPerformanceMode(prev => !prev), []);
+
+    const handleVisualizerStyleChange = useCallback((style: VisualizerStyle) => {
+        if (style === 'minimal') {
+            if (visualizerStyle !== 'minimal') {
+                preSlowSettingsRef.current = {
+                    visualizerStyle,
+                    isPerformanceMode,
+                    tooltipsEnabled,
+                };
+            }
+            setIsSlowComputerMode(true);
+            setVisualizerStyle('minimal');
+            setIsPerformanceMode(true);
+            setTooltipsEnabled(false);
+            setIsColorAnimating(false);
+            setHueRotate(0);
+        } else {
+            setIsSlowComputerMode(false);
+            setVisualizerStyle(style);
+        }
+    }, [visualizerStyle, isPerformanceMode, tooltipsEnabled]);
+
+    const handleToggleSlowComputerMode = useCallback(() => {
+        if (!isSlowComputerMode) {
+            preSlowSettingsRef.current = {
+                visualizerStyle: visualizerStyle === 'minimal' ? 'default' : visualizerStyle,
+                isPerformanceMode,
+                tooltipsEnabled,
+            };
+            setIsSlowComputerMode(true);
+            setVisualizerStyle('minimal');
+            setIsPerformanceMode(true);
+            setTooltipsEnabled(false);
+            setIsColorAnimating(false);
+            setHueRotate(0);
+        } else {
+            setIsSlowComputerMode(false);
+            const restoredStyle = preSlowSettingsRef.current.visualizerStyle === 'minimal'
+                ? 'default'
+                : preSlowSettingsRef.current.visualizerStyle;
+            setVisualizerStyle(restoredStyle);
+            setIsPerformanceMode(preSlowSettingsRef.current.isPerformanceMode);
+            setTooltipsEnabled(preSlowSettingsRef.current.tooltipsEnabled);
+        }
+    }, [isSlowComputerMode, visualizerStyle, isPerformanceMode, tooltipsEnabled]);
+
+    const handleToggleKeyboardDrumming = useCallback(() => setKeyboardDrummingEnabled(prev => !prev), []);
+    const handleUpdateKeyboardMap = useCallback((key: string, instrument: Instrument) => {
+        setKeyboardMap(prev => ({ ...prev, [key]: instrument }));
+    }, []);
+    const handleClearDragUrl = useCallback(() => {
+        setDragBlobUrl(prev => {
+            if (prev) URL.revokeObjectURL(prev);
+            return null;
+        });
+    }, []);
     
     const handleFactoryReset = useCallback(() => {
         // Stop playback if it's running
@@ -889,6 +1649,11 @@ const App: React.FC = () => {
         }
         safeRemoveItem('cl607-tooltipsEnabled');
         safeRemoveItem('cl607-showBeatNumbers');
+        safeRemoveItem('cl607-invertColors');
+        safeRemoveItem('cl607-customTitle');
+        safeRemoveItem('cl607-visualizerStyle');
+        safeRemoveItem('cl607-slowComputerMode');
+        safeRemoveItem('cl607-keyboardDrummingEnabled');
     
         // 2. Reset all state to defaults
         // Core sequencer state
@@ -910,17 +1675,26 @@ const App: React.FC = () => {
         
         // Settings state
         setVisualizerType('waveform');
+        setVisualizerStyle('default');
+        setIsSlowComputerMode(false);
         setIsPerformanceMode(true);
         setTooltipsEnabled(true);
         setShowBeatNumbers(false);
+        setIsInvertColors(false);
+        setKeyboardDrummingEnabled(true);
         setInstrumentVisibility(Array(INSTRUMENTS.length).fill(true));
         setEffectsEnabled({
             lowPass: true, highPass: true, sidechain: true, crush: true, tape: true, envelope: true, reverb: true, delay: true
         });
-        setSectionOrder(['dj', 'effects', 'instruments', 'notation', 'settings']);
+        setSectionOrder(['dj', 'effects', 'instruments', 'recorder', 'notation', 'settings']);
         setHueRotate(0);
         setIsColorAnimating(false);
         setIsCappuccinoMode(false); // Reset hidden mode
+        setCustomTitle('CL-607 Drum Machine');
+        setIsEditingTitle(false);
+        setFullAudioData(new Float32Array(0));
+        setOriginalAudioData(new Float32Array(0));
+        setTrimRange({ start: 0, end: 1 });
     
         // Pattern management state
         const defaultPattern: SavedPattern = {
@@ -1029,10 +1803,10 @@ const App: React.FC = () => {
     }, [draggedIndex]);
 
 
-    const sliderInteractionProps = {
+    const sliderInteractionProps = useMemo(() => ({
         onMouseDown: handleSliderInteractionStart,
         onTouchStart: handleSliderInteractionStart,
-    };
+    }), [handleSliderInteractionStart]);
 
     useEffect(() => { setLowPassFrequency(effectsEnabled.lowPass ? lowPassFreq : MAX_FILTER_FREQ) }, [lowPassFreq, effectsEnabled.lowPass, setLowPassFrequency]);
     useEffect(() => { setHighPassFrequency(effectsEnabled.highPass ? highPassFreq : MIN_FILTER_FREQ) }, [highPassFreq, effectsEnabled.highPass, setHighPassFrequency]);
@@ -1044,6 +1818,8 @@ const App: React.FC = () => {
     useEffect(() => { setAudioEngineDelayFeedback(delayFeedback) }, [delayFeedback, setAudioEngineDelayFeedback]);
     useEffect(() => { if (setAudioEngineDelaySource) setAudioEngineDelaySource(delaySource) }, [delaySource, setAudioEngineDelaySource]);
     useEffect(() => { setAudioEngineKickSidechainAmount(effectsEnabled.sidechain ? kickSidechainAmount : 0) }, [kickSidechainAmount, effectsEnabled.sidechain, setAudioEngineKickSidechainAmount]);
+    useEffect(() => { if (setAudioEngineKickSidechainThreshold) setAudioEngineKickSidechainThreshold(kickSidechainThreshold) }, [kickSidechainThreshold, setAudioEngineKickSidechainThreshold]);
+    useEffect(() => { if (setAudioEngineKickSidechainRatio) setAudioEngineKickSidechainRatio(kickSidechainRatio) }, [kickSidechainRatio, setAudioEngineKickSidechainRatio]);
     useEffect(() => { setAudioEngineMasterVolume(masterVolume) }, [masterVolume, setAudioEngineMasterVolume]);
     useEffect(() => { setAudioEngineCrushAmount(effectsEnabled.crush ? crushAmount : 0) }, [crushAmount, effectsEnabled.crush, setAudioEngineCrushAmount]);
     useEffect(() => { if (isInitialized) setAudioEngineTapeSaturationMix(effectsEnabled.tape ? tapeSaturationMix : 0) }, [tapeSaturationMix, effectsEnabled.tape, setAudioEngineTapeSaturationMix, isInitialized]);
@@ -1058,6 +1834,17 @@ const App: React.FC = () => {
     useEffect(() => { if (setIsoGain) setIsoGain('low', isolatorGains.low); }, [isolatorGains.low, setIsoGain]);
     useEffect(() => { if (setIsoGain) setIsoGain('mid', isolatorGains.mid); }, [isolatorGains.mid, setIsoGain]);
     useEffect(() => { if (setIsoGain) setIsoGain('high', isolatorGains.high); }, [isolatorGains.high, setIsoGain]);
+    useEffect(() => {
+        if (updateStutterParams) {
+            const srcVol = stutterSource === 'all' ? 0.7 : (volumes[INSTRUMENTS.indexOf(stutterSource)] ?? 0.7);
+            updateStutterParams(stutterDivision, tempo, stutterSource, srcVol);
+        }
+    }, [stutterDivision, tempo, stutterSource, volumes, updateStutterParams]);
+    useEffect(() => {
+        if (delaySyncDivision !== null) {
+            setDelayTime(getDelayDivisionTimeSeconds(delaySyncDivision, tempo));
+        }
+    }, [delaySyncDivision, tempo]);
 
     // --- Start: Reset button logic ---
     const handleResetDjSettings = useCallback(() => {
@@ -1065,7 +1852,34 @@ const App: React.FC = () => {
         setChainMode(DEFAULT_DJ_SETTINGS.chainMode);
         setIsolatorGains({ ...DEFAULT_DJ_SETTINGS.isolatorGains });
         setLofiMix(DEFAULT_DJ_SETTINGS.lofiMix);
-    }, []);
+        setIsRandomizeActive(false);
+        if (scrambleIntervalRef.current) {
+            clearInterval(scrambleIntervalRef.current);
+            scrambleIntervalRef.current = null;
+        }
+        setRandomizeButtonText('RANDOMIZE');
+        setIsXyFilterHeld(false);
+        toggleXyFilter(false);
+        if (tapeStopReleaseTimerRef.current) {
+            clearTimeout(tapeStopReleaseTimerRef.current);
+            tapeStopReleaseTimerRef.current = null;
+        }
+        setIsTapeStopActive(false);
+        setTapeStopDuration(DEFAULT_DJ_SETTINGS.tapeStopDuration);
+        setTapeStop(false, DEFAULT_DJ_SETTINGS.tapeStopDuration, tempoRef.current);
+        setIsStutterHeld(false);
+        setIsStutterActive(false);
+        setStutterDivision(DEFAULT_DJ_SETTINGS.stutterDivision);
+        setStutterSource(DEFAULT_DJ_SETTINGS.stutterSource);
+        setStutterState(false, false, DEFAULT_DJ_SETTINGS.stutterDivision, tempoRef.current, DEFAULT_DJ_SETTINGS.stutterSource, 0.7);
+        isBeatRepeatActiveRef.current = false;
+        beatRepeatDivisionRef.current = DEFAULT_DJ_SETTINGS.beatRepeatDivision;
+        beatRepeatAnchorStepRef.current = 0;
+        setIsBeatRepeatHeld(false);
+        setIsBeatRepeatActive(false);
+        setBeatRepeatDivision(DEFAULT_DJ_SETTINGS.beatRepeatDivision);
+        setBeatRepeatAnchorStep(0);
+    }, [toggleXyFilter, setTapeStop, setStutterState]);
 
     const handleResetEffectsSettings = useCallback(() => {
         setLowPassFreq(DEFAULT_EFFECTS_SETTINGS.lowPassFreq);
@@ -1077,6 +1891,7 @@ const App: React.FC = () => {
         setDelayTime(DEFAULT_EFFECTS_SETTINGS.delayTime);
         setDelayFeedback(DEFAULT_EFFECTS_SETTINGS.delayFeedback);
         setDelaySource(DEFAULT_EFFECTS_SETTINGS.delaySource);
+        setDelaySyncDivision(DEFAULT_EFFECTS_SETTINGS.delaySyncDivision);
         setKickSidechainAmount(DEFAULT_EFFECTS_SETTINGS.kickSidechainAmount);
         setCrushAmount(DEFAULT_EFFECTS_SETTINGS.crushAmount);
         setTapeSaturationMix(DEFAULT_EFFECTS_SETTINGS.tapeSaturationMix);
@@ -1096,9 +1911,16 @@ const App: React.FC = () => {
             isolatorGains.low === DEFAULT_DJ_SETTINGS.isolatorGains.low &&
             isolatorGains.mid === DEFAULT_DJ_SETTINGS.isolatorGains.mid &&
             isolatorGains.high === DEFAULT_DJ_SETTINGS.isolatorGains.high &&
-            lofiMix === DEFAULT_DJ_SETTINGS.lofiMix;
+            lofiMix === DEFAULT_DJ_SETTINGS.lofiMix &&
+            stutterDivision === DEFAULT_DJ_SETTINGS.stutterDivision &&
+            stutterSource === DEFAULT_DJ_SETTINGS.stutterSource &&
+            beatRepeatDivision === DEFAULT_DJ_SETTINGS.beatRepeatDivision &&
+            Math.abs(tapeStopDuration - DEFAULT_DJ_SETTINGS.tapeStopDuration) < 0.005 &&
+            !isXyFilterHeld &&
+            !isStutterHeld &&
+            !isBeatRepeatHeld;
         setIsDjSettingsDefault(isDefault);
-    }, [randomizeIntensity, chainMode, isolatorGains, lofiMix]);
+    }, [randomizeIntensity, chainMode, isolatorGains, lofiMix, stutterDivision, stutterSource, beatRepeatDivision, tapeStopDuration, isXyFilterHeld, isStutterHeld, isBeatRepeatHeld]);
 
     // Effect for checking if effects settings are default
     useEffect(() => {
@@ -1112,6 +1934,7 @@ const App: React.FC = () => {
             delayTime === DEFAULT_EFFECTS_SETTINGS.delayTime &&
             delayFeedback === DEFAULT_EFFECTS_SETTINGS.delayFeedback &&
             delaySource === DEFAULT_EFFECTS_SETTINGS.delaySource &&
+            delaySyncDivision === DEFAULT_EFFECTS_SETTINGS.delaySyncDivision &&
             kickSidechainAmount === DEFAULT_EFFECTS_SETTINGS.kickSidechainAmount &&
             crushAmount === DEFAULT_EFFECTS_SETTINGS.crushAmount &&
             tapeSaturationMix === DEFAULT_EFFECTS_SETTINGS.tapeSaturationMix &&
@@ -1123,7 +1946,7 @@ const App: React.FC = () => {
             envelopeFilterQ === DEFAULT_EFFECTS_SETTINGS.envelopeFilterQ;
         setIsEffectsSettingsDefault(isDefault);
     }, [
-        lowPassFreq, highPassFreq, reverbMix, reverbDecay, reverbSource, delayMix, delayTime, delayFeedback, delaySource,
+        lowPassFreq, highPassFreq, reverbMix, reverbDecay, reverbSource, delayMix, delayTime, delayFeedback, delaySource, delaySyncDivision,
         kickSidechainAmount, crushAmount, tapeSaturationMix, tapeSaturationAmount, tapeSaturationTone,
         envelopeFilterMix, envelopeFilterAmount, envelopeFilterBaseFreq, envelopeFilterQ
     ]);
@@ -1179,21 +2002,35 @@ const App: React.FC = () => {
     }, []);
     // --- End: Reset button logic ---
 
-    // --- Cappuccino Mode Logic ---
+    // --- Editable Header Title Logic ---
     const handleTitleClick = useCallback(() => {
-        const now = Date.now();
-        if (now - titleClickRef.current.lastTime < 500) {
-            titleClickRef.current.count++;
-        } else {
-            titleClickRef.current.count = 1;
-        }
-        titleClickRef.current.lastTime = now;
-
-        if (titleClickRef.current.count >= 6) {
-            setIsCappuccinoMode(prev => !prev);
-            titleClickRef.current.count = 0;
-        }
+        setIsEditingTitle(true);
     }, []);
+
+    const handleTitleCommit = useCallback(() => {
+        setIsEditingTitle(false);
+        setCustomTitle(prev => {
+            const trimmed = prev.trim();
+            return trimmed ? prev : 'CL-607 Drum Machine';
+        });
+    }, []);
+
+    const handleTitleKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            handleTitleCommit();
+        } else if (e.key === 'Escape') {
+            e.preventDefault();
+            handleTitleCommit();
+        }
+    }, [handleTitleCommit]);
+
+    useEffect(() => {
+        if (isEditingTitle && titleInputRef.current) {
+            titleInputRef.current.focus();
+            titleInputRef.current.select();
+        }
+    }, [isEditingTitle]);
 
     useEffect(() => {
         if (isColorAnimating) {
@@ -1236,6 +2073,8 @@ const App: React.FC = () => {
 
     const handleToggleTooltips = useCallback(() => setTooltipsEnabled(prev => !prev), []);
     const handleToggleBeatNumbers = useCallback(() => setShowBeatNumbers(prev => !prev), []);
+    const handleToggleInvertColors = useCallback(() => setIsInvertColors(prev => !prev), []);
+    const handleToggleCappuccinoMode = useCallback(() => setIsCappuccinoMode(prev => !prev), []);
     
     const handleBeatsPerMeasureChange = useCallback((newBPM: number) => {
         const newNumSteps = newBPM * 4;
@@ -1276,6 +2115,36 @@ const App: React.FC = () => {
         }
     }, [showBeatNumbers, isAppLoaded]);
 
+    useEffect(() => {
+        if (isAppLoaded) {
+            safeSetItem('cl607-invertColors', JSON.stringify(isInvertColors));
+        }
+    }, [isInvertColors, isAppLoaded]);
+
+    useEffect(() => {
+        if (isAppLoaded) {
+            safeSetItem('cl607-visualizerStyle', visualizerStyle);
+        }
+    }, [visualizerStyle, isAppLoaded]);
+
+    useEffect(() => {
+        if (isAppLoaded) {
+            safeSetItem('cl607-slowComputerMode', JSON.stringify(isSlowComputerMode));
+        }
+    }, [isSlowComputerMode, isAppLoaded]);
+
+    useEffect(() => {
+        if (isAppLoaded) {
+            safeSetItem('cl607-customTitle', customTitle);
+        }
+    }, [customTitle, isAppLoaded]);
+
+    useEffect(() => {
+        if (isAppLoaded) {
+            safeSetItem('cl607-keyboardDrummingEnabled', JSON.stringify(keyboardDrummingEnabled));
+        }
+    }, [keyboardDrummingEnabled, isAppLoaded]);
+
     // Keyboard drumming effect
     useEffect(() => {
         if (!keyboardDrummingEnabled || !isAudioEngineReady) return;
@@ -1288,10 +2157,10 @@ const App: React.FC = () => {
             const instrument = keyboardMap[key];
             
             if (instrument) {
-                // Play the instrument with default volume
+                // Play the instrument with current channel volume via ref to avoid re-binding listener on fader moves
                 const instrumentIndex = INSTRUMENTS.indexOf(instrument);
-                // FIX: Use the 'volumes' state which is correctly defined and passed down.
-                const volume = instrumentIndex !== -1 ? volumes[instrumentIndex] : 0.8;
+                const currentVolumes = volumesRef.current;
+                const volume = instrumentIndex !== -1 ? currentVolumes[instrumentIndex] : 0.8;
                 
                 switch (instrument) {
                     case 'kick': playKick(volume); break;
@@ -1307,363 +2176,1154 @@ const App: React.FC = () => {
 
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [keyboardDrummingEnabled, keyboardMap, isAudioEngineReady, playKick, playSnare, playHiHat, playSnap, playClave, playCowbell, playSample, volumes]);
+    }, [keyboardDrummingEnabled, keyboardMap, isAudioEngineReady, playKick, playSnare, playHiHat, playSnap, playClave, playCowbell, playSample]);
 
+    const displayedTitle = isCappuccinoMode ? 'Cappuccino Drum Machino' : customTitle;
+    const isMinimal = visualizerStyle === 'minimal';
+    const surface = getThemeSurface(visualizerStyle);
+
+    const getAppStyle = (): React.CSSProperties => {
+        const filterParts: string[] = [];
+        if (isInvertColors) {
+            filterParts.push('invert(1)');
+        }
+        if (isCappuccinoMode) {
+            filterParts.push('sepia(0.85) saturate(1.5) contrast(1.1) brightness(1.1)');
+        }
+        if (hueRotate !== 0) {
+            filterParts.push(`hue-rotate(${hueRotate}deg)`);
+        }
+        const activeFilter = filterParts.length > 0 ? filterParts.join(' ') : undefined;
+
+        switch (visualizerStyle) {
+            case 'minimal':
+                return {
+                    filter: activeFilter,
+                    backgroundColor: '#09090b',
+                    color: '#f4f4f5',
+                };
+            case 'cyberpunk':
+                return {
+                    filter: activeFilter,
+                    backgroundColor: '#050508',
+                    backgroundImage:
+                        'radial-gradient(circle at 50% 0%, rgba(0, 255, 159, 0.08) 0%, transparent 60%), linear-gradient(rgba(0, 255, 159, 0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(0, 255, 159, 0.03) 1px, transparent 1px)',
+                    backgroundSize: '100% 100%, 24px 24px, 24px 24px',
+                };
+            case 'braun':
+                return {
+                    filter: activeFilter,
+                    backgroundColor: '#e4e1d8',
+                    backgroundImage: 'radial-gradient(circle at 50% 20%, #eceae2 0%, #dcd8cd 100%)',
+                    color: '#1c1c1a',
+                };
+            case 'bauhaus':
+                return {
+                    filter: activeFilter,
+                    backgroundColor: '#f2ece1',
+                    backgroundImage:
+                        'linear-gradient(90deg, rgba(20,20,19,0.03) 1px, transparent 1px), linear-gradient(rgba(20,20,19,0.03) 1px, transparent 1px)',
+                    backgroundSize: '48px 48px',
+                    color: '#141413',
+                };
+            case 'nagra':
+                return {
+                    filter: activeFilter,
+                    backgroundColor: '#240d38',
+                    backgroundImage:
+                        'linear-gradient(180deg, #1b0c2e 0%, #3d1547 26%, #7c2652 52%, #c9464f 76%, #f78852 93%, #ffc878 100%)',
+                    color: '#3b1547',
+                };
+            case 'koto':
+                return {
+                    filter: activeFilter,
+                    backgroundColor: '#120d15',
+                    backgroundImage:
+                        'linear-gradient(180deg, #1c1420 0%, #0d0a0f 100%)',
+                    color: '#f2ece1',
+                };
+            default:
+                return {
+                    filter: activeFilter,
+                };
+        }
+    };
+
+    const appContainerClass = `theme-${visualizerStyle} min-h-screen flex flex-col items-center justify-center p-2 sm:p-4 ${
+        visualizerStyle === 'braun' || visualizerStyle === 'bauhaus'
+            ? 'text-[#1c1c1a]'
+            : visualizerStyle === 'nagra'
+            ? 'text-[#3b1547]'
+            : isMinimal
+            ? 'bg-[#09090b] text-[#f4f4f5]'
+            : 'bg-gray-900 text-gray-100'
+    }`;
+
+    const startTitleClass =
+        visualizerStyle === 'minimal'
+            ? "text-2xl sm:text-3xl font-bold font-mono uppercase tracking-[0.14em] text-[#f4f4f5]"
+            : visualizerStyle === 'braun'
+            ? "text-3xl sm:text-4xl font-bold tracking-tight text-[#1c1c1a] font-['Plus_Jakarta_Sans']"
+            : visualizerStyle === 'bauhaus'
+            ? "text-3xl sm:text-4xl font-extrabold tracking-wider uppercase text-[#141413] font-['Outfit']"
+            : visualizerStyle === 'nagra'
+            ? "text-3xl sm:text-4xl font-extrabold tracking-tight text-[#3b1547] font-['Plus_Jakarta_Sans']"
+            : visualizerStyle === 'koto'
+            ? "text-4xl sm:text-5xl font-bold tracking-wide text-[#f2ece1] font-['Cormorant_Garamond']"
+            : visualizerStyle === 'cyberpunk'
+            ? "text-3xl sm:text-4xl font-extrabold uppercase tracking-widest text-[#fcee0a] font-['JetBrains_Mono']"
+            : "text-3xl sm:text-4xl font-bold tracking-tight text-gray-100";
+
+    const startSubtitleClass =
+        visualizerStyle === 'minimal'
+            ? "text-xs text-[#71717a] font-mono uppercase tracking-[0.16em] mt-2 mb-8"
+            : visualizerStyle === 'braun'
+            ? "text-sm text-[#737067] font-['Plus_Jakarta_Sans'] font-medium mt-1.5 mb-8"
+            : visualizerStyle === 'bauhaus'
+            ? "text-xs sm:text-sm text-[#5c5952] font-['Outfit'] font-bold uppercase tracking-widest mt-1.5 mb-8"
+            : visualizerStyle === 'nagra'
+            ? "text-xs sm:text-sm text-[#d9325e] font-['Plus_Jakarta_Sans'] font-bold tracking-widest uppercase mt-1.5 mb-8"
+            : visualizerStyle === 'koto'
+            ? "text-sm text-[#d4af37] font-['Plus_Jakarta_Sans'] tracking-widest mt-1.5 mb-8"
+            : visualizerStyle === 'cyberpunk'
+            ? "text-xs sm:text-sm text-[#00ff9f] font-['JetBrains_Mono'] tracking-widest mt-1.5 mb-8"
+            : "text-sm text-gray-400 mt-1 mb-8";
+
+    const startCardClass =
+        visualizerStyle === 'default'
+            ? 'flex flex-col items-center justify-center p-4 text-center'
+            : `relative flex flex-col items-center justify-center px-8 py-10 sm:px-14 sm:py-12 text-center ${surface.mainDeck}`;
     
+    const chainOptions: { mode: ChainMode; label: string, tooltip: string }[] = useMemo(() => [
+        { mode: 'off', label: 'OFF', tooltip: 'Playback a single pattern' },
+        { mode: 'ab', label: 'A-B', tooltip: 'Alternate between Pattern A and B' },
+        { mode: 'aaab', label: 'A-A-A-B', tooltip: 'Play Pattern A three times, then B once' },
+        { mode: 'aabb', label: 'A-A-B-B', tooltip: 'Play Pattern A twice, then B twice' },
+    ], []);
+    
+    const djCardClass = isMinimal
+        ? 'flex flex-col items-center gap-3 p-3.5 bg-[#0e0e11] border border-[#27272a]'
+        : 'flex flex-col items-center gap-3 p-3 rounded-lg bg-gray-900/50';
+
+    const djDropdownPanelClass = useMemo(() => {
+        switch (visualizerStyle) {
+            case 'minimal':
+                return 'bg-[#09090b] border border-[#3f3f46] text-[#f4f4f5] shadow-2xl';
+            case 'braun':
+                return 'bg-[#e6e3dc] border-2 border-[#c2beb4] text-[#1c1c1a] shadow-[0_12px_28px_rgba(0,0,0,0.28)]';
+            case 'bauhaus':
+                return 'bg-[#f4efe1] border-[2.5px] border-[#141413] text-[#141413] shadow-[5px_5px_0px_#141413]';
+            case 'nagra':
+                return 'bg-[#fff2e6] border-2 border-[#f4a28c] text-[#3b1547] shadow-[0_12px_28px_rgba(92,28,75,0.28)]';
+            case 'koto':
+                return 'bg-[#171512] border-2 border-[#b89728] text-[#f2ece1] shadow-[0_12px_32px_rgba(0,0,0,0.85)]';
+            case 'cyberpunk':
+                return 'bg-[#0a0b10] border-2 border-[#00f0ff] text-[#fcee0a] shadow-[0_10px_28px_rgba(0,0,0,0.9)]';
+            default:
+                return 'bg-gray-900 border border-gray-600 text-gray-100 shadow-2xl';
+        }
+    }, [visualizerStyle]);
+
+    const getDjShortcutState = useCallback((effect: EffectName) => {
+        const enabled = effectsEnabled[effect];
+        switch (effect) {
+            case 'delay': {
+                return { enabled, min: 0, max: 1, step: 0.01, value: delayMix, display: enabled ? `${Math.round(delayMix * 100)}%` : 'OFF' };
+            }
+            case 'reverb': {
+                return { enabled, min: 0, max: 1, step: 0.01, value: reverbMix, display: enabled ? `${Math.round(reverbMix * 100)}%` : 'OFF' };
+            }
+            case 'tape': {
+                return { enabled, min: 0, max: 1, step: 0.01, value: tapeSaturationMix, display: enabled ? `${Math.round(tapeSaturationMix * 100)}%` : 'OFF' };
+            }
+            case 'envelope': {
+                return { enabled, min: 0, max: 1, step: 0.01, value: envelopeFilterMix, display: enabled ? `${Math.round(envelopeFilterMix * 100)}%` : 'OFF' };
+            }
+            case 'crush': {
+                return { enabled, min: 0, max: 1, step: 0.01, value: crushAmount, display: enabled ? `${Math.round(crushAmount * 100)}%` : 'OFF' };
+            }
+            case 'sidechain': {
+                return { enabled, min: 0, max: 1, step: 0.01, value: kickSidechainAmount, display: enabled ? `${Math.round(kickSidechainAmount * 100)}%` : 'OFF' };
+            }
+            case 'lowPass': {
+                return { enabled, min: 0, max: 100, step: 1, value: freqToSlider(lowPassFreq), display: enabled ? `${Math.round(lowPassFreq)}Hz` : 'OFF' };
+            }
+            case 'highPass': {
+                return { enabled, min: 0, max: 100, step: 1, value: freqToSlider(highPassFreq), display: enabled ? `${Math.round(highPassFreq)}Hz` : 'OFF' };
+            }
+        }
+    }, [
+        effectsEnabled, delayMix, reverbMix, tapeSaturationMix, envelopeFilterMix,
+        crushAmount, kickSidechainAmount, lowPassFreq, highPassFreq
+    ]);
+
+    const renderDjContent = useCallback((isOpen: boolean) => (
+        <div className="flex flex-wrap items-start justify-center gap-6 sm:gap-8 p-2">
+            <div className={djCardClass}>
+                <h4 className="font-mono text-xs text-gray-400 uppercase tracking-wider">RANDOMIZER</h4>
+                 <Tooltip text="Hold to temporarily jumble the beat">
+                    <button
+                        onMouseDown={handleRandomizePressStart}
+                        onMouseUp={handleRandomizePressEnd}
+                        onMouseLeave={handleRandomizePressEnd}
+                        onTouchStart={(e) => { e.preventDefault(); handleRandomizePressStart(); }}
+                        onTouchEnd={handleRandomizePressEnd}
+                        className={getButtonStyle(
+                            visualizerStyle,
+                            'primary',
+                            isRandomizeActive,
+                            false,
+                            isMinimal
+                                ? 'w-32 h-14 text-sm font-mono tracking-widest'
+                                : 'w-32 h-16 text-lg bg-purple-600 hover:bg-purple-700 focus:ring-purple-500'
+                        )}
+                    >
+                        {randomizeButtonText}
+                    </button>
+                </Tooltip>
+                <Tooltip text="Controls how much the beat is jumbled when RANDOMIZE is held" isInteracting={isInteractingWithSlider}>
+                    <div className="flex items-center gap-2 w-full max-w-xs pt-2">
+                        <label htmlFor="random-intensity" className="font-mono text-xs text-gray-500">CHAOS</label>
+                        <input
+                            type="range"
+                            id="random-intensity"
+                            min={0}
+                            max={10}
+                            step={1}
+                            value={randomizeIntensity}
+                            onChange={handleRandomizeIntensityChange}
+                            {...sliderInteractionProps}
+                            className="w-full h-1.5 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                        />
+                    </div>
+                </Tooltip>
+            </div>
+
+            {/* Tape Stop */}
+            <div className={djCardClass}>
+                <h4 className="font-mono text-xs text-gray-400 uppercase tracking-wider">TAPE STOP</h4>
+                <Tooltip text="Tap or hold to brake the master reel to a stop; release to spin back up into the beat">
+                    <button
+                        type="button"
+                        onMouseDown={handleTapeStopStart}
+                        onMouseUp={handleTapeStopEnd}
+                        onMouseLeave={() => { if (isTapeStopActive) handleTapeStopEnd(); }}
+                        onTouchStart={(e) => { e.preventDefault(); handleTapeStopStart(); }}
+                        onTouchEnd={handleTapeStopEnd}
+                        className={getButtonStyle(
+                            visualizerStyle,
+                            'danger',
+                            isTapeStopActive,
+                            false,
+                            isMinimal
+                                ? 'w-32 h-14 text-sm font-mono tracking-widest'
+                                : 'w-32 h-16 text-sm font-bold tracking-wider'
+                        )}
+                    >
+                        {isTapeStopActive ? 'BRAKING' : 'TAPE STOP'}
+                    </button>
+                </Tooltip>
+                <Tooltip text={`Brake time (${Math.round(tapeStopDuration * 1000)}ms): controls how fast or slow the tape reel brakes to a stop`} isInteracting={isInteractingWithSlider}>
+                    <div className="flex items-center gap-2 w-full max-w-xs pt-2">
+                        <label htmlFor="tapestop-duration" className="font-mono text-xs text-gray-500">BRAKE</label>
+                        <input
+                            type="range"
+                            id="tapestop-duration"
+                            min={0.25}
+                            max={1.25}
+                            step={0.05}
+                            value={tapeStopDuration}
+                            onChange={handleTapeStopDurationChange}
+                            {...sliderInteractionProps}
+                            className="w-full h-1.5 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-red-500"
+                        />
+                    </div>
+                </Tooltip>
+            </div>
+
+            {/* Stutter */}
+            <div className={djCardClass}>
+                <div className="w-full flex items-center justify-between gap-2">
+                    <h4 className="font-mono text-xs text-gray-400 uppercase tracking-wider">STUTTER</h4>
+                    <Tooltip text={isStutterHeld ? "Release Stutter Hold" : "Lock Stutter active hands-free"}>
+                        <button
+                            type="button"
+                            onClick={handleToggleStutterHold}
+                            className={
+                                isMinimal
+                                    ? `px-2 py-0.5 text-[10px] font-mono font-bold uppercase tracking-wider border cursor-pointer ${
+                                        isStutterHeld
+                                            ? 'bg-[#ff3b1d] text-[#09090b] border-[#ff3b1d]'
+                                            : 'bg-[#141417] text-[#a1a1aa] border-[#27272a] hover:text-[#f4f4f5]'
+                                    }`
+                                    : getButtonStyle(
+                                        visualizerStyle,
+                                        isStutterHeld ? 'danger' : 'secondary',
+                                        isStutterHeld,
+                                        false,
+                                        '!px-2 !py-0.5 !text-[10px] font-mono uppercase tracking-wider'
+                                    )
+                            }
+                            aria-pressed={isStutterHeld}
+                        >
+                            HOLD
+                        </button>
+                    </Tooltip>
+                </div>
+                <Tooltip text="Choose whether Stutter affects the Whole Mix or a single instrument">
+                    <div className="flex items-center gap-1.5 w-full text-xs">
+                        <label htmlFor="stutter-source" className="font-mono text-[10px] text-gray-500 flex-shrink-0">SRC</label>
+                        <select
+                            id="stutter-source"
+                            value={stutterSource}
+                            onChange={handleStutterSourceChange}
+                            className="bg-gray-700 border-gray-600 text-white text-xs rounded-md focus:ring-cyan-500 focus:border-cyan-500 block w-full py-1 px-1.5"
+                        >
+                            <option value="all">Whole Mix</option>
+                            {INSTRUMENTS.map(instrument => (
+                                <option key={instrument} value={instrument}>{INSTRUMENT_LABELS[instrument]}</option>
+                            ))}
+                        </select>
+                    </div>
+                </Tooltip>
+                <Tooltip text="Hold to repeat the current audio slice at the selected note rate (or click HOLD to lock)">
+                    <button
+                        type="button"
+                        onMouseDown={handleStutterPressStart}
+                        onMouseUp={handleStutterPressEnd}
+                        onMouseLeave={handleStutterPressEnd}
+                        onTouchStart={(e) => { e.preventDefault(); handleStutterPressStart(); }}
+                        onTouchEnd={handleStutterPressEnd}
+                        className={getButtonStyle(
+                            visualizerStyle,
+                            'primary',
+                            isStutterActive || isStutterHeld,
+                            false,
+                            isMinimal
+                                ? 'w-36 h-11 text-xs font-mono tracking-widest'
+                                : 'w-36 h-11 text-sm font-bold tracking-wider bg-cyan-600 hover:bg-cyan-700 focus:ring-cyan-500'
+                        )}
+                    >
+                        {isStutterActive || isStutterHeld ? `STUTTER ${stutterDivision}` : 'STUTTER'}
+                    </button>
+                </Tooltip>
+                <div className="grid grid-cols-3 gap-1 w-full">
+                    {STUTTER_DIVISIONS.map((div) => (
+                        <Tooltip key={div} text={`Stutter note length: ${div} note`}>
+                            <button
+                                type="button"
+                                onClick={() => handleStutterDivisionChange(div)}
+                                className={getButtonStyle(
+                                    visualizerStyle,
+                                    stutterDivision === div ? 'success' : 'secondary',
+                                    stutterDivision === div,
+                                    false,
+                                    '!px-2 !py-1 !text-[11px] font-mono'
+                                )}
+                            >
+                                {div}
+                            </button>
+                        </Tooltip>
+                    ))}
+                </div>
+            </div>
+
+            {/* Beat Repeater */}
+            <div className={djCardClass}>
+                <div className="w-full flex items-center justify-between gap-2">
+                    <h4 className="font-mono text-xs text-gray-400 uppercase tracking-wider">BEAT REPEATER</h4>
+                    <Tooltip text={isBeatRepeatHeld ? "Release Beat Repeater Hold" : "Lock Beat Repeater active hands-free"}>
+                        <button
+                            type="button"
+                            onClick={handleToggleBeatRepeatHold}
+                            className={
+                                isMinimal
+                                    ? `px-2 py-0.5 text-[10px] font-mono font-bold uppercase tracking-wider border cursor-pointer ${
+                                        isBeatRepeatHeld
+                                            ? 'bg-[#ff3b1d] text-[#09090b] border-[#ff3b1d]'
+                                            : 'bg-[#141417] text-[#a1a1aa] border-[#27272a] hover:text-[#f4f4f5]'
+                                    }`
+                                    : getButtonStyle(
+                                        visualizerStyle,
+                                        isBeatRepeatHeld ? 'danger' : 'secondary',
+                                        isBeatRepeatHeld,
+                                        false,
+                                        '!px-2 !py-0.5 !text-[10px] font-mono uppercase tracking-wider'
+                                    )
+                            }
+                            aria-pressed={isBeatRepeatHeld}
+                        >
+                            HOLD
+                        </button>
+                    </Tooltip>
+                </div>
+                <Tooltip text="Hold to loop the current pattern beat/phrase on the sequencer grid (or click HOLD to lock)">
+                    <button
+                        type="button"
+                        onMouseDown={handleBeatRepeatPressStart}
+                        onMouseUp={handleBeatRepeatPressEnd}
+                        onMouseLeave={handleBeatRepeatPressEnd}
+                        onTouchStart={(e) => { e.preventDefault(); handleBeatRepeatPressStart(); }}
+                        onTouchEnd={handleBeatRepeatPressEnd}
+                        className={getButtonStyle(
+                            visualizerStyle,
+                            'primary',
+                            isBeatRepeatActive || isBeatRepeatHeld,
+                            false,
+                            isMinimal
+                                ? 'w-40 h-11 text-xs font-mono tracking-widest'
+                                : 'w-40 h-11 text-sm font-bold tracking-wider bg-indigo-600 hover:bg-indigo-700 focus:ring-indigo-500'
+                        )}
+                    >
+                        {isBeatRepeatActive || isBeatRepeatHeld
+                            ? `REPEAT ${BEAT_REPEAT_DIVISIONS.find(d => d.id === beatRepeatDivision)?.label ?? ''}`
+                            : 'BEAT REPEAT'}
+                    </button>
+                </Tooltip>
+                <div className="grid grid-cols-2 gap-1 w-full">
+                    {BEAT_REPEAT_DIVISIONS.map((div) => (
+                        <Tooltip key={div.id} text={div.tooltip}>
+                            <button
+                                type="button"
+                                onClick={() => handleBeatRepeatDivisionChange(div.id)}
+                                className={getButtonStyle(
+                                    visualizerStyle,
+                                    beatRepeatDivision === div.id ? 'success' : 'secondary',
+                                    beatRepeatDivision === div.id,
+                                    false,
+                                    '!px-2 !py-1 !text-[10px] font-mono'
+                                )}
+                            >
+                                {div.label}
+                            </button>
+                        </Tooltip>
+                    ))}
+                </div>
+            </div>
+            
+            <div className="flex flex-col items-center gap-3" ref={djShortcutsRef}>
+                <div className={djCardClass}>
+                    <h4 className="font-mono text-xs text-gray-400 uppercase tracking-wider">PATTERN CHAIN</h4>
+                    <div className="flex items-center gap-2">
+                        {chainOptions.map(opt => (
+                            <Tooltip key={opt.mode} text={opt.tooltip}>
+                                <button 
+                                    onClick={() => setChainMode(opt.mode)}
+                                    className={getButtonStyle(visualizerStyle, chainMode === opt.mode ? 'success' : 'secondary', chainMode === opt.mode, false, 'px-3 py-1.5 text-xs')}
+                                >
+                                    {opt.label}
+                                </button>
+                            </Tooltip>
+                        ))}
+                    </div>
+                </div>
+
+                {/* Configurable Effect Mix Shortcuts (Default: DELAY & REVERB) */}
+                <div className={`${djCardClass} w-full min-w-[14.5rem]`}>
+                    {([0, 1] as const).map((slotIndex) => {
+                        const effectId = djShortcutEffects[slotIndex];
+                        const meta = DJ_EFFECT_SHORTCUT_OPTIONS.find(o => o.id === effectId) || DJ_EFFECT_SHORTCUT_OPTIONS[0];
+                        const state = getDjShortcutState(effectId);
+                        const isDropdownOpen = openDjShortcutDropdown === slotIndex;
+
+                        return (
+                            <div key={slotIndex} className="relative w-full flex flex-col gap-1.5">
+                                <div className="w-full flex items-center justify-between gap-2">
+                                    <div className="flex items-center gap-1.5">
+                                        <Tooltip text={state.enabled ? `Turn ${meta.menuName} OFF` : `Turn ${meta.menuName} ON`}>
+                                            <button
+                                                type="button"
+                                                onClick={() => handleToggleDjShortcutEffect(effectId)}
+                                                aria-pressed={state.enabled}
+                                                className={
+                                                    isMinimal
+                                                        ? `px-1.5 py-0.5 text-[10px] font-mono font-bold uppercase tracking-wider border cursor-pointer ${
+                                                            state.enabled
+                                                                ? 'bg-[#22c55e] text-[#09090b] border-[#22c55e]'
+                                                                : 'bg-[#141417] text-[#71717a] border-[#27272a] hover:text-[#f4f4f5]'
+                                                        }`
+                                                        : getButtonStyle(
+                                                            visualizerStyle,
+                                                            state.enabled ? 'success' : 'secondary',
+                                                            state.enabled,
+                                                            false,
+                                                            '!px-1.5 !py-0.5 !text-[10px] font-mono uppercase tracking-wider'
+                                                        )
+                                                }
+                                            >
+                                                {state.enabled ? 'ON' : 'OFF'}
+                                            </button>
+                                        </Tooltip>
+                                        <Tooltip text="Click to switch this shortcut to another effect">
+                                            <button
+                                                type="button"
+                                                onClick={() => setOpenDjShortcutDropdown(prev => prev === slotIndex ? null : slotIndex)}
+                                                className="inline-flex items-center gap-1 font-mono text-xs font-bold text-gray-300 hover:text-white uppercase tracking-wider cursor-pointer focus:outline-none"
+                                                aria-haspopup="listbox"
+                                                aria-expanded={isDropdownOpen}
+                                            >
+                                                <span>{meta.shortName}</span>
+                                                <svg xmlns="http://www.w3.org/2000/svg" className={`w-3 h-3 transition-transform ${isDropdownOpen ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="currentColor">
+                                                    <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+                                                </svg>
+                                            </button>
+                                        </Tooltip>
+                                    </div>
+                                    <span className={`font-mono text-xs tabular-nums ${state.enabled ? 'text-gray-300' : 'text-gray-500'}`}>
+                                        {state.display}
+                                    </span>
+                                </div>
+
+                                {isDropdownOpen && (
+                                    <div
+                                        role="listbox"
+                                        className={`absolute left-0 top-6 z-50 w-48 py-1 rounded-md ${djDropdownPanelClass}`}
+                                    >
+                                        {DJ_EFFECT_SHORTCUT_OPTIONS.map((option) => {
+                                            const isSelected = option.id === effectId;
+                                            return (
+                                                <button
+                                                    key={option.id}
+                                                    type="button"
+                                                    role="option"
+                                                    aria-selected={isSelected}
+                                                    onClick={() => handleSelectDjShortcutEffect(slotIndex, option.id)}
+                                                    className={`w-full text-left px-3 py-1.5 font-mono text-[11px] uppercase tracking-wider flex items-center justify-between cursor-pointer transition-colors ${
+                                                        isSelected
+                                                            ? 'bg-blue-600 text-white font-bold'
+                                                            : 'hover:bg-white/10'
+                                                    }`}
+                                                >
+                                                    <span>{option.menuName}</span>
+                                                    {isSelected && <span>✓</span>}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+
+                                <Tooltip text={meta.tooltip} isInteracting={isInteractingWithSlider}>
+                                    <div className={`flex items-center gap-2 w-full transition-opacity ${state.enabled ? 'opacity-100' : 'opacity-45'}`}>
+                                        <label
+                                            htmlFor={`dj-fx-shortcut-${slotIndex}`}
+                                            className="font-mono text-[10px] text-gray-500 w-9 flex-shrink-0"
+                                        >
+                                            {meta.paramLabel}
+                                        </label>
+                                        <input
+                                            type="range"
+                                            id={`dj-fx-shortcut-${slotIndex}`}
+                                            min={state.min}
+                                            max={state.max}
+                                            step={state.step}
+                                            value={state.value}
+                                            onChange={(e) => handleDjShortcutValueChange(effectId, Number(e.target.value))}
+                                            {...sliderInteractionProps}
+                                            className={`w-full h-1.5 bg-gray-600 rounded-lg appearance-none cursor-pointer ${meta.accentClass}`}
+                                        />
+                                    </div>
+                                </Tooltip>
+                            </div>
+                        );
+                    })}
+                </div>
+            </div>
+            
+            {/* Isolator */}
+            <div className={djCardClass}>
+                <h4 className="font-mono text-xs text-gray-400 uppercase tracking-wider">ISOLATOR</h4>
+                <div className="flex items-end gap-8 pt-4">
+                    {(['low', 'mid', 'high'] as const).map((band) => {
+                        const gainValue = isolatorGains[band];
+                        const tooltipText = band === 'low'
+                            ? "Adjust the volume of the low (bass) frequencies"
+                            : band === 'mid'
+                            ? "Adjust the volume of the mid-range frequencies"
+                            : "Adjust the volume of the high (treble) frequencies";
+                        return (
+                            <Tooltip key={band} text={tooltipText} isInteracting={isInteractingWithSlider}>
+                                <div className="flex flex-col items-center gap-2">
+                                    <span className="font-mono text-xs text-gray-500 font-bold -mb-2 tabular-nums">{Math.round(gainValue * 100)}</span>
+                                    <div className="h-24 w-8 flex items-center justify-center">
+                                        <input
+                                            type="range"
+                                            min={0}
+                                            max={1.5}
+                                            step="0.01"
+                                            value={gainValue}
+                                            onChange={(e) => handleIsolatorGainChange(band, Number(e.target.value))}
+                                            {...sliderInteractionProps}
+                                            className="w-24 h-2 appearance-none cursor-pointer accent-teal-400 origin-center -rotate-90"
+                                        />
+                                    </div>
+                                    <span className="font-mono text-xs font-bold uppercase tracking-wider">{band}</span>
+                                </div>
+                            </Tooltip>
+                        );
+                    })}
+                </div>
+            </div>
+            
+            <Tooltip text="Drag to control filter (X: Frequency, Y: Drive). Click HOLD to lock position." placement="bottom">
+                <XYFilterPad 
+                    onFilterChange={handleFilterChange}
+                    onInteractionStart={handleFilterInteractionStart}
+                    onInteractionEnd={handleFilterInteractionEnd}
+                    visualizerStyle={visualizerStyle}
+                    isHeld={isXyFilterHeld}
+                    onToggleHold={handleToggleXyFilterHold}
+                />
+            </Tooltip>
+
+            <LoFiRadio 
+                isActive={isOpen}
+                lofiMix={lofiMix}
+                onLofiMixChange={setLofiMix}
+                dryAnalyser={effectAnalysers.lofiDryAnalyser}
+                wetAnalyser={effectAnalysers.lofiWetAnalyser}
+                isPerformanceMode={isPerformanceMode}
+                visualizerStyle={visualizerStyle}
+            />
+
+             {!isDjSettingsDefault && (
+                <div className="w-full flex justify-center">
+                    <Tooltip text="Hold to reset all DJ controls to their defaults">
+                        <button
+                            onMouseDown={handleDjResetStart}
+                            onMouseUp={handleDjResetEnd}
+                            onMouseLeave={handleDjResetEnd}
+                            onTouchStart={(e) => { e.preventDefault(); handleDjResetStart(); }}
+                            onTouchEnd={handleDjResetEnd}
+                            className={`${getButtonStyle(visualizerStyle, 'secondary', false, false, 'mt-2 px-3 h-8 text-xs overflow-hidden')} ${isDjResetPoofing ? 'animate-poof' : ''}`}
+                            style={{ transform: `scale(${1 - djResetProgress * 0.15})` }}
+                            aria-label="Hold to reset DJ settings to default"
+                        >
+                            <span className="relative z-10">HOLD TO RESET LIVE DJ SETTINGS</span>
+                        </button>
+                    </Tooltip>
+                </div>
+            )}
+        </div>
+    ), [
+        djCardClass, handleRandomizePressStart, handleRandomizePressEnd,
+        visualizerStyle, isRandomizeActive, isMinimal, randomizeButtonText, isInteractingWithSlider,
+        randomizeIntensity, handleRandomizeIntensityChange, sliderInteractionProps,
+        handleTapeStopStart, handleTapeStopEnd, isTapeStopActive, tapeStopDuration, handleTapeStopDurationChange,
+        isStutterHeld, handleToggleStutterHold, handleStutterPressStart, handleStutterPressEnd,
+        isStutterActive, stutterDivision, handleStutterDivisionChange, stutterSource, handleStutterSourceChange,
+        isBeatRepeatHeld, handleToggleBeatRepeatHold, handleBeatRepeatPressStart, handleBeatRepeatPressEnd,
+        isBeatRepeatActive, beatRepeatDivision, handleBeatRepeatDivisionChange,
+        chainOptions, chainMode, djShortcutEffects, getDjShortcutState, openDjShortcutDropdown,
+        djDropdownPanelClass, handleSelectDjShortcutEffect, handleToggleDjShortcutEffect, handleDjShortcutValueChange,
+        isolatorGains, handleIsolatorGainChange, handleFilterChange, handleFilterInteractionStart,
+        handleFilterInteractionEnd, isXyFilterHeld, handleToggleXyFilterHold, lofiMix,
+        effectAnalysers.lofiDryAnalyser, effectAnalysers.lofiWetAnalyser, isPerformanceMode,
+        isDjSettingsDefault, handleDjResetStart, handleDjResetEnd, isDjResetPoofing, djResetProgress
+    ]);
+
+    const renderEffectsContent = useCallback((isOpen: boolean) => (
+        <Effects 
+            isActive={isOpen}
+            lowPassFreq={lowPassFreq}
+            highPassFreq={highPassFreq}
+            onLowPassChange={setLowPassFreq}
+            onHighPassChange={setHighPassFreq}
+            reverbMix={reverbMix}
+            reverbDecay={reverbDecay}
+            reverbSource={reverbSource}
+            onReverbMixChange={setReverbMix}
+            onReverbDecayChange={setReverbDecay}
+            onReverbSourceChange={setReverbSource}
+            delayMix={delayMix}
+            delayTime={delayTime}
+            delayFeedback={delayFeedback}
+            delaySource={delaySource}
+            delaySyncDivision={delaySyncDivision}
+            tempo={tempo}
+            onDelayMixChange={setDelayMix}
+            onDelayTimeChange={setDelayTime}
+            onDelayFeedbackChange={setDelayFeedback}
+            onDelaySourceChange={setDelaySource}
+            onDelaySyncDivisionChange={setDelaySyncDivision}
+            kickSidechainAmount={kickSidechainAmount}
+            kickSidechainThreshold={kickSidechainThreshold}
+            kickSidechainRatio={kickSidechainRatio}
+            onKickSidechainAmountChange={setKickSidechainAmount}
+            onKickSidechainThresholdChange={setKickSidechainThreshold}
+            onKickSidechainRatioChange={setKickSidechainRatio}
+            crushAmount={crushAmount}
+            onCrushAmountChange={setCrushAmount}
+            tapeSaturationMix={tapeSaturationMix}
+            onTapeSaturationMixChange={setTapeSaturationMix}
+            tapeSaturationAmount={tapeSaturationAmount}
+            onTapeSaturationAmountChange={setTapeSaturationAmount}
+            tapeSaturationTone={tapeSaturationTone}
+            onTapeSaturationToneChange={setTapeSaturationTone}
+            envelopeFilterMix={envelopeFilterMix}
+            onEnvelopeFilterMixChange={setEnvelopeFilterMix}
+            envelopeFilterAmount={envelopeFilterAmount}
+            onEnvelopeFilterAmountChange={setEnvelopeFilterAmount}
+            envelopeFilterBaseFreq={envelopeFilterBaseFreq}
+            onEnvelopeFilterBaseFreqChange={setEnvelopeFilterBaseFreq}
+            envelopeFilterQ={envelopeFilterQ}
+            onEnvelopeFilterQChange={setEnvelopeFilterQ}
+            postFilterAnalyser={effectAnalysers.postFilterAnalyser}
+            reverbAnalyser={effectAnalysers.reverbAnalyser}
+            delayAnalyser={effectAnalysers.delayAnalyser}
+            sidechainVisualiserAnalyser={effectAnalysers.sidechainVisualiserAnalyser}
+            crushAnalyser={effectAnalysers.crushAnalyser}
+            tapeSaturationAnalyser={effectAnalysers.tapeSaturationAnalyser}
+            envelopeFilterAnalyser={effectAnalysers.envelopeFilterAnalyser}
+            effectsEnabled={effectsEnabled}
+            onToggleEffect={handleToggleEffect}
+            onReset={handleResetEffectsSettings}
+            isSettingsDefault={isEffectsSettingsDefault}
+            isPerformanceMode={isPerformanceMode}
+            visualizerStyle={visualizerStyle}
+        />
+    ), [
+        lowPassFreq, highPassFreq, reverbMix, reverbDecay, reverbSource, delayMix, delayTime, delayFeedback, delaySource,
+        delaySyncDivision, tempo,
+        kickSidechainAmount, kickSidechainThreshold, kickSidechainRatio, crushAmount, tapeSaturationMix,
+        tapeSaturationAmount, tapeSaturationTone, envelopeFilterMix, envelopeFilterAmount, envelopeFilterBaseFreq,
+        envelopeFilterQ, effectAnalysers, effectsEnabled, handleToggleEffect, handleResetEffectsSettings,
+        isEffectsSettingsDefault, isPerformanceMode, visualizerStyle
+    ]);
+
+    const renderInstrumentsContent = useCallback((isOpen: boolean) => (
+        <InstrumentSettings
+            isActive={isOpen}
+            params={instrumentParams}
+            instrumentColors={instrumentColors}
+            onParamChange={handleInstrumentParamChange}
+            instrumentVisibility={instrumentVisibility}
+            onVisibilityChange={handleInstrumentVisibilityChange}
+            kickDesignerParams={kickDesignerParams}
+            onKickDesignerParamChange={handleKickDesignerParamChange}
+            visualizerStyle={visualizerStyle}
+        />
+    ), [
+        instrumentParams, instrumentColors, handleInstrumentParamChange, instrumentVisibility,
+        handleInstrumentVisibilityChange, kickDesignerParams, handleKickDesignerParamChange, visualizerStyle
+    ]);
+
+    const renderRecorderContent = useCallback(() => (
+        <SampleRecorderMenu 
+            isAudioEngineReady={isAudioEngineReady} 
+            audioContext={audioContext}
+            isRecording={isRecording}
+            onToggleRecording={handleToggleRecording}
+            fullAudioData={fullAudioData}
+            setFullAudioData={setFullAudioData}
+            originalAudioData={originalAudioData}
+            setOriginalAudioData={setOriginalAudioData}
+            trimRange={trimRange}
+            setTrimRange={setTrimRange}
+            sampleParams={instrumentParams.sample}
+            onParamChange={handleInstrumentParamChange}
+            playSample={playSample}
+            visualizerStyle={visualizerStyle}
+        />
+    ), [
+        isAudioEngineReady, audioContext, isRecording, handleToggleRecording, fullAudioData,
+        originalAudioData, trimRange, instrumentParams.sample, handleInstrumentParamChange,
+        playSample, visualizerStyle
+    ]);
+
+    const activeGrid = grids[activePattern];
+    const renderNotationContent = useCallback((isOpen: boolean) => (
+        <NotationVisualizer
+            isActive={isOpen}
+            grid={activeGrid}
+            instrumentColors={instrumentColors}
+            beatsPerMeasure={beatsPerMeasure}
+        />
+    ), [activeGrid, instrumentColors, beatsPerMeasure]);
+
     if (!isInitialized) {
         return (
-            <div className="min-h-screen text-white flex flex-col items-center justify-center p-4 text-center">
-                 <h1 className="text-3xl sm:text-4xl font-bold tracking-tight text-gray-100">CL-607 Drum Machine</h1>
-                 <p className="text-sm text-gray-400 mt-1 mb-8">by Clark Lambert</p>
-                 <Tooltip text="Initialize the audio engine">
-                     <button
-                         onClick={handleStart}
-                         className={getButtonStyle(visualizerStyle, 'primary', false, false, 'w-48 h-16 text-lg')}
-                     >
-                         Start
-                     </button>
-                 </Tooltip>
+            <div className={appContainerClass} style={getAppStyle()}>
+                <div className={startCardClass}>
+                    {visualizerStyle === 'cyberpunk' && (
+                        <div aria-hidden="true" className="absolute top-0 left-0 right-0 h-1 w-full bg-gradient-to-r from-[#fcee0a] via-[#00ff9f] to-[#ff003c]" />
+                    )}
+                    {visualizerStyle === 'nagra' && (
+                        <div aria-hidden="true" className="pointer-events-none select-none">
+                            <span className="absolute -top-4 left-10 w-24 h-10 rounded-full bg-gradient-to-b from-white via-[#fff7f2] to-transparent border-t-2 border-white shadow-[0_-4px_12px_rgba(255,255,255,0.75)]" />
+                            <span className="absolute -top-5 left-1/2 -translate-x-1/2 w-32 h-12 rounded-full bg-gradient-to-b from-white via-[#fff8f3] to-transparent border-t-2 border-white shadow-[0_-6px_16px_rgba(255,255,255,0.85)]" />
+                            <span className="absolute -top-4 right-10 w-24 h-10 rounded-full bg-gradient-to-b from-white via-[#fff7f2] to-transparent border-t-2 border-white shadow-[0_-4px_12px_rgba(255,255,255,0.75)]" />
+                        </div>
+                    )}
+                    <h1 className={startTitleClass}>CL-607 Drum Machine</h1>
+                    <p className={startSubtitleClass}>by Clark Lambert</p>
+                    <Tooltip text="Initialize the audio engine">
+                        <button
+                            onClick={handleStart}
+                            className={getButtonStyle(visualizerStyle, 'primary', false, false, 'w-48 h-16 text-lg')}
+                        >
+                            Start
+                        </button>
+                    </Tooltip>
+                </div>
             </div>
         );
     }
     
     if (isLoading) {
         return (
-            <div className="min-h-screen text-white flex flex-col items-center justify-center">
-                <svg className="animate-spin -ml-1 mr-3 h-10 w-10" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-                <h2 className="mt-4 text-xl font-bold text-white">Initializing Audio Engine...</h2>
-                <p className="text-gray-400">Warming up the synthesizers!</p>
+            <div className={appContainerClass} style={getAppStyle()}>
+                <div className={startCardClass}>
+                    <svg className="animate-spin -ml-1 mr-3 h-10 w-10" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    <h2 className={`mt-4 text-xl font-bold ${visualizerStyle === 'braun' || visualizerStyle === 'bauhaus' || visualizerStyle === 'nagra' ? 'text-[#3b1547]' : 'text-white'}`}>Initializing Audio Engine...</h2>
+                    <p className={startSubtitleClass.replace('mb-8', 'mb-0')}>Warming up the synthesizers!</p>
+                </div>
             </div>
-        )
+        );
     }
 
-    const chainOptions: { mode: ChainMode; label: string, tooltip: string }[] = [
-        { mode: 'off', label: 'OFF', tooltip: 'Playback a single pattern' },
-        { mode: 'ab', label: 'A-B', tooltip: 'Alternate between Pattern A and B' },
-        { mode: 'aaab', label: 'A-A-A-B', tooltip: 'Play Pattern A three times, then B once' },
-        { mode: 'aabb', label: 'A-A-B-B', tooltip: 'Play Pattern A twice, then B twice' },
-    ];
-    
-    const sections: Record<string, React.ReactNode> = {
-        dj: (
-            <CollapsibleSection title="LIVE DJ" closedTitle="LIVE DJ">
-                {(isOpen) => (
-                    <div className="flex flex-wrap items-start justify-center gap-8 p-2">
-                        <div className="flex flex-col items-center gap-3 p-3 rounded-lg bg-gray-900/50">
-                            <h4 className="text-xs text-gray-400 uppercase tracking-wider">RANDOMIZER</h4>
-                             <Tooltip text="Hold to temporarily jumble the beat">
-                                <button
-                                    onMouseDown={handleRandomizePressStart}
-                                    onMouseUp={handleRandomizePressEnd}
-                                    onMouseLeave={handleRandomizePressEnd}
-                                    onTouchStart={(e) => { e.preventDefault(); handleRandomizePressStart(); }}
-                                    onTouchEnd={handleRandomizePressEnd}
-                                    className={getButtonStyle(visualizerStyle, 'primary', false, false, 'w-32 h-16 text-lg bg-purple-600 hover:bg-purple-700 focus:ring-purple-500')}
-                                >
-                                    {randomizeButtonText}
-                                </button>
-                            </Tooltip>
-                            <Tooltip text="Controls how much the beat is jumbled when RANDOMIZE is held" isInteracting={isInteractingWithSlider}>
-                                <div className="flex items-center gap-2 w-full max-w-xs pt-2">
-                                    <label htmlFor="random-intensity" className="text-xs text-gray-500">CHAOS</label>
-                                    <input
-                                        type="range"
-                                        id="random-intensity"
-                                        min={0}
-                                        max={10}
-                                        step={1}
-                                        value={randomizeIntensity}
-                                        onChange={handleRandomizeIntensityChange}
-                                        {...sliderInteractionProps}
-                                        className="w-full h-1.5 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-purple-500"
-                                    />
-                                </div>
-                            </Tooltip>
-                        </div>
-                        
-                        <div className="flex flex-col items-center gap-3 p-3 rounded-lg bg-gray-900/50">
-                            <h4 className="text-xs text-gray-400 uppercase tracking-wider">PATTERN CHAIN</h4>
-                            <div className="flex items-center gap-2">
-                                {chainOptions.map(opt => (
-                                    <Tooltip key={opt.mode} text={opt.tooltip}>
-                                        <button 
-                                            onClick={() => setChainMode(opt.mode)}
-                                            className={getButtonStyle(visualizerStyle, chainMode === opt.mode ? 'success' : 'secondary', chainMode === opt.mode, false, 'px-3 py-1.5 text-xs')}
-                                        >
-                                            {opt.label}
-                                        </button>
-                                    </Tooltip>
-                                ))}
-                            </div>
-                        </div>
-                        
-                        {/* Isolator */}
-                        <div className="flex flex-col items-center gap-3 p-3 rounded-lg bg-gray-900/50">
-                            <h4 className="text-xs text-gray-400 uppercase tracking-wider">ISOLATOR</h4>
-                            <div className="flex items-end gap-8 pt-4">
-                                {(['low', 'mid', 'high'] as const).map((band) => {
-                                    const gainValue = isolatorGains[band];
-                                    const tooltipText = band === 'low'
-                                        ? "Adjust the volume of the low (bass) frequencies"
-                                        : band === 'mid'
-                                        ? "Adjust the volume of the mid-range frequencies"
-                                        : "Adjust the volume of the high (treble) frequencies";
-                                    return (
-                                        <Tooltip key={band} text={tooltipText} isInteracting={isInteractingWithSlider}>
-                                            <div className="flex flex-col items-center gap-2">
-                                                <span className="text-xs text-gray-500 font-bold -mb-2 tabular-nums">{Math.round(gainValue * 100)}</span>
-                                                <div className="h-24 w-8 flex items-center justify-center">
-                                                    <input
-                                                        type="range"
-                                                        min={0}
-                                                        max={1.5}
-                                                        step="0.01"
-                                                        value={gainValue}
-                                                        onChange={(e) => handleIsolatorGainChange(band, Number(e.target.value))}
-                                                        {...sliderInteractionProps}
-                                                        className="w-24 h-2 appearance-none cursor-pointer accent-teal-400 origin-center -rotate-90"
-                                                    />
-                                                </div>
-                                                <span className="text-sm font-bold uppercase">{band}</span>
-                                            </div>
-                                        </Tooltip>
-                                    );
-                                })}
-                            </div>
-                        </div>
-                        
-                        <Tooltip text="Drag to control filter (X: Frequency, Y: Drive)" placement="bottom">
-                            <XYFilterPad 
-                                onFilterChange={handleFilterChange}
-                                onInteractionStart={handleFilterInteractionStart}
-                                onInteractionEnd={handleFilterInteractionEnd}
-                            />
-                        </Tooltip>
-
-                        <LoFiRadio 
-                            isActive={isOpen}
-                            lofiMix={lofiMix}
-                            onLofiMixChange={setLofiMix}
-                            dryAnalyser={effectAnalysers.lofiDryAnalyser}
-                            wetAnalyser={effectAnalysers.lofiWetAnalyser}
-                            isPerformanceMode={isPerformanceMode}
-                        />
-
-                         {!isDjSettingsDefault && (
-                            <div className="w-full flex justify-center">
-                                <Tooltip text="Hold to reset all DJ controls to their defaults">
-                                    <button
-                                        onMouseDown={handleDjResetStart}
-                                        onMouseUp={handleDjResetEnd}
-                                        onMouseLeave={handleDjResetEnd}
-                                        onTouchStart={(e) => { e.preventDefault(); handleDjResetStart(); }}
-                                        onTouchEnd={handleDjResetEnd}
-                                        className={`${getButtonStyle(visualizerStyle, 'secondary', false, false, 'mt-2 px-3 h-8 text-xs overflow-hidden')} ${isDjResetPoofing ? 'animate-poof' : ''}`}
-                                        style={{ transform: `scale(${1 - djResetProgress * 0.15})` }}
-                                        aria-label="Hold to reset DJ settings to default"
-                                    >
-                                        <span className="relative z-10">HOLD TO RESET LIVE DJ SETTINGS</span>
-                                    </button>
-                                </Tooltip>
-                            </div>
-                        )}
-                    </div>
-                )}
-            </CollapsibleSection>
-        ),
-        effects: (
-            <CollapsibleSection title="EFFECTS" closedTitle="EFFECTS">
-                {(isOpen) => <Effects 
-                    isActive={isOpen}
-                    lowPassFreq={lowPassFreq}
-                    highPassFreq={highPassFreq}
-                    onLowPassChange={setLowPassFreq}
-                    onHighPassChange={setHighPassFreq}
-                    reverbMix={reverbMix}
-                    reverbDecay={reverbDecay}
-                    reverbSource={reverbSource}
-                    onReverbMixChange={setReverbMix}
-                    onReverbDecayChange={setReverbDecay}
-                    onReverbSourceChange={setReverbSource}
-                    delayMix={delayMix}
-                    delayTime={delayTime}
-                    delayFeedback={delayFeedback}
-                    delaySource={delaySource}
-                    onDelayMixChange={setDelayMix}
-                    onDelayTimeChange={setDelayTime}
-                    onDelayFeedbackChange={setDelayFeedback}
-                    onDelaySourceChange={setDelaySource}
-                    kickSidechainAmount={kickSidechainAmount}
-                    kickSidechainThreshold={kickSidechainThreshold}
-                    kickSidechainRatio={kickSidechainRatio}
-                    onKickSidechainAmountChange={setKickSidechainAmount}
-                    onKickSidechainThresholdChange={setKickSidechainThreshold}
-                    onKickSidechainRatioChange={setKickSidechainRatio}
-                    crushAmount={crushAmount}
-                    onCrushAmountChange={setCrushAmount}
-                    tapeSaturationMix={tapeSaturationMix}
-                    onTapeSaturationMixChange={setTapeSaturationMix}
-                    tapeSaturationAmount={tapeSaturationAmount}
-                    onTapeSaturationAmountChange={setTapeSaturationAmount}
-                    tapeSaturationTone={tapeSaturationTone}
-                    onTapeSaturationToneChange={setTapeSaturationTone}
-                    envelopeFilterMix={envelopeFilterMix}
-                    onEnvelopeFilterMixChange={setEnvelopeFilterMix}
-                    envelopeFilterAmount={envelopeFilterAmount}
-                    onEnvelopeFilterAmountChange={setEnvelopeFilterAmount}
-                    envelopeFilterBaseFreq={envelopeFilterBaseFreq}
-                    onEnvelopeFilterBaseFreqChange={setEnvelopeFilterBaseFreq}
-                    envelopeFilterQ={envelopeFilterQ}
-                    onEnvelopeFilterQChange={setEnvelopeFilterQ}
-                    postFilterAnalyser={effectAnalysers.postFilterAnalyser}
-                    reverbAnalyser={effectAnalysers.reverbAnalyser}
-                    delayAnalyser={effectAnalysers.delayAnalyser}
-                    sidechainVisualiserAnalyser={effectAnalysers.sidechainVisualiserAnalyser}
-                    crushAnalyser={effectAnalysers.crushAnalyser}
-                    tapeSaturationAnalyser={effectAnalysers.tapeSaturationAnalyser}
-                    envelopeFilterAnalyser={effectAnalysers.envelopeFilterAnalyser}
-                    effectsEnabled={effectsEnabled}
-                    onToggleEffect={handleToggleEffect}
-                    onReset={handleResetEffectsSettings}
-                    isSettingsDefault={isEffectsSettingsDefault}
-                    isPerformanceMode={isPerformanceMode}
-                />}
-            </CollapsibleSection>
-        ),
-        instruments: (
-            <CollapsibleSection title="INSTRUMENT SETTINGS" closedTitle="INSTRUMENT SETTINGS" defaultOpen={false}>
-                {(isOpen) => <InstrumentSettings
-                    isActive={isOpen}
-                    params={instrumentParams}
-                    instrumentColors={instrumentColors}
-                    onParamChange={handleInstrumentParamChange}
-                    instrumentVisibility={instrumentVisibility}
-                    onVisibilityChange={handleInstrumentVisibilityChange}
-                    kickDesignerParams={kickDesignerParams}
-                    onKickDesignerParamChange={handleKickDesignerParamChange}
-                />}
-            </CollapsibleSection>
-        ),
-        recorder: (
-            <CollapsibleSection title="SAMPLE RECORDER" closedTitle="SAMPLE RECORDER" defaultOpen={false}>
-                {(isOpen) => <SampleRecorderMenu 
-                    isAudioEngineReady={isAudioEngineReady} 
-                    audioContext={audioContext}
-                    startRecording={startRecording} 
-                    stopRecording={stopRecording} 
-                    getRecordedAudioData={getRecordedAudioData}
-                    setSampleAudioData={setSampleAudioData}
-                    updateInstrumentParameter={updateInstrumentParameter}
-                    playSample={playSample}
-                    visualizerStyle={visualizerStyle}
-                />}
-            </CollapsibleSection>
-        ),
-        notation: (
-            <CollapsibleSection title="rhythmic notation (under construction: rests are ugly)" defaultOpen={false}>
-                {(isOpen) => (
-                    <NotationVisualizer
-                        isActive={isOpen}
-                        grid={grids[activePattern]}
-                        instrumentColors={instrumentColors}
+    const renderSectionByKey = (key: string, index: number) => {
+        const isBeingDragged = index === draggedIndex;
+        switch (key) {
+            case 'dj':
+                return (
+                    <CollapsibleSection
+                        key="dj"
+                        title="LIVE DJ"
+                        closedTitle="LIVE DJ"
+                        visualizerStyle={visualizerStyle}
+                        sectionIndex={index}
+                        onSectionPointerDown={handlePointerDown}
+                        isDragging={isBeingDragged}
+                    >
+                        {renderDjContent}
+                    </CollapsibleSection>
+                );
+            case 'effects':
+                return (
+                    <CollapsibleSection
+                        key="effects"
+                        title="EFFECTS"
+                        closedTitle="EFFECTS"
+                        visualizerStyle={visualizerStyle}
+                        sectionIndex={index}
+                        onSectionPointerDown={handlePointerDown}
+                        isDragging={isBeingDragged}
+                    >
+                        {renderEffectsContent}
+                    </CollapsibleSection>
+                );
+            case 'instruments':
+                return (
+                    <CollapsibleSection
+                        key="instruments"
+                        title="INSTRUMENT SETTINGS"
+                        closedTitle="INSTRUMENT SETTINGS"
+                        defaultOpen={false}
+                        visualizerStyle={visualizerStyle}
+                        sectionIndex={index}
+                        onSectionPointerDown={handlePointerDown}
+                        isDragging={isBeingDragged}
+                    >
+                        {renderInstrumentsContent}
+                    </CollapsibleSection>
+                );
+            case 'recorder':
+                return (
+                    <CollapsibleSection
+                        key="recorder"
+                        title="SAMPLE RECORDER"
+                        closedTitle="SAMPLE RECORDER"
+                        defaultOpen={false}
+                        visualizerStyle={visualizerStyle}
+                        sectionIndex={index}
+                        onSectionPointerDown={handlePointerDown}
+                        isDragging={isBeingDragged}
+                    >
+                        {renderRecorderContent}
+                    </CollapsibleSection>
+                );
+            case 'notation':
+                return (
+                    <CollapsibleSection
+                        key="notation"
+                        title="RHYTHMIC NOTATION"
+                        closedTitle="RHYTHMIC NOTATION"
+                        defaultOpen={false}
+                        visualizerStyle={visualizerStyle}
+                        sectionIndex={index}
+                        onSectionPointerDown={handlePointerDown}
+                        isDragging={isBeingDragged}
+                    >
+                        {renderNotationContent}
+                    </CollapsibleSection>
+                );
+            case 'settings':
+                return (
+                    <Settings
+                        key="settings"
+                        visualizer={visualizerType}
+                        onVisualizerChange={setVisualizerType}
+                        visualizerStyle={visualizerStyle}
+                        onVisualizerStyleChange={handleVisualizerStyleChange}
+                        drumKit={drumKit}
+                        onDrumKitChange={setDrumKit}
+                        onShiftPattern={handleShiftPattern}
+                        isPerformanceMode={isPerformanceMode}
+                        onTogglePerformanceMode={handleTogglePerformanceMode}
+                        isSlowComputerMode={isSlowComputerMode}
+                        onToggleSlowComputerMode={handleToggleSlowComputerMode}
+                        onFactoryReset={handleFactoryReset}
+                        tooltipsEnabled={tooltipsEnabled}
+                        onToggleTooltips={handleToggleTooltips}
+                        showBeatNumbers={showBeatNumbers}
+                        onToggleBeatNumbers={handleToggleBeatNumbers}
                         beatsPerMeasure={beatsPerMeasure}
+                        onBeatsPerMeasureChange={handleBeatsPerMeasureChange}
+                        keyboardDrummingEnabled={keyboardDrummingEnabled}
+                        onToggleKeyboardDrumming={handleToggleKeyboardDrumming}
+                        keyboardMap={keyboardMap}
+                        onUpdateKeyboardMap={handleUpdateKeyboardMap}
+                        isInvertColors={isInvertColors}
+                        onToggleInvertColors={handleToggleInvertColors}
+                        onToggleCappuccinoMode={handleToggleCappuccinoMode}
+                        sectionIndex={index}
+                        onSectionPointerDown={handlePointerDown}
+                        isDragging={isBeingDragged}
                     />
-                )}
-            </CollapsibleSection>
-        ),
-        settings: (
-            <Settings
-                visualizer={visualizerType}
-                onVisualizerChange={setVisualizerType}
-                visualizerStyle={visualizerStyle}
-                onVisualizerStyleChange={setVisualizerStyle}
-                drumKit={drumKit}
-                onDrumKitChange={setDrumKit}
-                onShiftPattern={handleShiftPattern}
-                isPerformanceMode={isPerformanceMode}
-                onTogglePerformanceMode={handleTogglePerformanceMode}
-                onFactoryReset={handleFactoryReset}
-                tooltipsEnabled={tooltipsEnabled}
-                onToggleTooltips={handleToggleTooltips}
-                showBeatNumbers={showBeatNumbers}
-                onToggleBeatNumbers={handleToggleBeatNumbers}
-                beatsPerMeasure={beatsPerMeasure}
-                onBeatsPerMeasureChange={handleBeatsPerMeasureChange}
-                keyboardDrummingEnabled={keyboardDrummingEnabled}
-                onToggleKeyboardDrumming={() => setKeyboardDrummingEnabled(!keyboardDrummingEnabled)}
-                keyboardMap={keyboardMap}
-                onUpdateKeyboardMap={(key, instrument) => setKeyboardMap(prev => ({ ...prev, [key]: instrument }))}
-                dragHandleProps={isInteractingWithSlider ? undefined : { onPointerDown: (e: React.PointerEvent) => {} }} // Dummy or handled by cloneElement
-            />
-        )
-    };
-
-    const getAppStyle = () => {
-        let baseFilter = `hue-rotate(${hueRotate}deg)`;
-        
-        if (isCappuccinoMode) {
-            baseFilter = `sepia(0.85) saturate(1.5) contrast(1.1) brightness(1.1) ${baseFilter}`;
-        }
-
-        switch (visualizerStyle) {
-            case 'neon':
-                return {
-                    filter: baseFilter,
-                    transition: isColorAnimating ? 'none' : 'filter 0.5s ease-in-out',
-                    backgroundColor: '#050510',
-                    backgroundImage: 'radial-gradient(circle at 50% 50%, #1a0b2e 0%, #050510 100%)'
-                };
-            case 'minimal':
-                return {
-                    filter: baseFilter,
-                    transition: isColorAnimating ? 'none' : 'filter 0.5s ease-in-out',
-                    backgroundColor: '#f5f5f5',
-                    color: '#111'
-                };
-            case 'retro':
-                return {
-                    filter: `contrast(1.2) saturate(1.2) ${baseFilter}`,
-                    transition: isColorAnimating ? 'none' : 'filter 0.5s ease-in-out',
-                    backgroundColor: '#2b2118',
-                    backgroundImage: 'linear-gradient(0deg, transparent 24%, rgba(255, 255, 255, .05) 25%, rgba(255, 255, 255, .05) 26%, transparent 27%, transparent 74%, rgba(255, 255, 255, .05) 75%, rgba(255, 255, 255, .05) 76%, transparent 77%, transparent), linear-gradient(90deg, transparent 24%, rgba(255, 255, 255, .05) 25%, rgba(255, 255, 255, .05) 26%, transparent 27%, transparent 74%, rgba(255, 255, 255, .05) 75%, rgba(255, 255, 255, .05) 76%, transparent 77%, transparent)',
-                    backgroundSize: '50px 50px'
-                };
+                );
             default:
-                return {
-                    filter: baseFilter,
-                    transition: isColorAnimating ? 'none' : 'filter 0.5s ease-in-out'
-                };
+                return null;
         }
     };
 
     return (
         <div 
-            className={`min-h-screen flex flex-col items-center justify-center p-2 sm:p-4 transition-colors duration-500 ${visualizerStyle === 'minimal' ? 'text-gray-900' : 'bg-gray-900 text-gray-100'}`}
+            className={appContainerClass}
             style={getAppStyle()}
         >
             <div className="w-full max-w-7xl mx-auto flex flex-col gap-4 sm:gap-6">
-                <header className="text-center">
-                    <h1 
-                        className={`text-3xl sm:text-4xl font-bold tracking-tight select-none cursor-default ${isCappuccinoMode ? "font-['Dancing_Script'] text-5xl" : ""}`}
-                        onClick={handleTitleClick}
-                    >
-                        {isCappuccinoMode ? "Cappuccino Drum Machino" : "CL-607 Drum Machine"}
-                    </h1>
+                <header className="w-full">
+                    {visualizerStyle === 'minimal' ? (
+                        <div className="relative flex items-center justify-center px-4 py-2.5 bg-[#0e0e11] border border-[#27272a]">
+                            {isEditingTitle ? (
+                                <input
+                                    ref={titleInputRef}
+                                    type="text"
+                                    value={customTitle}
+                                    onChange={(e) => setCustomTitle(e.target.value)}
+                                    onBlur={handleTitleCommit}
+                                    onKeyDown={handleTitleKeyDown}
+                                    aria-label="Edit header title"
+                                    className={`w-full max-w-md text-center bg-transparent border-b border-[#ff3b1d] focus:outline-none font-bold text-[#f4f4f5] ${isCappuccinoMode ? "font-['Dancing_Script'] text-3xl sm:text-4xl normal-case tracking-normal" : "text-lg sm:text-xl font-mono uppercase tracking-[0.14em]"}`}
+                                />
+                            ) : (
+                                <h1
+                                    className={`font-bold text-[#f4f4f5] select-none cursor-pointer ${isCappuccinoMode ? "font-['Dancing_Script'] text-3xl sm:text-4xl normal-case tracking-normal" : "text-lg sm:text-xl font-mono uppercase tracking-[0.14em]"}`}
+                                    onClick={handleTitleClick}
+                                    title="Click to edit title"
+                                >
+                                    {displayedTitle}
+                                </h1>
+                            )}
+                            <div className="absolute right-3 sm:right-4 font-mono text-[10px] tracking-[0.16em] text-[#71717a] uppercase tabular-nums select-none pointer-events-none hidden min-[400px]:block">
+                                {tempo} BPM // {beatsPerMeasure}/4
+                            </div>
+                        </div>
+                    ) : visualizerStyle === 'braun' ? (
+                        <div className="relative flex items-center justify-center px-4 py-3 bg-[#f4f2ec] rounded-[10px] border border-[#c4c0b4] shadow-[0_2px_0_#b8b4a8,inset_0_1px_0_#ffffff]">
+                            {isEditingTitle ? (
+                                <input
+                                    ref={titleInputRef}
+                                    type="text"
+                                    value={customTitle}
+                                    onChange={(e) => setCustomTitle(e.target.value)}
+                                    onBlur={handleTitleCommit}
+                                    onKeyDown={handleTitleKeyDown}
+                                    aria-label="Edit header title"
+                                    className={`w-full max-w-xl text-center bg-transparent border-b-2 border-[#d94e1f] focus:outline-none text-2xl sm:text-3xl font-bold tracking-tight text-[#1c1c1a] ${isCappuccinoMode ? "font-['Dancing_Script'] text-4xl" : "font-['Plus_Jakarta_Sans']"}`}
+                                />
+                            ) : (
+                                <h1
+                                    className={`text-2xl sm:text-3xl font-bold tracking-tight text-[#1c1c1a] select-none cursor-pointer hover:opacity-80 transition-opacity ${isCappuccinoMode ? "font-['Dancing_Script'] text-4xl" : "font-['Plus_Jakarta_Sans']"}`}
+                                    onClick={handleTitleClick}
+                                    title="Click to edit title"
+                                >
+                                    {displayedTitle}
+                                </h1>
+                            )}
+                            <div className="absolute right-3 sm:right-4 font-['Plus_Jakarta_Sans'] font-semibold text-[10px] sm:text-[11px] tracking-wider text-[#737067] uppercase tabular-nums select-none pointer-events-none hidden min-[400px]:block">
+                                {tempo} BPM // {beatsPerMeasure}/4
+                            </div>
+                        </div>
+                    ) : visualizerStyle === 'bauhaus' ? (
+                        <div className="relative flex items-center justify-center px-5 py-3.5 bg-[#f7f2e7] border-[3px] border-[#141413] shadow-[6px_6px_0px_#141413]">
+                            {isEditingTitle ? (
+                                <input
+                                    ref={titleInputRef}
+                                    type="text"
+                                    value={customTitle}
+                                    onChange={(e) => setCustomTitle(e.target.value)}
+                                    onBlur={handleTitleCommit}
+                                    onKeyDown={handleTitleKeyDown}
+                                    aria-label="Edit header title"
+                                    className={`w-full max-w-xl text-center bg-transparent border-b-2 border-[#d92b2b] focus:outline-none text-2xl sm:text-4xl font-extrabold tracking-wider text-[#141413] ${isCappuccinoMode ? "font-['Dancing_Script'] text-4xl normal-case" : "font-['Outfit'] uppercase"}`}
+                                />
+                            ) : (
+                                <h1
+                                    className={`text-2xl sm:text-4xl font-extrabold tracking-wider text-[#141413] select-none cursor-pointer hover:opacity-80 transition-opacity ${isCappuccinoMode ? "font-['Dancing_Script'] text-4xl normal-case" : "font-['Outfit'] uppercase"}`}
+                                    onClick={handleTitleClick}
+                                    title="Click to edit title"
+                                >
+                                    {displayedTitle}
+                                </h1>
+                            )}
+                            <div className="absolute right-3 sm:right-5 font-['Outfit'] font-extrabold text-[10px] sm:text-[11px] tracking-wider text-[#141413] uppercase tabular-nums select-none pointer-events-none bg-[#f7f2e7] border-2 border-[#141413] px-2 py-0.5 shadow-[2px_2px_0px_#141413] hidden min-[400px]:block">
+                                {tempo} BPM // {beatsPerMeasure}/4
+                            </div>
+                        </div>
+                    ) : visualizerStyle === 'nagra' ? (
+                        <div className="relative mt-4 flex items-center justify-center px-8 py-4 bg-gradient-to-b from-[#fffefb] via-[#fff1e8] to-[#fbd7c9] rounded-full border-2 border-white shadow-[0_12px_26px_rgba(32,8,48,0.38),inset_0_3px_6px_#ffffff,inset_0_-6px_14px_rgba(255,118,92,0.24)]">
+                            {/* Sculpted Billowing Cloud Domes on the Header Banner */}
+                            <span aria-hidden="true" className="absolute -top-3.5 left-12 w-24 h-9 rounded-full bg-gradient-to-b from-white via-[#fff8f3] to-transparent border-t-2 border-white/95 pointer-events-none hidden sm:block" />
+                            <span aria-hidden="true" className="absolute -top-5 left-1/2 -translate-x-1/2 w-40 h-11 rounded-full bg-gradient-to-b from-white via-[#fff7f1] to-transparent border-t-2 border-white pointer-events-none" />
+                            <span aria-hidden="true" className="absolute -top-3.5 right-12 w-24 h-9 rounded-full bg-gradient-to-b from-white via-[#fff8f3] to-transparent border-t-2 border-white/95 pointer-events-none hidden sm:block" />
+                            {/* Left Golden Sun & Cloud Emblem */}
+                            <div aria-hidden="true" className="absolute left-5 sm:left-7 hidden sm:flex items-center">
+                                <span className="w-6 h-6 rounded-full bg-gradient-to-b from-[#fff29c] via-[#ff9a44] to-[#ff4d5e]" />
+                                <span className="-ml-3 mt-2 w-8 h-4 rounded-full bg-gradient-to-b from-white to-[#ffd9c7] border border-white" />
+                            </div>
+                            {isEditingTitle ? (
+                                <input
+                                    ref={titleInputRef}
+                                    type="text"
+                                    value={customTitle}
+                                    onChange={(e) => setCustomTitle(e.target.value)}
+                                    onBlur={handleTitleCommit}
+                                    onKeyDown={handleTitleKeyDown}
+                                    aria-label="Edit header title"
+                                    className={`relative z-10 w-full max-w-xl text-center bg-transparent border-b-2 border-[#ff5e4d] focus:outline-none text-2xl sm:text-3xl font-extrabold tracking-tight text-[#3b1547] ${isCappuccinoMode ? "font-['Dancing_Script'] text-4xl" : "font-['Plus_Jakarta_Sans']"}`}
+                                />
+                            ) : (
+                                <h1
+                                    className={`relative z-10 text-2xl sm:text-3xl font-extrabold tracking-tight text-[#3b1547] select-none cursor-pointer hover:opacity-80 ${isCappuccinoMode ? "font-['Dancing_Script'] text-4xl" : "font-['Plus_Jakarta_Sans']"}`}
+                                    onClick={handleTitleClick}
+                                    title="Click to edit title"
+                                >
+                                    {displayedTitle}
+                                </h1>
+                            )}
+                            <div className="absolute right-4 sm:right-6 z-10 font-['Plus_Jakarta_Sans'] font-extrabold text-[10px] sm:text-[11px] tracking-[0.14em] text-[#d9325e] bg-white border border-white px-3 py-1 rounded-full uppercase tabular-nums select-none pointer-events-none hidden min-[400px]:block">
+                                {tempo} BPM // {beatsPerMeasure}/4
+                            </div>
+                        </div>
+                    ) : visualizerStyle === 'koto' ? (
+                        <div className="relative flex items-center justify-center px-6 py-3.5 bg-gradient-to-b from-[#1d161f] to-[#120e14] rounded-2xl border border-[#d4af37]/40 shadow-[0_10px_24px_rgba(0,0,0,0.75),inset_0_1px_0_rgba(212,175,55,0.25)]">
+                            {isEditingTitle ? (
+                                <input
+                                    ref={titleInputRef}
+                                    type="text"
+                                    value={customTitle}
+                                    onChange={(e) => setCustomTitle(e.target.value)}
+                                    onBlur={handleTitleCommit}
+                                    onKeyDown={handleTitleKeyDown}
+                                    aria-label="Edit header title"
+                                    className={`w-full max-w-xl text-center bg-transparent border-b-2 border-[#d4af37] focus:outline-none text-3xl sm:text-4xl font-bold tracking-wide text-[#f2ece1] ${isCappuccinoMode ? "font-['Dancing_Script'] text-5xl" : "font-['Cormorant_Garamond']"}`}
+                                />
+                            ) : (
+                                <h1
+                                    className={`text-3xl sm:text-4xl font-bold tracking-wide text-[#f2ece1] select-none cursor-pointer hover:opacity-80 transition-opacity ${isCappuccinoMode ? "font-['Dancing_Script'] text-5xl" : "font-['Cormorant_Garamond']"}`}
+                                    onClick={handleTitleClick}
+                                    title="Click to edit title"
+                                >
+                                    {displayedTitle}
+                                </h1>
+                            )}
+                            <div className="absolute right-4 sm:right-6 font-['Cormorant_Garamond'] font-bold text-xs sm:text-sm tracking-[0.18em] text-[#d4af37] uppercase tabular-nums select-none pointer-events-none hidden min-[400px]:block">
+                                {tempo} BPM // {beatsPerMeasure}/4
+                            </div>
+                        </div>
+                    ) : visualizerStyle === 'cyberpunk' ? (
+                        <div className="relative flex items-center justify-center px-5 py-3 bg-[#08080c] border-2 border-[#00ff9f] shadow-[5px_5px_0px_#ff003c]">
+                            {isEditingTitle ? (
+                                <input
+                                    ref={titleInputRef}
+                                    type="text"
+                                    value={customTitle}
+                                    onChange={(e) => setCustomTitle(e.target.value)}
+                                    onBlur={handleTitleCommit}
+                                    onKeyDown={handleTitleKeyDown}
+                                    aria-label="Edit header title"
+                                    className={`w-full max-w-xl text-center bg-transparent border-b-2 border-[#00ff9f] focus:outline-none text-2xl sm:text-3xl font-extrabold text-[#fcee0a] ${isCappuccinoMode ? "font-['Dancing_Script'] text-4xl normal-case tracking-normal" : "font-['JetBrains_Mono'] uppercase tracking-widest"}`}
+                                />
+                            ) : (
+                                <h1
+                                    className={`text-2xl sm:text-3xl font-extrabold text-[#fcee0a] select-none cursor-pointer hover:opacity-80 transition-opacity ${isCappuccinoMode ? "font-['Dancing_Script'] text-4xl normal-case tracking-normal" : "font-['JetBrains_Mono'] uppercase tracking-widest"}`}
+                                    onClick={handleTitleClick}
+                                    title="Click to edit title"
+                                >
+                                    {displayedTitle}
+                                </h1>
+                            )}
+                            <div className="absolute right-3 sm:right-5 font-['JetBrains_Mono'] font-bold text-[10px] sm:text-[11px] tracking-widest text-[#00ff9f] uppercase tabular-nums select-none pointer-events-none hidden min-[400px]:block">
+                                {tempo} BPM // {beatsPerMeasure}/4
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="relative text-center flex items-center justify-center px-4 py-2">
+                            {isEditingTitle ? (
+                                <input
+                                    ref={titleInputRef}
+                                    type="text"
+                                    value={customTitle}
+                                    onChange={(e) => setCustomTitle(e.target.value)}
+                                    onBlur={handleTitleCommit}
+                                    onKeyDown={handleTitleKeyDown}
+                                    aria-label="Edit header title"
+                                    className={`w-full max-w-xl text-center bg-transparent border-b-2 border-amber-500 focus:outline-none text-3xl sm:text-4xl font-bold tracking-tight ${isCappuccinoMode ? "font-['Dancing_Script'] text-5xl" : ""}`}
+                                />
+                            ) : (
+                                <h1 
+                                    className={`text-3xl sm:text-4xl font-bold tracking-tight select-none cursor-pointer hover:opacity-80 transition-opacity ${isCappuccinoMode ? "font-['Dancing_Script'] text-5xl" : ""}`}
+                                    onClick={handleTitleClick}
+                                    title="Click to edit title"
+                                >
+                                    {displayedTitle}
+                                </h1>
+                            )}
+                            <div className="absolute right-2 sm:right-4 font-mono text-[10px] sm:text-xs tracking-wider text-amber-500/90 font-semibold uppercase tabular-nums select-none pointer-events-none hidden min-[400px]:block">
+                                {tempo} BPM // {beatsPerMeasure}/4
+                            </div>
+                        </div>
+                    )}
                 </header>
                 <main className="flex flex-col gap-6">
-                    <div className="bg-gradient-to-b from-gray-800 to-gray-900 rounded-xl p-2 sm:p-4 shadow-lg ring-1 ring-white/10 flex flex-col gap-4">
+                    <div className={`relative ${visualizerStyle === 'nagra' ? 'p-4 sm:p-6 mt-2' : 'p-2 sm:p-4'} flex flex-col gap-4 ${surface.mainDeck}`}>
+                        {visualizerStyle === 'cyberpunk' && (
+                            <div aria-hidden="true" className="h-1 w-full bg-gradient-to-r from-[#fcee0a] via-[#00ff9f] to-[#ff003c] -mt-2 sm:-mt-4 mb-1" />
+                        )}
+                        {visualizerStyle === 'nagra' && (
+                            <div aria-hidden="true" className="pointer-events-none select-none">
+                                <span className="absolute -top-3.5 left-12 w-28 h-9 rounded-full bg-gradient-to-b from-white via-[#fff8f3] to-transparent border-t-2 border-white" />
+                                <span className="absolute -top-4 left-36 w-36 h-11 rounded-full bg-gradient-to-b from-white via-[#fff7f1] to-transparent border-t-2 border-white hidden sm:block" />
+                                <span className="absolute -top-3.5 right-36 w-32 h-10 rounded-full bg-gradient-to-b from-white via-[#fff7f1] to-transparent border-t-2 border-white hidden md:block" />
+                                <span className="absolute -top-3 right-12 w-24 h-8 rounded-full bg-gradient-to-b from-white via-[#fff8f3] to-transparent border-t-2 border-white" />
+                            </div>
+                        )}
                         <Controls 
                             isPlaying={isPlaying}
                             onPlayToggle={handlePlayToggle}
                             tempo={tempo}
                             onTempoChange={handleTempoChange}
+                            onDirectTempoChange={handleDirectTempoChange}
                             swing={swing}
                             onSwingChange={handleSwingChange}
+                            onDirectSwingChange={setSwing}
                             masterVolume={masterVolume}
                             onMasterVolumeChange={handleMasterVolumeChange}
+                            onDirectMasterVolumeChange={setMasterVolume}
                             activePattern={activePattern}
                             onPatternToggle={setActivePattern}
                             hueRotate={hueRotate}
@@ -1675,12 +3335,7 @@ const App: React.FC = () => {
                             isRendering={isRendering}
                             isPreparingDrag={isPreparingDrag}
                             dragBlobUrl={dragBlobUrl}
-                            onClearDragUrl={() => {
-                                if (dragBlobUrl) {
-                                    URL.revokeObjectURL(dragBlobUrl);
-                                    setDragBlobUrl(null);
-                                }
-                            }}
+                            onClearDragUrl={handleClearDragUrl}
                             savedPatterns={savedPatterns}
                             currentPatternIndex={currentPatternIndex}
                             onSelectPattern={handleSelectPattern}
@@ -1689,6 +3344,17 @@ const App: React.FC = () => {
                             isCurrentPatternEmpty={isCurrentPatternEmpty}
                             isCappuccinoMode={isCappuccinoMode}
                             visualizerStyle={visualizerStyle}
+                            isLiveRecording={isLiveRecording}
+                            onToggleLiveRecording={handleToggleLiveRecording}
+                            liveRecordings={liveRecordings}
+                            onDeleteLiveRecording={handleDeleteLiveRecording}
+                            onClearAllLiveRecordings={handleClearAllLiveRecordings}
+                            onRenameLiveRecording={handleRenameLiveRecording}
+                            beatsPerMeasure={beatsPerMeasure}
+                            exportMeasures={exportMeasures}
+                            onExportMeasuresChange={setExportMeasures}
+                            exportIncludeTail={exportIncludeTail}
+                            onExportIncludeTailChange={setExportIncludeTail}
                         />
                         <Sequencer
                             grid={grids[activePattern]}
@@ -1700,9 +3366,7 @@ const App: React.FC = () => {
                             instrumentAnalyserNodes={instrumentAnalyserNodes}
                             instrumentColors={instrumentColors}
                             isRecording={isRecording}
-                            countdown={countdown}
-                            onStartRecording={handleStartRecording}
-                            onStopRecording={handleStopRecording}
+                            onToggleRecording={handleToggleRecording}
                             instrumentVisibility={instrumentVisibility}
                             visualizerType={visualizerType}
                             visualizerStyle={visualizerStyle}
@@ -1714,15 +3378,7 @@ const App: React.FC = () => {
                         />
                     </div>
                     <div ref={sectionsContainerRef} className="flex flex-col gap-6">
-                        {sectionOrder.map((key, index) => {
-                             const isBeingDragged = index === draggedIndex;
-                             const sectionElement = React.cloneElement(sections[key] as React.ReactElement, {
-                                 key: key,
-                                 dragHandleProps: { onPointerDown: (e: React.PointerEvent) => handlePointerDown(e, index) },
-                                 isDragging: isBeingDragged,
-                             });
-                             return sectionElement;
-                        })}
+                        {sectionOrder.map((key, index) => renderSectionByKey(key, index))}
                     </div>
                 </main>
             </div>

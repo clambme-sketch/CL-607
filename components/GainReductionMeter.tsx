@@ -4,15 +4,16 @@ interface GainReductionMeterProps {
     isActive: boolean;
     analyserNode: AnalyserNode | null;
     color: string;
+    activeAmount?: number;
 }
 
-const GainReductionMeter: React.FC<GainReductionMeterProps> = ({ isActive, analyserNode, color }) => {
+const GainReductionMeter: React.FC<GainReductionMeterProps> = ({ isActive, analyserNode, color, activeAmount }) => {
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
     const animationFrameId = useRef<number>(0);
 
     useEffect(() => {
         const canvas = canvasRef.current;
-        if (!isActive || !analyserNode || !canvas) {
+        if (!isActive || !analyserNode || !canvas || (activeAmount !== undefined && activeAmount < 0.01)) {
             cancelAnimationFrame(animationFrameId.current);
             if (canvas) {
                 const context = canvas.getContext('2d');
@@ -30,17 +31,18 @@ const GainReductionMeter: React.FC<GainReductionMeterProps> = ({ isActive, analy
             canvas.height = parent.clientHeight;
         }
         
-        // A smaller FFT size is fine since we only need peak amplitude, not frequency detail.
-        analyserNode.fftSize = 128;
+        if (analyserNode.fftSize !== 128) {
+            analyserNode.fftSize = 128;
+        }
         const bufferLength = analyserNode.frequencyBinCount;
         const dataArray = new Uint8Array(bufferLength);
+        let wasSilent = false;
 
         const draw = () => {
             animationFrameId.current = requestAnimationFrame(draw);
             
             analyserNode.getByteTimeDomainData(dataArray);
             
-            // Find the maximum deviation from the center line (128)
             let maxAmplitude = 0;
             for (let i = 0; i < bufferLength; i++) {
                 const amplitude = Math.abs(dataArray[i] - 128);
@@ -49,12 +51,16 @@ const GainReductionMeter: React.FC<GainReductionMeterProps> = ({ isActive, analy
                 }
             }
             
-            // Normalize the value to a 0-1 range (128 is the max possible deviation)
-            const normalizedValue = maxAmplitude / 128.0;
+            const isSilent = maxAmplitude <= 1;
+            if (isSilent && wasSilent) {
+                return;
+            }
+            wasSilent = isSilent;
 
             context.clearRect(0, 0, canvas.width, canvas.height);
+            if (isSilent) return;
             
-            // Draw the meter bar filling from the top down
+            const normalizedValue = maxAmplitude / 128.0;
             const meterHeight = normalizedValue * canvas.height;
             
             context.fillStyle = color;
@@ -66,9 +72,9 @@ const GainReductionMeter: React.FC<GainReductionMeterProps> = ({ isActive, analy
         return () => {
             cancelAnimationFrame(animationFrameId.current);
         };
-    }, [analyserNode, color, isActive]);
+    }, [analyserNode, color, isActive, activeAmount]);
 
     return <canvas ref={canvasRef} className="absolute top-0 left-0 w-full h-full" />;
 };
 
-export default GainReductionMeter;
+export default React.memo(GainReductionMeter);

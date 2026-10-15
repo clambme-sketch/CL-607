@@ -1,15 +1,15 @@
 import React, { useRef, useCallback, useState, useEffect } from 'react';
 import { MIN_TEMPO, MAX_TEMPO } from '../constants';
-import { SavedPattern, VisualizerStyle } from '../types';
+import { SavedPattern, VisualizerStyle, LiveRecording } from '../types';
 import Tooltip from './Tooltip';
-import { getButtonStyle } from '../utils';
+import { getButtonStyle, getThemeSurface } from '../utils';
 
 // --- New Disco Ball Component ---
 const DiscoBall: React.FC<{ isPlaying: boolean }> = React.memo(({ isPlaying }) => {
     return (
         <div className={`
             w-12 h-16
-            transform transition-all duration-500 ease-out
+            transform-gpu transition-transform duration-500 ease-out
             ${isPlaying ? 'translate-y-0' : '-translate-y-full'}
         `}>
             <svg viewBox="0 0 50 60" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -27,29 +27,21 @@ const DiscoBall: React.FC<{ isPlaying: boolean }> = React.memo(({ isPlaying }) =
                         <stop stopColor="white" stopOpacity="0.9" />
                         <stop offset="1" stopColor="white" stopOpacity="0" />
                     </radialGradient>
-                    <filter id="sparkle-glow" x="-50%" y="-50%" width="200%" height="200%">
-                        <feGaussianBlur stdDeviation="1.5" result="coloredBlur"/>
-                        <feMerge>
-                            <feMergeNode in="coloredBlur"/>
-                            <feMergeNode in="SourceGraphic"/>
-                        </feMerge>
-                    </filter>
                     <style>
                         {`
                             .disco-ball-sway {
                                 animation: sway 6s ease-in-out infinite;
-                                transform-origin: center;
+                                transform-origin: 25px 40px;
                             }
                             @keyframes sway {
-                                0% { transform: rotate(-10deg); }
+                                0%, 100% { transform: rotate(-10deg); }
                                 50% { transform: rotate(10deg); }
-                                100% { transform: rotate(-10deg); }
                             }
-                            .sparkle-1 { animation: sparkle 1.5s ease-in-out infinite; }
-                            .sparkle-2 { animation: sparkle 1.5s ease-in-out infinite 0.3s; }
-                            .sparkle-3 { animation: sparkle 1.5s ease-in-out infinite 0.6s; }
-                            .sparkle-4 { animation: sparkle 1.8s ease-in-out infinite 0.2s; }
-                            .sparkle-5 { animation: sparkle 1.8s ease-in-out infinite 0.9s; }
+                            .sparkle-1 { animation: sparkle 1.5s ease-in-out infinite; transform-origin: 10px 25px; }
+                            .sparkle-2 { animation: sparkle 1.5s ease-in-out infinite 0.3s; transform-origin: 44px 36px; }
+                            .sparkle-3 { animation: sparkle 1.5s ease-in-out infinite 0.6s; transform-origin: 18px 51px; }
+                            .sparkle-4 { animation: sparkle 1.8s ease-in-out infinite 0.2s; transform-origin: 33px 23px; }
+                            .sparkle-5 { animation: sparkle 1.8s ease-in-out infinite 0.9s; transform-origin: 8px 55px; }
                             @keyframes sparkle {
                                 0%, 100% { opacity: 0; transform: scale(0.5); }
                                 50% { opacity: 1; transform: scale(1); }
@@ -60,14 +52,16 @@ const DiscoBall: React.FC<{ isPlaying: boolean }> = React.memo(({ isPlaying }) =
                 {/* String */}
                 <line x1="25" y1="0" x2="25" y2="15" stroke="#4A5568" strokeWidth="1" />
                 
-                {/* Sparkles */}
-                <g filter="url(#sparkle-glow)">
-                    <path d="M5 25 L10 20 L15 25 L10 30 Z" fill="#FBBF24" className="sparkle-1"/>
-                    <path d="M40 35 L45 32 L48 37 L43 40 Z" fill="#A78BFA" className="sparkle-2"/>
-                    <path d="M15 50 L20 48 L22 53 L17 55 Z" fill="#60A5FA" className="sparkle-3"/>
-                    <path d="M30 22 L34 20 L36 25 L32 27 Z" fill="#F472B6" className="sparkle-4" />
-                    <path d="M8 52 L12 55 L9 59 L5 56 Z" fill="#34D399" className="sparkle-5" />
-                </g>
+                {/* Sparkles (only animate when playing, GPU-composited) */}
+                {isPlaying && (
+                    <g>
+                        <path d="M5 25 L10 20 L15 25 L10 30 Z" fill="#FBBF24" className="sparkle-1"/>
+                        <path d="M40 35 L45 32 L48 37 L43 40 Z" fill="#A78BFA" className="sparkle-2"/>
+                        <path d="M15 50 L20 48 L22 53 L17 55 Z" fill="#60A5FA" className="sparkle-3"/>
+                        <path d="M30 22 L34 20 L36 25 L32 27 Z" fill="#F472B6" className="sparkle-4" />
+                        <path d="M8 52 L12 55 L9 59 L5 56 Z" fill="#34D399" className="sparkle-5" />
+                    </g>
+                )}
 
                 {/* Ball */}
                 <g className={isPlaying ? 'disco-ball-sway' : ''}>
@@ -99,9 +93,6 @@ const BrownTabbyCatFrame1: React.FC = () => (
                 <stop offset="0%" stopColor="#d2b48c" />
                 <stop offset="100%" stopColor="#8c6d46" />
             </radialGradient>
-             <style>
-              {`.tail-1 { animation: tail-sway-1 2s ease-in-out infinite; } @keyframes tail-sway-1 { 0% { d: path("M68,88 Q 78 70 83 80 T 88 85"); } 50% { d: path("M68,88 Q 82 72 85 78 T 90 82"); } 100% { d: path("M68,88 Q 78 70 83 80 T 88 85"); } }`}
-            </style>
         </defs>
         
         {/* Body */}
@@ -115,7 +106,7 @@ const BrownTabbyCatFrame1: React.FC = () => (
             <path d="M58,60 C 60,70 58,85" />
         </g>
         <path d="M35 88 V 65 M61 88 V 65" stroke="#5d4037" strokeWidth="3" strokeLinecap="round"/>
-        <path className="tail-1" stroke="#8c6d46" strokeWidth="5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M68,88 Q 78 70 83 80 T 88 85" stroke="#8c6d46" strokeWidth="5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
         
         {/* Arms */}
         <path d="M30,62 C 25,70, 25,80, 25,80" stroke="url(#fur-base)" strokeWidth="6" fill="none" strokeLinecap="round"/>
@@ -177,9 +168,6 @@ const BrownTabbyCatFrame2: React.FC = () => (
                 <stop offset="0%" stopColor="#d2b48c" />
                 <stop offset="100%" stopColor="#8c6d46" />
             </radialGradient>
-             <style>
-              {`.tail-2 { animation: tail-sway-2 2s ease-in-out infinite; } @keyframes tail-sway-2 { 0% { d: path("M68,88 Q 82 72 85 78 T 90 82"); } 50% { d: path("M68,88 Q 78 70 83 80 T 88 85"); } 100% { d: path("M68,88 Q 82 72 85 78 T 90 82"); } }`}
-            </style>
         </defs>
         
         {/* Body */}
@@ -193,7 +181,7 @@ const BrownTabbyCatFrame2: React.FC = () => (
             <path d="M58,60 C 60,70 58,85" />
         </g>
         <path d="M35 88 V 65 M61 88 V 65" stroke="#5d4037" strokeWidth="3" strokeLinecap="round"/>
-        <path className="tail-2" stroke="#8c6d46" strokeWidth="5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M68,88 Q 82 72 85 78 T 90 82" stroke="#8c6d46" strokeWidth="5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
         
         {/* Arms up! */}
         <path d="M30,62 C 20,50, 20,40, 25,35" stroke="url(#fur-base-f2)" strokeWidth="6" fill="none" strokeLinecap="round"/>
@@ -251,6 +239,8 @@ const catFrames = [
 
 const DancingCat: React.FC<DancingCatProps> = React.memo(({ isPlaying, tempo }) => {
     const [currentFrame, setCurrentFrame] = useState(0);
+    const tempoRef = useRef(tempo);
+    tempoRef.current = tempo;
 
     useEffect(() => {
         if (!isPlaying) {
@@ -258,20 +248,24 @@ const DancingCat: React.FC<DancingCatProps> = React.memo(({ isPlaying, tempo }) 
             return () => clearTimeout(timer);
         }
 
-        const intervalMs = (60 / tempo / 2) * 1000;
-
-        const intervalId = setInterval(() => {
+        let timeoutId: number;
+        const tick = () => {
             setCurrentFrame(prevFrame => (prevFrame + 1) % catFrames.length);
-        }, intervalMs);
+            const nextIntervalMs = (60 / Math.max(30, tempoRef.current) / 2) * 1000;
+            timeoutId = window.setTimeout(tick, nextIntervalMs);
+        };
+
+        const initialIntervalMs = (60 / Math.max(30, tempoRef.current) / 2) * 1000;
+        timeoutId = window.setTimeout(tick, initialIntervalMs);
 
         return () => {
-            clearInterval(intervalId);
+            clearTimeout(timeoutId);
         };
-    }, [isPlaying, tempo]);
+    }, [isPlaying]);
 
     const containerClasses = `
         relative w-32 h-24
-        transform transition-all duration-500 ease-in-out
+        transform-gpu transition-[transform,opacity] duration-500 ease-in-out
         ${isPlaying ? 'opacity-100' : 'opacity-0 -translate-y-4'}
     `;
 
@@ -291,14 +285,9 @@ const DancingCat: React.FC<DancingCatProps> = React.memo(({ isPlaying, tempo }) 
 
 const CoffeeCupFrame1: React.FC = () => (
     <svg width="96" height="96" viewBox="0 0 96 96" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <defs>
-            <filter id="steam-blur">
-                <feGaussianBlur in="SourceGraphic" stdDeviation="1.5" />
-            </filter>
-        </defs>
         {/* Steam Left */}
-        <path d="M35 25 Q 30 15 35 5" stroke="#E6C9A8" strokeWidth="3" fill="none" opacity="0.6" filter="url(#steam-blur)" strokeLinecap="round"/>
-        <path d="M48 22 Q 43 12 48 2" stroke="#E6C9A8" strokeWidth="3" fill="none" opacity="0.4" filter="url(#steam-blur)" strokeLinecap="round"/>
+        <path d="M35 25 Q 30 15 35 5" stroke="#E6C9A8" strokeWidth="3" fill="none" opacity="0.55" strokeLinecap="round"/>
+        <path d="M48 22 Q 43 12 48 2" stroke="#E6C9A8" strokeWidth="3" fill="none" opacity="0.38" strokeLinecap="round"/>
         
         {/* Saucer */}
         <ellipse cx="48" cy="85" rx="30" ry="6" fill="#fdfbf7" stroke="#e5e7eb" strokeWidth="1"/>
@@ -329,14 +318,9 @@ const CoffeeCupFrame1: React.FC = () => (
 
 const CoffeeCupFrame2: React.FC = () => (
     <svg width="96" height="96" viewBox="0 0 96 96" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <defs>
-            <filter id="steam-blur-2">
-                <feGaussianBlur in="SourceGraphic" stdDeviation="1.5" />
-            </filter>
-        </defs>
         {/* Steam Right */}
-        <path d="M61 25 Q 66 15 61 5" stroke="#E6C9A8" strokeWidth="3" fill="none" opacity="0.6" filter="url(#steam-blur-2)" strokeLinecap="round"/>
-        <path d="M48 22 Q 53 12 48 2" stroke="#E6C9A8" strokeWidth="3" fill="none" opacity="0.4" filter="url(#steam-blur-2)" strokeLinecap="round"/>
+        <path d="M61 25 Q 66 15 61 5" stroke="#E6C9A8" strokeWidth="3" fill="none" opacity="0.55" strokeLinecap="round"/>
+        <path d="M48 22 Q 53 12 48 2" stroke="#E6C9A8" strokeWidth="3" fill="none" opacity="0.38" strokeLinecap="round"/>
 
         {/* Saucer */}
         <ellipse cx="48" cy="85" rx="30" ry="6" fill="#fdfbf7" stroke="#e5e7eb" strokeWidth="1"/>
@@ -372,6 +356,8 @@ const coffeeFrames = [
 
 const DancingCoffeeCup: React.FC<DancingCatProps> = React.memo(({ isPlaying, tempo }) => {
     const [currentFrame, setCurrentFrame] = useState(0);
+    const tempoRef = useRef(tempo);
+    tempoRef.current = tempo;
 
     useEffect(() => {
         if (!isPlaying) {
@@ -379,20 +365,24 @@ const DancingCoffeeCup: React.FC<DancingCatProps> = React.memo(({ isPlaying, tem
             return () => clearTimeout(timer);
         }
 
-        const intervalMs = (60 / tempo / 2) * 1000;
-
-        const intervalId = setInterval(() => {
+        let timeoutId: number;
+        const tick = () => {
             setCurrentFrame(prevFrame => (prevFrame + 1) % coffeeFrames.length);
-        }, intervalMs);
+            const nextIntervalMs = (60 / Math.max(30, tempoRef.current) / 2) * 1000;
+            timeoutId = window.setTimeout(tick, nextIntervalMs);
+        };
+
+        const initialIntervalMs = (60 / Math.max(30, tempoRef.current) / 2) * 1000;
+        timeoutId = window.setTimeout(tick, initialIntervalMs);
 
         return () => {
-            clearInterval(intervalId);
+            clearTimeout(timeoutId);
         };
-    }, [isPlaying, tempo]);
+    }, [isPlaying]);
 
     const containerClasses = `
         relative w-32 h-24
-        transform transition-all duration-500 ease-in-out
+        transform-gpu transition-[transform,opacity] duration-500 ease-in-out
         ${isPlaying ? 'opacity-100' : 'opacity-0 -translate-y-4'}
     `;
 
@@ -411,25 +401,152 @@ const DancingCoffeeCup: React.FC<DancingCatProps> = React.memo(({ isPlaying, tem
 
 // --- Main Controls Component ---
 
+interface EditableValueProps {
+    valueDisplay: string;
+    initialInput: string;
+    ariaLabel: string;
+    title: string;
+    visualizerStyle?: VisualizerStyle;
+    onCommit: (rawInput: string) => void;
+    isEditing: boolean;
+    onStartEdit: () => void;
+    onCancelEdit: () => void;
+}
+
+const EditableValue: React.FC<EditableValueProps> = React.memo(({
+    valueDisplay,
+    initialInput,
+    ariaLabel,
+    title,
+    visualizerStyle = 'default',
+    onCommit,
+    isEditing,
+    onStartEdit,
+    onCancelEdit,
+}) => {
+    const [inputValue, setInputValue] = useState(initialInput);
+    const inputRef = useRef<HTMLInputElement>(null);
+
+    useEffect(() => {
+        if (isEditing) {
+            setInputValue(initialInput);
+        }
+    }, [isEditing, initialInput]);
+
+    useEffect(() => {
+        if (isEditing && inputRef.current) {
+            inputRef.current.focus();
+            inputRef.current.select();
+        }
+    }, [isEditing]);
+
+    const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            e.stopPropagation();
+            onCommit(inputValue);
+        } else if (e.key === 'Escape') {
+            e.preventDefault();
+            e.stopPropagation();
+            onCancelEdit();
+        }
+    };
+
+    if (isEditing) {
+        return (
+            <input
+                ref={inputRef}
+                type="text"
+                inputMode="decimal"
+                value={inputValue}
+                onChange={(e) => setInputValue(e.target.value)}
+                onBlur={() => onCommit(inputValue)}
+                onKeyDown={handleKeyDown}
+                onClick={(e) => e.stopPropagation()}
+                aria-label={ariaLabel}
+                className={`w-14 h-6 text-sm font-bold text-center tabular-nums px-1 outline-none transition-colors ${
+                    visualizerStyle === 'minimal'
+                        ? 'bg-[#18181b] text-[#f4f4f5] border border-[#ff3b1d]'
+                        : visualizerStyle === 'braun'
+                        ? 'bg-[#ffffff] text-[#1c1c1a] border border-[#ea5b0c] rounded shadow-inner'
+                        : visualizerStyle === 'bauhaus'
+                        ? 'bg-[#f7f2e7] text-[#141413] border-2 border-[#d62828]'
+                        : visualizerStyle === 'nagra'
+                        ? 'bg-white text-[#3b1547] border border-[#ff5e4d] rounded-full shadow-inner'
+                        : visualizerStyle === 'koto'
+                        ? 'bg-[#120e14] text-[#f2ece1] border border-[#d4af37] rounded'
+                        : visualizerStyle === 'cyberpunk'
+                        ? 'bg-[#08080c] text-[#00ff9f] border border-[#00ff9f]'
+                        : 'bg-gray-800 text-gray-100 border border-blue-500 rounded'
+                }`}
+            />
+        );
+    }
+
+    return (
+        <span
+            role="button"
+            tabIndex={0}
+            onClick={(e) => {
+                e.stopPropagation();
+                onStartEdit();
+            }}
+            onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onStartEdit();
+                }
+            }}
+            title={title}
+            aria-label={`${ariaLabel}: ${valueDisplay}. Click to type a new value.`}
+            className={`w-14 text-sm font-bold text-center tabular-nums cursor-pointer select-none rounded py-0.5 transition-colors border border-transparent ${
+                visualizerStyle === 'minimal'
+                    ? 'text-gray-100 hover:text-[#ff3b1d] hover:bg-[#18181b] hover:border-[#27272a]'
+                    : visualizerStyle === 'braun'
+                    ? 'text-gray-100 hover:text-[#ea5b0c] hover:bg-black/20 hover:border-[#c4c0b4]'
+                    : visualizerStyle === 'bauhaus'
+                    ? 'text-gray-100 hover:text-[#d62828] hover:bg-black/20 hover:border-[#141413]'
+                    : visualizerStyle === 'nagra'
+                    ? 'text-gray-100 hover:text-[#d9325e] hover:bg-white/70 hover:border-[#ff9466] rounded-full'
+                    : visualizerStyle === 'koto'
+                    ? 'text-gray-100 hover:text-[#d4af37] hover:bg-[#1d161f] hover:border-[#d4af37]/40'
+                    : visualizerStyle === 'cyberpunk'
+                    ? 'text-gray-100 hover:text-[#00ff9f] hover:bg-[#00ff9f]/10 hover:border-[#00ff9f]/50'
+                    : 'text-gray-100 hover:text-blue-400 hover:bg-gray-700/60 hover:border-gray-600'
+            }`}
+        >
+            {valueDisplay}
+        </span>
+    );
+});
+
 interface ControlsProps {
     isPlaying: boolean;
     onPlayToggle: () => void;
     tempo: number;
     onTempoChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+    onDirectTempoChange?: (tempo: number) => void;
     swing: number;
     onSwingChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+    onDirectSwingChange?: (swing: number) => void;
     masterVolume: number;
     onMasterVolumeChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+    onDirectMasterVolumeChange?: (volume: number) => void;
     activePattern: 'a' | 'b';
     onPatternToggle: (pattern: 'a' | 'b') => void;
     hueRotate: number;
     onHueRotateChange: (value: number) => void;
     isColorAnimating: boolean;
     onToggleColorAnimation: () => void;
-    onDownload: () => void;
-    onCopy: () => void;
+    onDownload: (customFilename?: string, measures?: number, includeTail?: boolean) => void;
+    onPrepareDrag?: (measures?: number, includeTail?: boolean) => void;
+    onCopy?: () => void;
     isRendering: boolean;
-    isCopying: boolean;
+    isPreparingDrag?: boolean;
+    isCopying?: boolean;
+    dragBlobUrl?: string | null;
+    onClearDragUrl?: () => void;
     savedPatterns: (SavedPattern | null)[];
     currentPatternIndex: number;
     onSelectPattern: (slotIndex: number) => void;
@@ -438,6 +555,17 @@ interface ControlsProps {
     isCurrentPatternEmpty: boolean;
     isCappuccinoMode?: boolean;
     visualizerStyle?: VisualizerStyle;
+    isLiveRecording?: boolean;
+    onToggleLiveRecording?: () => void;
+    liveRecordings?: LiveRecording[];
+    onDeleteLiveRecording?: (id: string) => void;
+    onClearAllLiveRecordings?: () => void;
+    onRenameLiveRecording?: (id: string, newName: string) => void;
+    beatsPerMeasure?: number;
+    exportMeasures?: number;
+    onExportMeasuresChange?: (measures: number) => void;
+    exportIncludeTail?: boolean;
+    onExportIncludeTailChange?: (includeTail: boolean) => void;
 }
 
 const PlayIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
@@ -476,6 +604,32 @@ const DragIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
     </svg>
 );
 
+const ListIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+        <line x1="8" y1="6" x2="21" y2="6" />
+        <line x1="8" y1="12" x2="21" y2="12" />
+        <line x1="8" y1="18" x2="21" y2="18" />
+        <line x1="3" y1="6" x2="3.01" y2="6" />
+        <line x1="3" y1="12" x2="3.01" y2="12" />
+        <line x1="3" y1="18" x2="3.01" y2="18" />
+    </svg>
+);
+
+const TrashIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+        <polyline points="3 6 5 6 21 6" />
+        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+    </svg>
+);
+
+const formatDuration = (seconds: number): string => {
+    if (!isFinite(seconds) || seconds < 0) return '0:00';
+    const totalSecs = Math.floor(seconds);
+    const mins = Math.floor(totalSecs / 60);
+    const secs = totalSecs % 60;
+    return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+};
+
 // --- Pattern Slot Button Component ---
 interface PatternSlotButtonProps {
     slotIndex: number;
@@ -492,7 +646,7 @@ const hasContentInPattern = (pattern: SavedPattern | null): boolean => {
     return hasNotesA || hasNotesB;
 };
 
-const PatternSlotButton: React.FC<PatternSlotButtonProps> = ({ slotIndex, hasContent, isActive, onClick, visualizerStyle }) => {
+const PatternSlotButton: React.FC<PatternSlotButtonProps> = React.memo(({ slotIndex, hasContent, isActive, onClick, visualizerStyle }) => {
     const buttonClasses = getButtonStyle(
         visualizerStyle,
         hasContent ? 'primary' : 'secondary',
@@ -508,10 +662,33 @@ const PatternSlotButton: React.FC<PatternSlotButtonProps> = ({ slotIndex, hasCon
             aria-label={`Pattern ${slotIndex + 1}. ${isActive ? 'Currently active.' : ''}`}
             aria-pressed={isActive}
         >
+            {/* Subtle hardware status pip when pattern slot has notes */}
+            {hasContent && visualizerStyle !== 'default' && (
+                <span
+                    aria-hidden="true"
+                    className={`absolute top-1 right-1 w-1.5 h-1.5 ${
+                        visualizerStyle === 'bauhaus' || visualizerStyle === 'cyberpunk' || visualizerStyle === 'minimal' ? 'rounded-none' : 'rounded-full'
+                    } ${
+                        isActive
+                            ? 'bg-current opacity-80'
+                            : visualizerStyle === 'minimal'
+                            ? 'bg-[#ff3b1d]'
+                            : visualizerStyle === 'braun'
+                            ? 'bg-[#ea5b0c]'
+                            : visualizerStyle === 'bauhaus'
+                            ? 'bg-[#f2b705]'
+                            : visualizerStyle === 'nagra'
+                            ? 'bg-[#ff5e4d] shadow-[0_0_6px_#ff5e4d]'
+                            : visualizerStyle === 'koto'
+                            ? 'bg-[#d4af37]'
+                            : 'bg-[#00ff9f]'
+                    }`}
+                />
+            )}
             <span className="relative z-10">{slotIndex + 1}</span>
         </button>
     );
-};
+});
 
 
 const Controls: React.FC<ControlsProps> = ({ 
@@ -519,10 +696,13 @@ const Controls: React.FC<ControlsProps> = ({
     onPlayToggle, 
     tempo, 
     onTempoChange,
+    onDirectTempoChange,
     swing,
     onSwingChange,
+    onDirectSwingChange,
     masterVolume, 
     onMasterVolumeChange,
+    onDirectMasterVolumeChange,
     activePattern,
     onPatternToggle,
     hueRotate,
@@ -543,6 +723,17 @@ const Controls: React.FC<ControlsProps> = ({
     isCurrentPatternEmpty,
     isCappuccinoMode = false,
     visualizerStyle = 'default' as VisualizerStyle,
+    isLiveRecording = false,
+    onToggleLiveRecording,
+    liveRecordings = [],
+    onDeleteLiveRecording,
+    onClearAllLiveRecordings,
+    onRenameLiveRecording,
+    beatsPerMeasure = 4,
+    exportMeasures: externalExportMeasures,
+    onExportMeasuresChange,
+    exportIncludeTail: externalExportIncludeTail,
+    onExportIncludeTailChange,
 }) => {
     const isDraggingKnob = useRef(false);
     const knobDragStart = useRef({ y: 0, hue: 0, time: 0 });
@@ -553,6 +744,245 @@ const Controls: React.FC<ControlsProps> = ({
     const clearRequestRef = useRef<number | null>(null);
 
     const [isInteractingWithSlider, setIsInteractingWithSlider] = useState(false);
+    const [editingField, setEditingField] = useState<'volume' | 'tempo' | 'swing' | null>(null);
+
+    // --- Live Recording & Voice Memo List State ---
+    const [isRecordingsListOpen, setIsRecordingsListOpen] = useState(false);
+    const [liveRecElapsed, setLiveRecElapsed] = useState(0);
+    const [playingRecordingId, setPlayingRecordingId] = useState<string | null>(null);
+    const [playbackProgress, setPlaybackProgress] = useState<number>(0);
+    const [editingRecordingId, setEditingRecordingId] = useState<string | null>(null);
+    const [editingRecordingName, setEditingRecordingName] = useState<string>('');
+    const previewAudioRef = useRef<HTMLAudioElement | null>(null);
+    const recordingsMenuRef = useRef<HTMLDivElement | null>(null);
+    const prevRecordingsCountRef = useRef<number>(liveRecordings.length);
+
+    // --- Beat Export Naming & Length State (Save & Drag-and-Drop) ---
+    const defaultExportName = `drums_bpm${tempo}`;
+    const [exportPromptMode, setExportPromptMode] = useState<'save' | 'drag' | null>(null);
+    const [exportName, setExportName] = useState<string>(defaultExportName);
+    const [isCustomExportName, setIsCustomExportName] = useState<boolean>(false);
+    const [localExportMeasures, setLocalExportMeasures] = useState<number>(1);
+    const [localIncludeTail, setLocalIncludeTail] = useState<boolean>(false);
+    const exportInputRef = useRef<HTMLInputElement | null>(null);
+
+    const activeExportMeasures = externalExportMeasures ?? localExportMeasures;
+    const activeIncludeTail = externalExportIncludeTail ?? localIncludeTail;
+
+    const handleChangeExportMeasures = useCallback((nextMeasures: number) => {
+        const clamped = Math.max(1, Math.min(16, Math.round(nextMeasures)));
+        setLocalExportMeasures(clamped);
+        if (onExportMeasuresChange) {
+            onExportMeasuresChange(clamped);
+        }
+        if (exportPromptMode === 'drag' && onPrepareDrag) {
+            onPrepareDrag(clamped, activeIncludeTail);
+        }
+    }, [onExportMeasuresChange, exportPromptMode, onPrepareDrag, activeIncludeTail]);
+
+    const handleToggleIncludeTail = useCallback(() => {
+        const nextTail = !activeIncludeTail;
+        setLocalIncludeTail(nextTail);
+        if (onExportIncludeTailChange) {
+            onExportIncludeTailChange(nextTail);
+        }
+        if (exportPromptMode === 'drag' && onPrepareDrag) {
+            onPrepareDrag(activeExportMeasures, nextTail);
+        }
+    }, [activeIncludeTail, onExportIncludeTailChange, exportPromptMode, onPrepareDrag, activeExportMeasures]);
+
+    const exportBarDurationSec = (60 / Math.max(30, tempo)) * beatsPerMeasure * activeExportMeasures;
+
+    useEffect(() => {
+        if (!isCustomExportName) {
+            setExportName(`drums_bpm${tempo}`);
+        }
+    }, [tempo, isCustomExportName]);
+
+    useEffect(() => {
+        if (exportPromptMode && exportInputRef.current) {
+            exportInputRef.current.focus();
+            exportInputRef.current.select();
+        }
+    }, [exportPromptMode]);
+
+    const getSanitizedExportFilename = useCallback(() => {
+        const raw = (exportName.trim() || defaultExportName).replace(/\.wav$/i, '');
+        const clean = raw.replace(/[:/\\?%*|"<>]/g, '_').trim() || defaultExportName;
+        return `${clean}.wav`;
+    }, [exportName, defaultExportName]);
+
+    useEffect(() => {
+        if (!isLiveRecording) {
+            setLiveRecElapsed(0);
+            return;
+        }
+        const startTime = Date.now();
+        const interval = window.setInterval(() => {
+            setLiveRecElapsed((Date.now() - startTime) / 1000);
+        }, 250);
+        return () => clearInterval(interval);
+    }, [isLiveRecording]);
+
+    // Auto-open the recordings list when a new live memo is finished
+    useEffect(() => {
+        if (liveRecordings.length > prevRecordingsCountRef.current) {
+            setExportPromptMode(null);
+            setIsRecordingsListOpen(true);
+        }
+        prevRecordingsCountRef.current = liveRecordings.length;
+    }, [liveRecordings.length]);
+
+    // Close recordings or export naming popover on outside click or Escape
+    useEffect(() => {
+        if (!isRecordingsListOpen && !exportPromptMode) return;
+        const handleClickOutside = (e: MouseEvent) => {
+            if (recordingsMenuRef.current && !recordingsMenuRef.current.contains(e.target as Node)) {
+                setIsRecordingsListOpen(false);
+                setEditingRecordingId(null);
+                setExportPromptMode(null);
+            }
+        };
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') {
+                setIsRecordingsListOpen(false);
+                setEditingRecordingId(null);
+                setExportPromptMode(null);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        document.addEventListener('keydown', handleKeyDown);
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+            document.removeEventListener('keydown', handleKeyDown);
+        };
+    }, [isRecordingsListOpen, exportPromptMode]);
+
+    // Stop preview audio if the active recording is deleted
+    useEffect(() => {
+        if (playingRecordingId && !liveRecordings.some(r => r.id === playingRecordingId)) {
+            if (previewAudioRef.current) {
+                previewAudioRef.current.pause();
+                previewAudioRef.current = null;
+            }
+            setPlayingRecordingId(null);
+            setPlaybackProgress(0);
+        }
+    }, [liveRecordings, playingRecordingId]);
+
+    useEffect(() => {
+        return () => {
+            if (previewAudioRef.current) {
+                previewAudioRef.current.pause();
+                previewAudioRef.current = null;
+            }
+        };
+    }, []);
+
+    const handleTogglePreviewRecording = useCallback((rec: LiveRecording) => {
+        if (playingRecordingId === rec.id && previewAudioRef.current) {
+            previewAudioRef.current.pause();
+            previewAudioRef.current = null;
+            setPlayingRecordingId(null);
+            setPlaybackProgress(0);
+            return;
+        }
+
+        if (previewAudioRef.current) {
+            previewAudioRef.current.pause();
+            previewAudioRef.current = null;
+        }
+
+        const audio = new Audio(rec.url);
+        previewAudioRef.current = audio;
+        setPlayingRecordingId(rec.id);
+        setPlaybackProgress(0);
+
+        audio.ontimeupdate = () => {
+            if (audio.duration > 0) {
+                setPlaybackProgress(audio.currentTime / audio.duration);
+            }
+        };
+        audio.onended = () => {
+            setPlayingRecordingId(null);
+            setPlaybackProgress(0);
+            previewAudioRef.current = null;
+        };
+        audio.play().catch((err) => {
+            console.error("Failed to play live recording:", err);
+            setPlayingRecordingId(null);
+        });
+    }, [playingRecordingId]);
+
+    const handleDownloadRecording = useCallback((rec: LiveRecording) => {
+        const a = document.createElement('a');
+        a.style.display = 'none';
+        a.href = rec.url;
+        const safeName = rec.name.replace(/[^a-zA-Z0-9_-]/g, '_');
+        a.download = `${safeName || 'CL-607-live'}.wav`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+    }, []);
+
+    const surface = getThemeSurface(visualizerStyle);
+
+    const handleCommitVolume = useCallback((raw: string) => {
+        setEditingField(null);
+        const cleaned = raw.replace('%', '').trim();
+        if (!cleaned) return;
+        const num = parseFloat(cleaned);
+        if (isNaN(num)) return;
+
+        let normalized: number;
+        if (cleaned.includes('.') && num <= 1 && num >= 0) {
+            normalized = num;
+        } else {
+            normalized = Math.max(0, Math.min(100, num)) / 100;
+        }
+
+        if (onDirectMasterVolumeChange) {
+            onDirectMasterVolumeChange(normalized);
+        } else {
+            onMasterVolumeChange({ target: { value: String(normalized) } } as React.ChangeEvent<HTMLInputElement>);
+        }
+    }, [onDirectMasterVolumeChange, onMasterVolumeChange]);
+
+    const handleCommitTempo = useCallback((raw: string) => {
+        setEditingField(null);
+        const cleaned = raw.replace(/bpm/i, '').trim();
+        if (!cleaned) return;
+        const num = parseInt(cleaned, 10);
+        if (isNaN(num)) return;
+
+        const clamped = Math.max(MIN_TEMPO, Math.min(MAX_TEMPO, Math.round(num)));
+        if (onDirectTempoChange) {
+            onDirectTempoChange(clamped);
+        } else {
+            onTempoChange({ target: { value: String(clamped) } } as React.ChangeEvent<HTMLInputElement>);
+        }
+    }, [onDirectTempoChange, onTempoChange]);
+
+    const handleCommitSwing = useCallback((raw: string) => {
+        setEditingField(null);
+        const cleaned = raw.replace('%', '').trim();
+        if (!cleaned) return;
+        const num = parseFloat(cleaned);
+        if (isNaN(num)) return;
+
+        let normalized: number;
+        if (cleaned.includes('.') && num <= 1 && num >= 0) {
+            normalized = num;
+        } else {
+            normalized = Math.max(0, Math.min(100, num)) / 100;
+        }
+
+        if (onDirectSwingChange) {
+            onDirectSwingChange(normalized);
+        } else {
+            onSwingChange({ target: { value: String(normalized) } } as React.ChangeEvent<HTMLInputElement>);
+        }
+    }, [onDirectSwingChange, onSwingChange]);
 
     const handleSliderInteractionStart = useCallback(() => {
         setIsInteractingWithSlider(true);
@@ -678,19 +1108,635 @@ const Controls: React.FC<ControlsProps> = ({
 
     return (
         <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-6 p-2">
-            <div className="flex flex-col gap-2">
-                <Tooltip text={dragBlobUrl ? "Drag this button into your DAW or folder. Click to reset." : "Prepare beat for drag-and-drop export"}>
+            <div className="relative flex flex-col gap-2" ref={recordingsMenuRef}>
+                {/* Cohesive Single Live Record Button with Integrated 3-Lines Menu Action */}
+                <div
+                    className={getButtonStyle(
+                        visualizerStyle,
+                        isLiveRecording ? 'danger' : 'secondary',
+                        isLiveRecording,
+                        false,
+                        'w-28 h-10 !p-0 flex items-stretch relative select-none'
+                    )}
+                >
+                    <Tooltip text={isLiveRecording ? "Click to stop recording live audio and save to list" : "Record live master audio (including filter & effect tweaks) like a voice memo"}>
+                        <button
+                            type="button"
+                            onClick={onToggleLiveRecording}
+                            className="flex-1 h-full flex items-center justify-center pl-2 pr-1 min-w-0 cursor-pointer bg-transparent border-0 text-inherit font-inherit focus:outline-none hover: opacity-95"
+                            aria-label={isLiveRecording ? 'Stop live recording' : 'Start live recording'}
+                            aria-pressed={isLiveRecording}
+                        >
+                            {isLiveRecording ? (
+                                <>
+                                    <span className="w-2 h-2 bg-current rounded-[2px] animate-pulse flex-shrink-0" />
+                                    <span className="ml-1.5 text-[11px] leading-none tracking-wider tabular-nums font-bold">
+                                        {formatDuration(liveRecElapsed)}
+                                    </span>
+                                </>
+                            ) : (
+                                <>
+                                    <span className="w-2 h-2 rounded-full bg-[#e11d48] shadow-[0_0_5px_rgba(225,29,72,0.75)] flex-shrink-0" />
+                                    <span className="ml-1 text-[11px] leading-none tracking-wider truncate font-bold">
+                                        LIVE REC
+                                    </span>
+                                </>
+                            )}
+                        </button>
+                    </Tooltip>
+
+                    {/* Integrated Cohesive Divider */}
+                    <span
+                        aria-hidden="true"
+                        className={`self-stretch ${
+                            visualizerStyle === 'bauhaus'
+                                ? 'w-[2px] my-0 bg-[#141413]'
+                                : visualizerStyle === 'cyberpunk'
+                                ? 'w-[1.5px] my-1 bg-current opacity-40'
+                                : 'w-[1px] my-1.5 bg-current opacity-25'
+                        }`}
+                    />
+
+                    {/* Integrated 3-Lines List Trigger on Right Side of the Same Button */}
+                    <Tooltip text={`Open Live Recordings list (${liveRecordings.length})`}>
+                        <button
+                            type="button"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                setExportPromptMode(null);
+                                setIsRecordingsListOpen(prev => !prev);
+                            }}
+                            className={`w-7 h-full flex items-center justify-center flex-shrink-0 cursor-pointer bg-transparent border-0 text-inherit focus:outline-none relative transition-colors ${
+                                isRecordingsListOpen ? 'bg-black/15' : 'hover:bg-black/10'
+                            }`}
+                            aria-label={`Live recordings list (${liveRecordings.length} saved)`}
+                            aria-expanded={isRecordingsListOpen}
+                        >
+                            <ListIcon className="w-3.5 h-3.5" />
+                            {liveRecordings.length > 0 && (
+                                <span
+                                    className={`absolute -top-1.5 -right-1.5 min-w-[15px] h-[15px] px-1 text-[9px] font-bold leading-none flex items-center justify-center rounded-full z-20 ${
+                                        visualizerStyle === 'cyberpunk'
+                                            ? 'bg-[#fcee0a] text-[#050508] border border-[#050508] rounded-none'
+                                            : visualizerStyle === 'bauhaus'
+                                            ? 'bg-[#d62828] text-[#faf6ed] border border-[#141413] rounded-none'
+                                            : visualizerStyle === 'minimal'
+                                            ? 'bg-[#ff3b1d] text-[#09090b] rounded-none'
+                                            : visualizerStyle === 'braun'
+                                            ? 'bg-[#ea5b0c] text-white'
+                                            : visualizerStyle === 'nagra'
+                                            ? 'bg-[#d9325e] text-white border border-white'
+                                            : visualizerStyle === 'koto'
+                                            ? 'bg-[#d4af37] text-[#120d14]'
+                                            : 'bg-blue-500 text-white'
+                                    }`}
+                                >
+                                    {liveRecordings.length}
+                                </span>
+                            )}
+                        </button>
+                    </Tooltip>
+                </div>
+
+                {/* Solid, Opaque Live Recordings Popover Menu */}
+                {isRecordingsListOpen && (
+                    <div
+                        className={`absolute left-0 top-11 z-50 w-80 sm:w-96 p-3.5 flex flex-col gap-2.5 ${
+                            visualizerStyle === 'cyberpunk'
+                                ? 'bg-[#07070c] border-2 border-[#00ff9f] rounded-none text-[#fcee0a] shadow-[6px_6px_0px_#ff003c]'
+                                : visualizerStyle === 'braun'
+                                ? 'bg-[#f4f2ec] border-2 border-[#a8a498] rounded-lg text-[#1c1c1a] shadow-[0_16px_36px_rgba(0,0,0,0.35),inset_0_1px_0_#ffffff]'
+                                : visualizerStyle === 'bauhaus'
+                                ? 'bg-[#f7f2e7] border-[3px] border-[#141413] rounded-none text-[#141413] shadow-[6px_6px_0px_#141413]'
+                                : visualizerStyle === 'nagra'
+                                ? 'bg-gradient-to-b from-[#fffdfa] via-[#fff0e6] to-[#fbd5c5] border-2 border-white rounded-[24px] text-[#3b1547] shadow-[0_18px_40px_rgba(45,16,56,0.45),inset_0_2px_0_#ffffff]'
+                                : visualizerStyle === 'koto'
+                                ? 'bg-[#140f16] border-2 border-[#d4af37] rounded-xl text-[#f2ece1] shadow-[0_18px_44px_rgba(0,0,0,0.9)]'
+                                : visualizerStyle === 'minimal'
+                                ? 'bg-[#09090b] border-2 border-[#f4f4f5] rounded-none text-[#f4f4f5] shadow-[0_12px_30px_rgba(0,0,0,0.9)]'
+                                : 'bg-[#111827] border-2 border-[#374151] rounded-xl text-[#f9fafb] shadow-[0_20px_50px_rgba(0,0,0,0.85)]'
+                        }`}
+                        role="dialog"
+                        aria-label="Live Recordings"
+                    >
+                        <div className="flex items-center justify-between pb-2 border-b border-current/20">
+                            <div className="flex items-center gap-2">
+                                <span className="w-2 h-2 rounded-full bg-[#e11d48]" />
+                                <h4 className="text-xs font-extrabold uppercase tracking-wider text-gray-100">
+                                    Live Recordings ({liveRecordings.length})
+                                </h4>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                                {liveRecordings.length > 1 && onClearAllLiveRecordings && (
+                                    <button
+                                        type="button"
+                                        onClick={onClearAllLiveRecordings}
+                                        className={getButtonStyle(visualizerStyle, 'danger', false, false, 'h-6 px-2 text-[10px]')}
+                                    >
+                                        CLEAR ALL
+                                    </button>
+                                )}
+                                <button
+                                    type="button"
+                                    onClick={() => setIsRecordingsListOpen(false)}
+                                    className={getButtonStyle(visualizerStyle, 'secondary', false, false, 'w-6 h-6 !px-0 text-xs')}
+                                    aria-label="Close live recordings list"
+                                >
+                                    ✕
+                                </button>
+                            </div>
+                        </div>
+
+                        {liveRecordings.length === 0 ? (
+                            <div className="py-6 px-3 text-center flex flex-col items-center gap-1.5">
+                                <p className="text-xs font-bold text-gray-100">
+                                    No live recordings yet
+                                </p>
+                                <p className="text-[11px] text-gray-300 leading-relaxed">
+                                    Click <span className="font-bold">LIVE REC</span> while playing to capture your live beat, filter sweeps, and effect tweaks in real time.
+                                </p>
+                            </div>
+                        ) : (
+                            <div className="flex flex-col gap-2 max-h-64 overflow-y-auto pr-0.5">
+                                {liveRecordings.map((rec) => {
+                                    const isPlayingThis = playingRecordingId === rec.id;
+                                    const isEditingThis = editingRecordingId === rec.id;
+                                    const safeFilename = `${rec.name.replace(/[^a-zA-Z0-9_-]/g, '_') || 'CL-607-live'}.wav`;
+
+                                    return (
+                                        <div
+                                            key={rec.id}
+                                            className={`p-2.5 flex flex-col gap-2 ${
+                                                visualizerStyle === 'cyberpunk'
+                                                    ? 'bg-[#10101a] border border-[#00ff9f]/50 rounded-none'
+                                                    : visualizerStyle === 'braun'
+                                                    ? 'bg-[#e6e3da] border border-[#c4c0b4] rounded-md'
+                                                    : visualizerStyle === 'bauhaus'
+                                                    ? 'bg-[#ebe4d5] border-2 border-[#141413] rounded-none'
+                                                    : visualizerStyle === 'nagra'
+                                                    ? 'bg-[#fff8f3] border border-[#f4b6a0] rounded-2xl shadow-sm'
+                                                    : visualizerStyle === 'koto'
+                                                    ? 'bg-[#1f1722] border border-[#d4af37]/40 rounded-lg'
+                                                    : visualizerStyle === 'minimal'
+                                                    ? 'bg-[#141418] border border-[#2e2e36] rounded-none'
+                                                    : 'bg-[#1f2937] border border-[#374151] rounded-lg'
+                                            }`}
+                                        >
+                                            <div className="flex items-center justify-between gap-2">
+                                                {/* Play / Pause Button */}
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleTogglePreviewRecording(rec)}
+                                                    className={getButtonStyle(
+                                                        visualizerStyle,
+                                                        isPlayingThis ? 'primary' : 'secondary',
+                                                        isPlayingThis,
+                                                        false,
+                                                        'w-8 h-8 !px-0 flex-shrink-0'
+                                                    )}
+                                                    aria-label={isPlayingThis ? `Pause ${rec.name}` : `Play ${rec.name}`}
+                                                >
+                                                    {isPlayingThis ? (
+                                                        <PauseIcon className="w-4 h-4" />
+                                                    ) : (
+                                                        <PlayIcon className="w-4 h-4" />
+                                                    )}
+                                                </button>
+
+                                                {/* Title & Metadata */}
+                                                <div className="flex-1 min-w-0 flex flex-col">
+                                                    {isEditingThis ? (
+                                                        <input
+                                                            type="text"
+                                                            value={editingRecordingName}
+                                                            autoFocus
+                                                            onChange={(e) => setEditingRecordingName(e.target.value)}
+                                                            onBlur={() => {
+                                                                if (onRenameLiveRecording) {
+                                                                    onRenameLiveRecording(rec.id, editingRecordingName);
+                                                                }
+                                                                setEditingRecordingId(null);
+                                                            }}
+                                                            onKeyDown={(e) => {
+                                                                if (e.key === 'Enter') {
+                                                                    if (onRenameLiveRecording) {
+                                                                        onRenameLiveRecording(rec.id, editingRecordingName);
+                                                                    }
+                                                                    setEditingRecordingId(null);
+                                                                } else if (e.key === 'Escape') {
+                                                                    setEditingRecordingId(null);
+                                                                }
+                                                            }}
+                                                            className="w-full text-xs font-bold bg-black/20 text-gray-100 px-1.5 py-0.5 rounded border border-current/30 outline-none"
+                                                        />
+                                                    ) : (
+                                                        <span
+                                                            onClick={() => {
+                                                                setEditingRecordingId(rec.id);
+                                                                setEditingRecordingName(rec.name);
+                                                            }}
+                                                            title="Click to rename take"
+                                                            className="text-xs font-bold text-gray-100 truncate cursor-pointer hover:underline"
+                                                        >
+                                                            {rec.name}
+                                                        </span>
+                                                    )}
+                                                    <span className="text-[10px] text-gray-400 tabular-nums">
+                                                        {formatDuration(rec.duration)} • {rec.createdAt}
+                                                    </span>
+                                                </div>
+
+                                                {/* Action Buttons: Drag to DAW, Download WAV, Delete */}
+                                                <div className="flex items-center gap-1 flex-shrink-0">
+                                                    <button
+                                                        type="button"
+                                                        draggable={true}
+                                                        onDragStart={(e) => {
+                                                            e.dataTransfer.setData('DownloadURL', `audio/wav:${safeFilename}:${rec.url}`);
+                                                        }}
+                                                        title="Drag this recording into your DAW or desktop folder"
+                                                        className={getButtonStyle(
+                                                            visualizerStyle,
+                                                            'secondary',
+                                                            false,
+                                                            false,
+                                                            'w-7 h-7 !px-0 cursor-grab active:cursor-grabbing'
+                                                        )}
+                                                        aria-label={`Drag ${rec.name} to export`}
+                                                    >
+                                                        <DragIcon className="w-3.5 h-3.5" />
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleDownloadRecording(rec)}
+                                                        title="Save recording as .wav"
+                                                        className={getButtonStyle(
+                                                            visualizerStyle,
+                                                            'secondary',
+                                                            false,
+                                                            false,
+                                                            'w-7 h-7 !px-0'
+                                                        )}
+                                                        aria-label={`Download ${rec.name}`}
+                                                    >
+                                                        <DownloadIcon className="w-3.5 h-3.5" />
+                                                    </button>
+                                                    {onDeleteLiveRecording && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => onDeleteLiveRecording(rec.id)}
+                                                            title="Delete recording"
+                                                            className={getButtonStyle(
+                                                                visualizerStyle,
+                                                                'danger',
+                                                                false,
+                                                                false,
+                                                                'w-7 h-7 !px-0'
+                                                            )}
+                                                            aria-label={`Delete ${rec.name}`}
+                                                        >
+                                                            <TrashIcon className="w-3.5 h-3.5" />
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            {/* Playback Progress Bar */}
+                                            {isPlayingThis && (
+                                                <div className="w-full h-1 bg-black/25 rounded-full overflow-hidden">
+                                                    <div
+                                                        className="h-full bg-current transition-all duration-100"
+                                                        style={{ width: `${Math.min(100, Math.round(playbackProgress * 100))}%` }}
+                                                    />
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {/* Solid, Opaque Beat Naming & Export Popover (for Drag & Drop and Save) */}
+                {exportPromptMode && (
+                    <div
+                        className={`absolute left-0 top-full mt-2 z-50 w-72 sm:w-80 p-3.5 flex flex-col gap-3 ${
+                            visualizerStyle === 'cyberpunk'
+                                ? 'bg-[#07070c] border-2 border-[#00ff9f] rounded-none text-[#fcee0a] shadow-[6px_6px_0px_#ff003c]'
+                                : visualizerStyle === 'braun'
+                                ? 'bg-[#f4f2ec] border-2 border-[#a8a498] rounded-lg text-[#1c1c1a] shadow-[0_16px_36px_rgba(0,0,0,0.35),inset_0_1px_0_#ffffff]'
+                                : visualizerStyle === 'bauhaus'
+                                ? 'bg-[#f7f2e7] border-[3px] border-[#141413] rounded-none text-[#141413] shadow-[6px_6px_0px_#141413]'
+                                : visualizerStyle === 'nagra'
+                                ? 'bg-gradient-to-b from-[#fffdfa] via-[#fff0e6] to-[#fbd5c5] border-2 border-white rounded-[24px] text-[#3b1547] shadow-[0_18px_40px_rgba(45,16,56,0.45),inset_0_2px_0_#ffffff]'
+                                : visualizerStyle === 'koto'
+                                ? 'bg-[#140f16] border-2 border-[#d4af37] rounded-xl text-[#f2ece1] shadow-[0_18px_44px_rgba(0,0,0,0.9)]'
+                                : visualizerStyle === 'minimal'
+                                ? 'bg-[#09090b] border-2 border-[#f4f4f5] rounded-none text-[#f4f4f5] shadow-[0_12px_30px_rgba(0,0,0,0.9)]'
+                                : 'bg-[#111827] border-2 border-[#374151] rounded-xl text-[#f9fafb] shadow-[0_20px_50px_rgba(0,0,0,0.85)]'
+                        }`}
+                        role="dialog"
+                        aria-label={exportPromptMode === 'save' ? 'Name and save beat' : 'Name and drag beat'}
+                    >
+                        <div className="flex items-center justify-between pb-2 border-b border-current/20">
+                            <div className="flex items-center gap-2">
+                                {exportPromptMode === 'save' ? (
+                                    <DownloadIcon className="w-3.5 h-3.5" />
+                                ) : (
+                                    <DragIcon className="w-3.5 h-3.5" />
+                                )}
+                                <h4 className="text-xs font-extrabold uppercase tracking-wider text-gray-100">
+                                    {exportPromptMode === 'save' ? 'Save Beat (.wav)' : 'Drag & Drop Beat (.wav)'}
+                                </h4>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setExportPromptMode(null)}
+                                className={getButtonStyle(visualizerStyle, 'secondary', false, false, 'w-6 h-6 !px-0 text-xs')}
+                                aria-label="Close naming dialog"
+                            >
+                                ✕
+                            </button>
+                        </div>
+
+                        <div className="flex flex-col gap-1.5">
+                            <div className="flex items-center justify-between">
+                                <label htmlFor="beat-export-filename" className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
+                                    File Name
+                                </label>
+                                {isCustomExportName && (
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setIsCustomExportName(false);
+                                            setExportName(`drums_bpm${tempo}`);
+                                        }}
+                                        className="text-[10px] font-bold underline opacity-80 hover:opacity-100 cursor-pointer bg-transparent border-0 text-inherit"
+                                    >
+                                        Reset to {defaultExportName}
+                                    </button>
+                                )}
+                            </div>
+                            <div
+                                className={`flex items-center px-2.5 py-1.5 ${
+                                    visualizerStyle === 'cyberpunk'
+                                        ? 'bg-[#10101a] border border-[#00ff9f] rounded-none'
+                                        : visualizerStyle === 'braun'
+                                        ? 'bg-[#e6e3da] border border-[#a8a498] rounded-md'
+                                        : visualizerStyle === 'bauhaus'
+                                        ? 'bg-[#ebe4d5] border-2 border-[#141413] rounded-none'
+                                        : visualizerStyle === 'nagra'
+                                        ? 'bg-[#fff8f3] border border-[#f4b6a0] rounded-xl'
+                                        : visualizerStyle === 'koto'
+                                        ? 'bg-[#1f1722] border border-[#d4af37]/60 rounded-lg'
+                                        : visualizerStyle === 'minimal'
+                                        ? 'bg-[#141418] border border-[#52525b] rounded-none'
+                                        : 'bg-[#1f2937] border border-[#4b5563] rounded-lg'
+                                }`}
+                            >
+                                <input
+                                    id="beat-export-filename"
+                                    ref={exportInputRef}
+                                    type="text"
+                                    value={exportName}
+                                    placeholder={defaultExportName}
+                                    onChange={(e) => {
+                                        const val = e.target.value;
+                                        setExportName(val);
+                                        setIsCustomExportName(val.trim() !== '' && val.trim() !== defaultExportName);
+                                    }}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                            e.preventDefault();
+                                            if (exportPromptMode === 'save') {
+                                                const finalName = exportName.trim() || defaultExportName;
+                                                onDownload(finalName, activeExportMeasures, activeIncludeTail);
+                                                setExportPromptMode(null);
+                                            } else {
+                                                setExportPromptMode(null);
+                                            }
+                                        }
+                                    }}
+                                    className="flex-1 min-w-0 bg-transparent border-0 text-xs font-mono font-bold text-gray-100 focus:outline-none"
+                                />
+                                <span className="ml-1.5 text-[11px] font-mono font-bold text-gray-400 select-none">
+                                    .wav
+                                </span>
+                            </div>
+                        </div>
+
+                        {/* Export Measures Selector */}
+                        <div className="flex flex-col gap-1.5 pt-1 border-t border-current/15">
+                            <div className="flex items-center justify-between">
+                                <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
+                                    Measures
+                                </span>
+                                <span className="text-[10px] font-mono tabular-nums text-gray-300">
+                                    {activeExportMeasures} {activeExportMeasures === 1 ? 'bar' : 'bars'} · {exportBarDurationSec.toFixed(1)}s{activeIncludeTail ? ' + tail' : ''}
+                                </span>
+                            </div>
+                            <div className="flex items-center gap-1">
+                                {[1, 2, 4, 8].map((count) => (
+                                    <button
+                                        key={count}
+                                        type="button"
+                                        onClick={() => handleChangeExportMeasures(count)}
+                                        className={getButtonStyle(
+                                            visualizerStyle,
+                                            activeExportMeasures === count ? 'primary' : 'secondary',
+                                            activeExportMeasures === count,
+                                            false,
+                                            'flex-1 h-7 text-xs tabular-nums'
+                                        )}
+                                    >
+                                        {count}
+                                    </button>
+                                ))}
+                                <div className="flex items-center gap-0.5 ml-1">
+                                    <button
+                                        type="button"
+                                        onClick={() => handleChangeExportMeasures(activeExportMeasures - 1)}
+                                        disabled={activeExportMeasures <= 1}
+                                        title="Decrease measures"
+                                        aria-label="Decrease measures"
+                                        className={getButtonStyle(
+                                            visualizerStyle,
+                                            'secondary',
+                                            false,
+                                            activeExportMeasures <= 1,
+                                            'w-6 h-7 !px-0 text-xs'
+                                        )}
+                                    >
+                                        −
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleChangeExportMeasures(activeExportMeasures + 1)}
+                                        disabled={activeExportMeasures >= 16}
+                                        title="Increase measures"
+                                        aria-label="Increase measures"
+                                        className={getButtonStyle(
+                                            visualizerStyle,
+                                            'secondary',
+                                            false,
+                                            activeExportMeasures >= 16,
+                                            'w-6 h-7 !px-0 text-xs'
+                                        )}
+                                    >
+                                        +
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Let Tails Ring Out Checkbox */}
+                        <label
+                            htmlFor="export-include-tail"
+                            className={`flex items-start gap-2.5 p-2 cursor-pointer select-none transition-colors ${
+                                visualizerStyle === 'cyberpunk'
+                                    ? 'bg-[#10101a] border border-[#00ff9f]/60 rounded-none'
+                                    : visualizerStyle === 'braun'
+                                    ? 'bg-[#e6e3da] border border-[#c4c0b4] rounded-md'
+                                    : visualizerStyle === 'bauhaus'
+                                    ? 'bg-[#ebe4d5] border-2 border-[#141413] rounded-none'
+                                    : visualizerStyle === 'nagra'
+                                    ? 'bg-[#fff8f3] border border-[#f4b6a0] rounded-xl'
+                                    : visualizerStyle === 'koto'
+                                    ? 'bg-[#1f1722] border border-[#d4af37]/40 rounded-lg'
+                                    : visualizerStyle === 'minimal'
+                                    ? 'bg-[#141418] border border-[#3f3f46] rounded-none'
+                                    : 'bg-[#1f2937]/90 border border-[#374151] rounded-lg hover:border-gray-500'
+                            }`}
+                        >
+                            <input
+                                id="export-include-tail"
+                                type="checkbox"
+                                checked={activeIncludeTail}
+                                onChange={handleToggleIncludeTail}
+                                className="mt-0.5 w-3.5 h-3.5 rounded accent-blue-500 cursor-pointer flex-shrink-0"
+                            />
+                            <div className="flex flex-col leading-tight">
+                                <span className="text-[11px] font-bold text-gray-100">
+                                    Let Tails Ring Out
+                                </span>
+                                <span className="text-[10px] text-gray-400 mt-0.5 leading-snug">
+                                    Extends clip so reverb, delay &amp; final notes decay naturally without cutting off.
+                                </span>
+                            </div>
+                        </label>
+
+                        {exportPromptMode === 'save' ? (
+                            <div className="flex items-center justify-end gap-2 pt-1">
+                                <button
+                                    type="button"
+                                    onClick={() => setExportPromptMode(null)}
+                                    className={getButtonStyle(visualizerStyle, 'secondary', false, false, 'h-8 px-3 text-xs')}
+                                >
+                                    CANCEL
+                                </button>
+                                <button
+                                    type="button"
+                                    disabled={isRendering || isPreparingDrag}
+                                    onClick={() => {
+                                        const finalName = exportName.trim() || defaultExportName;
+                                        onDownload(finalName, activeExportMeasures, activeIncludeTail);
+                                        setExportPromptMode(null);
+                                    }}
+                                    className={getButtonStyle(visualizerStyle, 'primary', false, isRendering || isPreparingDrag, 'h-8 px-3.5 text-xs')}
+                                >
+                                    {isRendering ? 'RENDERING...' : (
+                                        <>
+                                            <DownloadIcon className="w-3.5 h-3.5 mr-1.5" />
+                                            SAVE .WAV
+                                        </>
+                                    )}
+                                </button>
+                            </div>
+                        ) : (
+                            <div className="flex flex-col gap-2 pt-1">
+                                <button
+                                    type="button"
+                                    draggable={!!dragBlobUrl && !isPreparingDrag}
+                                    disabled={isPreparingDrag || isRendering}
+                                    onClick={() => {
+                                        if (!dragBlobUrl && !isPreparingDrag && onPrepareDrag) {
+                                            onPrepareDrag(activeExportMeasures, activeIncludeTail);
+                                        }
+                                    }}
+                                    onDragStart={(e) => {
+                                        if (dragBlobUrl) {
+                                            const safeFile = getSanitizedExportFilename();
+                                            e.dataTransfer.setData('DownloadURL', `audio/wav:${safeFile}:${dragBlobUrl}`);
+                                        }
+                                    }}
+                                    className={getButtonStyle(
+                                        visualizerStyle,
+                                        dragBlobUrl ? 'success' : 'primary',
+                                        false,
+                                        isPreparingDrag || isRendering,
+                                        `w-full h-9 text-xs ${dragBlobUrl ? 'cursor-grab active:cursor-grabbing' : ''}`
+                                    )}
+                                >
+                                    {isPreparingDrag ? (
+                                        <span className="animate-pulse">RENDERING AUDIO...</span>
+                                    ) : dragBlobUrl ? (
+                                        <>
+                                            <DragIcon className="w-4 h-4 mr-1.5 flex-shrink-0" />
+                                            <span className="truncate">DRAG {getSanitizedExportFilename()}</span>
+                                        </>
+                                    ) : (
+                                        <span>PREPARE DRAG &amp; DROP</span>
+                                    )}
+                                </button>
+                                <div className="flex items-center justify-between gap-2">
+                                    {dragBlobUrl && onClearDragUrl ? (
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                onClearDragUrl();
+                                                setExportPromptMode(null);
+                                            }}
+                                            className={getButtonStyle(visualizerStyle, 'secondary', false, false, 'h-7 px-2.5 text-[10px]')}
+                                        >
+                                            RESET
+                                        </button>
+                                    ) : <span />}
+                                    <button
+                                        type="button"
+                                        onClick={() => setExportPromptMode(null)}
+                                        className={getButtonStyle(visualizerStyle, 'secondary', false, false, 'h-7 px-3 text-[10px]')}
+                                    >
+                                        DONE
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                <Tooltip text={dragBlobUrl ? `Drag "${getSanitizedExportFilename()}" into your DAW or folder, or click to rename/reset.` : "Name & prepare beat for drag-and-drop export"}>
                     <button
-                        onClick={dragBlobUrl ? onClearDragUrl : onPrepareDrag}
+                        onClick={() => {
+                            setIsRecordingsListOpen(false);
+                            if (!isCustomExportName) {
+                                setExportName(`drums_bpm${tempo}`);
+                            }
+                            setExportPromptMode(prev => prev === 'drag' ? null : 'drag');
+                            if (!dragBlobUrl && !isPreparingDrag && onPrepareDrag) {
+                                onPrepareDrag(activeExportMeasures, activeIncludeTail);
+                            }
+                        }}
                         draggable={!!dragBlobUrl}
                         onDragStart={(e) => {
                             if (dragBlobUrl) {
-                                e.dataTransfer.setData('DownloadURL', `audio/wav:CL-607-beat.wav:${dragBlobUrl}`);
+                                const safeFile = getSanitizedExportFilename();
+                                e.dataTransfer.setData('DownloadURL', `audio/wav:${safeFile}:${dragBlobUrl}`);
                             }
                         }}
                         disabled={isPreparingDrag || isRendering}
-                        className={getButtonStyle(visualizerStyle, dragBlobUrl ? 'success' : 'secondary', false, isPreparingDrag || isRendering, `w-24 h-10 ${dragBlobUrl ? 'cursor-grab active:cursor-grabbing' : ''}`)}
-                        aria-label={dragBlobUrl ? 'Drag to export' : isPreparingDrag ? 'Preparing export' : 'Prepare export'}
+                        className={getButtonStyle(visualizerStyle, dragBlobUrl ? 'success' : 'secondary', exportPromptMode === 'drag', isPreparingDrag || isRendering, `w-28 h-10 ${dragBlobUrl ? 'cursor-grab active:cursor-grabbing' : ''}`)}
+                        aria-label={dragBlobUrl ? `Drag ${getSanitizedExportFilename()} to export` : isPreparingDrag ? 'Preparing export' : 'Prepare export'}
                     >
                         {isPreparingDrag 
                             ? <span className="text-xs tracking-wider animate-pulse">RENDERING</span>
@@ -706,11 +1752,17 @@ const Controls: React.FC<ControlsProps> = ({
                         }
                     </button>
                 </Tooltip>
-                <Tooltip text="Download current beat as a .wav file">
+                <Tooltip text={`Name and download beat as .wav (default: drums_bpm${tempo}.wav)`}>
                     <button
-                        onClick={onDownload}
+                        onClick={() => {
+                            setIsRecordingsListOpen(false);
+                            if (!isCustomExportName) {
+                                setExportName(`drums_bpm${tempo}`);
+                            }
+                            setExportPromptMode(prev => prev === 'save' ? null : 'save');
+                        }}
                         disabled={isRendering || isPreparingDrag}
-                        className={getButtonStyle(visualizerStyle, 'secondary', false, isRendering || isPreparingDrag, 'w-24 h-10')}
+                        className={getButtonStyle(visualizerStyle, 'secondary', exportPromptMode === 'save', isRendering || isPreparingDrag, 'w-28 h-10')}
                         aria-label={isRendering ? 'Rendering your beat' : 'Download your beat'}
                     >
                         {isRendering 
@@ -796,7 +1848,7 @@ const Controls: React.FC<ControlsProps> = ({
             
             <div className="flex items-center gap-4">
                 <div className="flex flex-col gap-3">
-                    <Tooltip text="Adjust the overall output volume of the drum machine" isInteracting={isInteractingWithSlider}>
+                    <Tooltip text="Adjust the overall output volume of the drum machine" isInteracting={isInteractingWithSlider || editingField === 'volume'}>
                         <div className="flex items-center gap-2">
                             <label htmlFor="master-volume" className="w-16 text-gray-400 flex items-center" aria-label="Master Volume">
                                 <VolumeIcon className="w-6 h-6 text-gray-100" />
@@ -812,10 +1864,20 @@ const Controls: React.FC<ControlsProps> = ({
                                 {...sliderInteractionProps}
                                 className="w-32 h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-blue-600"
                             />
-                            <span className="text-sm font-bold text-gray-100 w-12 text-center">{Math.round(masterVolume * 100)}%</span>
+                            <EditableValue
+                                valueDisplay={`${Math.round(masterVolume * 100)}%`}
+                                initialInput={String(Math.round(masterVolume * 100))}
+                                ariaLabel="Master volume percent"
+                                title="Click to type master volume (0-100)"
+                                visualizerStyle={visualizerStyle}
+                                isEditing={editingField === 'volume'}
+                                onStartEdit={() => setEditingField('volume')}
+                                onCancelEdit={() => setEditingField(null)}
+                                onCommit={handleCommitVolume}
+                            />
                         </div>
                     </Tooltip>
-                    <Tooltip text="Set the playback speed in Beats Per Minute" isInteracting={isInteractingWithSlider}>
+                    <Tooltip text="Set the playback speed in Beats Per Minute" isInteracting={isInteractingWithSlider || editingField === 'tempo'}>
                         <div className="flex items-center gap-2">
                             <label htmlFor="tempo" className="w-16 text-sm text-gray-400 font-bold uppercase tracking-wider">
                                 BPM
@@ -830,10 +1892,20 @@ const Controls: React.FC<ControlsProps> = ({
                                 {...sliderInteractionProps}
                                 className="w-32 h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-blue-600"
                             />
-                            <span className="text-sm font-bold text-gray-100 w-12 text-center">{tempo}</span>
+                            <EditableValue
+                                valueDisplay={String(tempo)}
+                                initialInput={String(tempo)}
+                                ariaLabel="Tempo in BPM"
+                                title={`Click to type BPM (${MIN_TEMPO}-${MAX_TEMPO})`}
+                                visualizerStyle={visualizerStyle}
+                                isEditing={editingField === 'tempo'}
+                                onStartEdit={() => setEditingField('tempo')}
+                                onCancelEdit={() => setEditingField(null)}
+                                onCommit={handleCommitTempo}
+                            />
                         </div>
                     </Tooltip>
-                    <Tooltip text="Add a shuffle feel by delaying every second 16th note" isInteracting={isInteractingWithSlider}>
+                    <Tooltip text="Add a shuffle feel by delaying every second 16th note" isInteracting={isInteractingWithSlider || editingField === 'swing'}>
                         <div className="flex items-center gap-2">
                             <label htmlFor="swing" className="w-16 text-sm text-gray-400 font-bold uppercase tracking-wider">
                                 Swing
@@ -849,45 +1921,82 @@ const Controls: React.FC<ControlsProps> = ({
                                 {...sliderInteractionProps}
                                 className="w-32 h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-purple-500"
                             />
-                            <span className="text-sm font-bold text-gray-100 w-12 text-center">{Math.round(swing*100)}%</span>
+                            <EditableValue
+                                valueDisplay={`${Math.round(swing * 100)}%`}
+                                initialInput={String(Math.round(swing * 100))}
+                                ariaLabel="Swing percent"
+                                title="Click to type swing percent (0-100)"
+                                visualizerStyle={visualizerStyle}
+                                isEditing={editingField === 'swing'}
+                                onStartEdit={() => setEditingField('swing')}
+                                onCancelEdit={() => setEditingField(null)}
+                                onCommit={handleCommitSwing}
+                            />
                         </div>
                     </Tooltip>
                 </div>
 
-                <Tooltip text="Drag to change color scheme. Click to toggle animation.">
-                    <div className="flex flex-col items-center gap-2">
-                        <label htmlFor="color-knob" className="font-bold text-gray-100 text-sm">
-                            6 7
-                        </label>
-                        <div
-                            id="color-knob"
-                            role="slider"
-                            aria-valuemin={0}
-                            aria-valuemax={360}
-                            aria-valuenow={Math.round(hueRotate)}
-                            aria-label="Color Hue"
-                            tabIndex={0}
-                            onMouseDown={handleMouseDown}
-                            onTouchStart={handleTouchStart}
-                            onTouchMove={handleTouchMove}
-                            onTouchEnd={handleTouchEnd}
-                            className={`relative w-16 h-16 bg-gray-700 rounded-full cursor-grab active:cursor-grabbing flex items-center justify-center select-none shadow-inner transition-transform active:scale-[0.98]
-                                        ${isColorAnimating ? 'animate-pulse ring-2 ring-pink-500 ring-offset-2 ring-offset-gray-800' : 'ring-1 ring-gray-600'}`}
-                        >
-                            {/* Indicator Line */}
+                {visualizerStyle !== 'minimal' && (
+                    <Tooltip text="Drag to change color scheme. Click to toggle animation.">
+                        <div className="flex flex-col items-center gap-2">
+                            <label htmlFor="color-knob" className="font-bold text-gray-100 text-sm">
+                                6 7
+                            </label>
                             <div
-                                className="absolute w-full h-full"
-                                style={{ transform: `rotate(${hueRotate}deg)` }}
+                                id="color-knob"
+                                role="slider"
+                                aria-valuemin={0}
+                                aria-valuemax={360}
+                                aria-valuenow={Math.round(hueRotate)}
+                                aria-label="Color Hue"
+                                tabIndex={0}
+                                onMouseDown={handleMouseDown}
+                                onTouchStart={handleTouchStart}
+                                onTouchMove={handleTouchMove}
+                                onTouchEnd={handleTouchEnd}
+                                className={`relative w-16 h-16 rounded-full cursor-grab active:cursor-grabbing flex items-center justify-center select-none transition-transform active:scale-[0.98] ${
+                                    visualizerStyle === 'braun'
+                                        ? 'bg-gradient-to-b from-[#faf8f5] to-[#dcd9d0] border border-[#a8a498] shadow-[0_3px_6px_rgba(0,0,0,0.18),inset_0_1px_0_#fff]'
+                                        : visualizerStyle === 'bauhaus'
+                                        ? 'bg-[#f2b705] border-2 border-[#141413] shadow-[3px_3px_0px_#141413]'
+                                        : visualizerStyle === 'nagra'
+                                        ? 'bg-gradient-to-b from-[#fff8eb] via-[#ffc4a3] to-[#f77b65] border-2 border-white shadow-[0_6px_16px_rgba(217,50,94,0.3),inset_0_2px_4px_#ffffff]'
+                                        : visualizerStyle === 'koto'
+                                        ? 'bg-gradient-to-b from-[#241b26] to-[#110c13] border border-[#d4af37]/60 shadow-[0_4px_12px_rgba(0,0,0,0.7),inset_0_1px_2px_rgba(212,175,55,0.3)]'
+                                        : visualizerStyle === 'cyberpunk'
+                                        ? 'bg-[#0a0a0f] border-2 border-[#00ff9f] shadow-[3px_3px_0px_#ff003c]'
+                                        : 'bg-gray-700 shadow-inner ring-1 ring-gray-600'
+                                } ${isColorAnimating ? 'animate-pulse ring-2 ring-pink-500 ring-offset-2' : ''}`}
                             >
-                                <div className="absolute top-1 left-1/2 -translate-x-1/2 w-1 h-3 bg-pink-400 rounded-full" />
+                                {/* Indicator Line */}
+                                <div
+                                    className="absolute w-full h-full"
+                                    style={{ transform: `rotate(${hueRotate}deg)` }}
+                                >
+                                    <div
+                                        className={`absolute top-1 left-1/2 -translate-x-1/2 w-1.5 h-3.5 ${
+                                            visualizerStyle === 'braun'
+                                                ? 'bg-[#ea5b0c] rounded-full'
+                                                : visualizerStyle === 'bauhaus'
+                                                ? 'bg-[#d62828] border border-[#141413]'
+                                                : visualizerStyle === 'nagra'
+                                                ? 'bg-[#d9325e] rounded-full shadow-[0_0_6px_#ff5e4d]'
+                                                : visualizerStyle === 'koto'
+                                                ? 'bg-[#d4af37] rounded-full shadow-[0_0_5px_#d4af37]'
+                                                : visualizerStyle === 'cyberpunk'
+                                                ? 'bg-[#fcee0a]'
+                                                : 'bg-pink-400 rounded-full'
+                                        }`}
+                                    />
+                                </div>
+                                <span className="text-2xl z-10 pointer-events-none">😎</span>
                             </div>
-                             <span className="text-2xl z-10 pointer-events-none">😎</span>
                         </div>
-                    </div>
-                </Tooltip>
+                    </Tooltip>
+                )}
             </div>
 
-            <Tooltip text={isPlaying ? "Click for a surprise!" : "Press play to wake me up!"}>
+            {(visualizerStyle !== 'minimal' || isCappuccinoMode) && (
                 <div
                     onClick={() => isPlaying && onCatClick()}
                     className={isPlaying ? 'cursor-pointer' : ''}
@@ -898,7 +2007,7 @@ const Controls: React.FC<ControlsProps> = ({
                         <DancingCat isPlaying={isPlaying} tempo={tempo} />
                     )}
                 </div>
-            </Tooltip>
+            )}
         </div>
     );
 };

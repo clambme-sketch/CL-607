@@ -1,6 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import XYOscilloscope from './XYOscilloscope';
 import Tooltip from './Tooltip';
+import { VisualizerStyle } from '../types';
 
 interface LoFiRadioProps {
     isActive: boolean;
@@ -9,9 +10,10 @@ interface LoFiRadioProps {
     dryAnalyser: AnalyserNode | null;
     wetAnalyser: AnalyserNode | null;
     isPerformanceMode: boolean;
+    visualizerStyle?: VisualizerStyle;
 }
 
-const LoFiRadio: React.FC<LoFiRadioProps> = ({ isActive, lofiMix, onLofiMixChange, dryAnalyser, wetAnalyser, isPerformanceMode }) => {
+const LoFiRadio: React.FC<LoFiRadioProps> = ({ isActive, lofiMix, onLofiMixChange, dryAnalyser, wetAnalyser, isPerformanceMode, visualizerStyle = 'default' }) => {
     const [isInteractingWithSlider, setIsInteractingWithSlider] = useState(false);
 
     const handleSliderInteractionStart = useCallback(() => {
@@ -29,6 +31,33 @@ const LoFiRadio: React.FC<LoFiRadioProps> = ({ isActive, lofiMix, onLofiMixChang
         onMouseDown: handleSliderInteractionStart,
         onTouchStart: handleSliderInteractionStart,
     };
+
+    if (visualizerStyle === 'minimal') {
+        return (
+            <div className="w-48 p-3.5 bg-[#0e0e11] border border-[#27272a] flex flex-col justify-between gap-4">
+                <div className="flex items-center justify-between border-b border-[#1f1f23] pb-2">
+                    <span className="font-mono text-[10px] font-bold tracking-[0.14em] uppercase text-[#a1a1aa]">LO-FI CIRCUIT</span>
+                    <span className="font-mono text-[11px] tabular-nums text-[#f4f4f5]">{Math.round(lofiMix * 100)}%</span>
+                </div>
+                <div className="w-full flex flex-col gap-2 text-xs">
+                    <div className="w-full flex items-center gap-2">
+                        <label htmlFor="lofi-mix" className="font-mono text-[10px] tracking-widest text-[#71717a] w-10 flex-shrink-0">MIX</label>
+                        <input 
+                            type="range" 
+                            id="lofi-mix" 
+                            min={0} 
+                            max={1} 
+                            step={0.01} 
+                            value={lofiMix} 
+                            onChange={(e) => onLofiMixChange(Number(e.target.value))} 
+                            {...sliderInteractionProps}
+                            className="w-full h-1.5 bg-[#27272a] appearance-none cursor-pointer"
+                        />
+                    </div>
+                </div>
+            </div>
+        );
+    }
     
     return (
         <div className="w-48 p-3 rounded-lg bg-gray-900/50 flex flex-col items-center gap-3">
@@ -41,7 +70,7 @@ const LoFiRadio: React.FC<LoFiRadioProps> = ({ isActive, lofiMix, onLofiMixChang
                 />
                 {/* Dial and Scope */}
                 <div className="w-2/3 h-full bg-black/50 rounded-sm relative overflow-hidden">
-                    {!isPerformanceMode && <XYOscilloscope isActive={isActive} wetAnalyser={wetAnalyser} />}
+                    {!isPerformanceMode && <XYOscilloscope isActive={isActive && lofiMix > 0.01} wetAnalyser={wetAnalyser} />}
                 </div>
             </div>
             {/* Controls */}
@@ -67,4 +96,4 @@ const LoFiRadio: React.FC<LoFiRadioProps> = ({ isActive, lofiMix, onLofiMixChang
     );
 };
 
-export default LoFiRadio;
+export default React.memo(LoFiRadio);

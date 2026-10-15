@@ -1,6 +1,7 @@
 import React, { useRef, useCallback, useMemo } from 'react';
 import { Grid, Instrument, VisualizerType, VisualizerStyle } from '../types';
 import { INSTRUMENTS, INSTRUMENT_LABELS } from '../constants';
+import { getThemeSurface, getButtonStyle } from '../utils';
 import SmallOscilloscope from './SmallOscilloscope';
 import Oscilloscope from './Oscilloscope';
 import StepButton from './StepButton';
@@ -16,11 +17,9 @@ interface SequencerProps {
     instrumentAnalyserNodes: Record<Instrument, AnalyserNode | null>;
     instrumentColors: string[];
     isRecording: boolean;
-    countdown: number | null;
     onToggleStep: (instrumentIndex: number, stepIndex: number) => void;
     onVolumeChange: (instrumentIndex: number, volume: number) => void;
-    onStartRecording: () => void;
-    onStopRecording: () => void;
+    onToggleRecording: () => void;
     instrumentVisibility: boolean[];
     visualizerType: VisualizerType;
     visualizerStyle: VisualizerStyle;
@@ -39,11 +38,9 @@ const Sequencer: React.FC<SequencerProps> = ({
     instrumentAnalyserNodes,
     instrumentColors,
     isRecording,
-    countdown,
     onToggleStep,
     onVolumeChange,
-    onStartRecording,
-    onStopRecording,
+    onToggleRecording,
     instrumentVisibility,
     visualizerType,
     visualizerStyle,
@@ -56,6 +53,9 @@ const Sequencer: React.FC<SequencerProps> = ({
     const isDraggingRef = useRef(false);
     const dragModeRef = useRef<'activate' | 'deactivate' | null>(null);
     const lastToggledStep = useRef<string | null>(null); // To prevent re-toggling the same step
+    const gridRef = useRef(grid);
+    gridRef.current = grid;
+    const surface = getThemeSurface(visualizerStyle);
 
     const BEAT_LABELS = useMemo(() => {
         const labels: string[] = [];
@@ -74,12 +74,12 @@ const Sequencer: React.FC<SequencerProps> = ({
 
         const instrumentIndex = parseInt(target.dataset.instrumentIndex!, 10);
         const stepIndex = parseInt(target.dataset.stepIndex!, 10);
-        const isCurrentlyActive = grid[instrumentIndex]?.[stepIndex];
+        const isCurrentlyActive = gridRef.current[instrumentIndex]?.[stepIndex];
         
         dragModeRef.current = isCurrentlyActive ? 'deactivate' : 'activate';
         onToggleStep(instrumentIndex, stepIndex);
         lastToggledStep.current = `${instrumentIndex}-${stepIndex}`;
-    }, [grid, onToggleStep]);
+    }, [onToggleStep]);
 
     const handlePointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
         if (!isDraggingRef.current) return;
@@ -92,7 +92,7 @@ const Sequencer: React.FC<SequencerProps> = ({
 
             if (lastToggledStep.current === stepId) return;
 
-            const isCurrentlyActive = grid[instrumentIndex]?.[stepIndex];
+            const isCurrentlyActive = gridRef.current[instrumentIndex]?.[stepIndex];
             if (dragModeRef.current === 'activate' && !isCurrentlyActive) {
                 onToggleStep(instrumentIndex, stepIndex);
                 lastToggledStep.current = stepId;
@@ -101,7 +101,7 @@ const Sequencer: React.FC<SequencerProps> = ({
                 lastToggledStep.current = stepId;
             }
         }
-    }, [grid, onToggleStep]);
+    }, [onToggleStep]);
 
     const handlePointerUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
         if (!isDraggingRef.current) return;
@@ -112,114 +112,198 @@ const Sequencer: React.FC<SequencerProps> = ({
     }, []);
 
 
-    return (
-        <div className="w-full flex flex-col gap-2">
-            <div className="flex gap-2 sm:gap-4">
-                 {/* Instrument Labels */}
-                <div className="flex flex-col gap-1 sm:gap-2 w-16 sm:w-24 flex-shrink-0">
-                    {INSTRUMENTS.map((instrument, instrumentIndex) => (
-                        instrumentVisibility[instrumentIndex] && (
-                            <div 
-                                key={instrument}
-                                className="rounded-md font-bold text-xs sm:text-sm flex items-center justify-center bg-gray-700 text-gray-300 text-center p-1 h-12 sm:h-14"
-                            >
-                                {INSTRUMENT_LABELS[instrument]}
-                            </div>
-                        )
-                    ))}
-                </div>
+    const isMinimal = visualizerStyle === 'minimal';
+    const rowHeightClass = isMinimal ? 'h-11 sm:h-12' : 'h-12 sm:h-14';
 
-                {/* Volume Faders */}
-                <div className="flex flex-col gap-1 sm:gap-2 w-8 flex-shrink-0">
-                    {INSTRUMENTS.map((instrument, index) => (
-                        instrumentVisibility[index] && (
-                            <div key={`${instrument}-fader`} className="flex items-center justify-center rounded-md bg-gray-700 h-12 sm:h-14 px-2">
-                                <input
-                                    type="range"
-                                    min="0"
-                                    max="1"
-                                    step="0.01"
-                                    value={volumes[index]}
-                                    onChange={(e) => onVolumeChange(index, parseFloat(e.target.value))}
-                                    className="w-12 h-2 appearance-none cursor-pointer accent-cyan-400 rotate-[-90deg]"
-                                    aria-label={`${INSTRUMENT_LABELS[instrument]} volume`}
-                                />
-                            </div>
-                        )
-                    ))}
-                </div>
+    const hideTrackScopes = isMinimal || isPerformanceMode;
 
-                {/* Oscilloscope/Recorder Column */}
-                <div className="flex flex-col gap-1 sm:gap-2 w-16 sm:w-24 flex-shrink-0">
-                    {INSTRUMENTS.map((instrument, index) => {
-                        if (!instrumentVisibility[index]) return null;
-
-                        if (instrument === 'sample') {
-                            return (
-                                <div key={`${instrument}-recorder`} className="relative flex items-center justify-center rounded-md bg-gray-900 h-12 sm:h-14 px-1.5">
-                                    <Tooltip text="Hold to record from your microphone">
-                                        <button
-                                            onMouseDown={onStartRecording}
-                                            onMouseUp={onStopRecording}
-                                            onTouchStart={onStartRecording}
-                                            onTouchEnd={onStopRecording}
-                                            className={`w-full h-full rounded flex items-center justify-center transition-all duration-150 active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-900 ${
+    const instrumentLabelsColumn = useMemo(() => (
+        <div className={`flex flex-col gap-1 sm:gap-2 ${hideTrackScopes ? (visualizerStyle === 'nagra' ? 'w-28 sm:w-32' : 'w-24 sm:w-28') : (visualizerStyle === 'nagra' ? 'w-20 sm:w-24' : 'w-16 sm:w-24')} flex-shrink-0`}>
+            {INSTRUMENTS.map((instrument, instrumentIndex) => (
+                instrumentVisibility[instrumentIndex] && (
+                    <div 
+                        key={instrument}
+                        className={`relative font-bold text-xs flex items-center ${
+                            hideTrackScopes && instrument === 'sample'
+                                ? visualizerStyle === 'nagra'
+                                    ? 'justify-between pl-5 pr-2.5'
+                                    : 'justify-between pl-3 pr-2'
+                                : 'justify-center text-center p-1'
+                        } ${rowHeightClass} select-none ${surface.instrumentBadge}`}
+                    >
+                        {/* Left color indicator bar for hardware authenticity */}
+                        {visualizerStyle !== 'default' && (
+                            <span
+                                aria-hidden="true"
+                                className={`absolute left-0 top-0 bottom-0 ${isMinimal ? 'w-[3px]' : visualizerStyle === 'nagra' ? 'left-2.5 top-2.5 bottom-2.5 w-1.5 rounded-full' : 'left-1 top-2 bottom-2 w-1'} ${visualizerStyle === 'koto' || visualizerStyle === 'braun' ? 'rounded-full' : ''}`}
+                                style={{ backgroundColor: instrumentColors[instrumentIndex] }}
+                            />
+                        )}
+                        <span className={
+                            visualizerStyle === 'nagra'
+                                ? hideTrackScopes && instrument === 'sample'
+                                    ? 'pl-0.5'
+                                    : 'pl-3'
+                                : visualizerStyle !== 'default'
+                                ? 'pl-1.5'
+                                : ''
+                        }>
+                            {INSTRUMENT_LABELS[instrument]}
+                        </span>
+                        {hideTrackScopes && instrument === 'sample' && (
+                            <Tooltip text={isRecording ? "Click to stop recording sample" : "Click to start recording from your microphone"}>
+                                <button
+                                    type="button"
+                                    onClick={onToggleRecording}
+                                    className={
+                                        isMinimal
+                                            ? `px-1.5 py-0.5 text-[10px] font-['IBM_Plex_Mono'] font-semibold border cursor-pointer ${
                                                 isRecording
-                                                    ? 'bg-red-700 ring-red-500 animate-pulse'
-                                                    : countdown
-                                                    ? 'bg-yellow-500 ring-yellow-400'
-                                                    : 'bg-gray-700 hover:bg-gray-600 ring-gray-500'
-                                            }`}
-                                            aria-label={countdown ? `Recording in ${countdown}` : isRecording ? "Stop Recording Sample" : "Hold to Record Sample"}
-                                        >
-                                            {countdown ? (
-                                                <span className="text-white font-bold text-xl tabular-nums">{countdown}</span>
-                                            ) : isRecording ? (
-                                                <div className="w-2.5 h-2.5 bg-white rounded-sm" />
-                                            ) : (
-                                                <div className="w-3 h-3 bg-red-500 rounded-full" />
-                                            )}
-                                        </button>
-                                    </Tooltip>
-                                </div>
-                            );
-                        }
-                        if (isPerformanceMode) {
-                            return <div key={`${instrument}-scope-placeholder`} className="relative flex items-center justify-center rounded-md bg-gray-900 h-12 sm:h-14 px-1" />;
-                        }
+                                                    ? 'bg-[#ff3b1d] text-[#09090b] border-[#ff3b1d]'
+                                                    : 'bg-[#09090b] text-[#ff3b1d] border-[#ff3b1d]/60 hover:border-[#ff3b1d]'
+                                            }`
+                                            : getButtonStyle(
+                                                visualizerStyle,
+                                                isRecording ? 'danger' : 'secondary',
+                                                isRecording,
+                                                false,
+                                                `w-6 h-6 !p-0 flex-shrink-0 ${isRecording ? 'animate-pulse' : ''}`
+                                            )
+                                    }
+                                    aria-label={isRecording ? 'Stop Recording Sample' : 'Record Sample'}
+                                >
+                                    {isMinimal ? (
+                                        isRecording ? 'STOP' : 'REC'
+                                    ) : isRecording ? (
+                                        <div className="w-2 h-2 bg-current rounded-sm" />
+                                    ) : (
+                                        <div className="w-2.5 h-2.5 bg-[#d9381e] rounded-full shadow-[0_0_5px_rgba(217,56,30,0.7)]" />
+                                    )}
+                                </button>
+                            </Tooltip>
+                        )}
+                    </div>
+                )
+            ))}
+        </div>
+    ), [hideTrackScopes, isMinimal, instrumentVisibility, rowHeightClass, surface.instrumentBadge, visualizerStyle, instrumentColors, onToggleRecording, isRecording]);
+
+    const volumeFadersColumn = useMemo(() => (
+        <div className="flex flex-col gap-1 sm:gap-2 w-8 flex-shrink-0">
+            {INSTRUMENTS.map((instrument, index) => (
+                instrumentVisibility[index] && (
+                    <div key={`${instrument}-fader`} className={`flex items-center justify-center ${rowHeightClass} px-2 ${surface.faderBay}`}>
+                        <input
+                            type="range"
+                            min="0"
+                            max="1"
+                            step="0.01"
+                            value={volumes[index]}
+                            onChange={(e) => onVolumeChange(index, parseFloat(e.target.value))}
+                            className="w-10 sm:w-12 h-2 appearance-none cursor-pointer accent-cyan-400 rotate-[-90deg]"
+                            aria-label={`${INSTRUMENT_LABELS[instrument]} volume`}
+                        />
+                    </div>
+                )
+            ))}
+        </div>
+    ), [instrumentVisibility, rowHeightClass, surface.faderBay, volumes, onVolumeChange]);
+
+    const oscilloscopeColumn = useMemo(() => {
+        if (hideTrackScopes) return null;
+        return (
+            <div className="flex flex-col gap-1 sm:gap-2 w-16 sm:w-24 flex-shrink-0">
+                {INSTRUMENTS.map((instrument, index) => {
+                    if (!instrumentVisibility[index]) return null;
+
+                    if (instrument === 'sample') {
                         return (
-                            <div key={`${instrument}-scope`} className="relative flex items-center justify-center rounded-md bg-gray-900 h-12 sm:h-14 px-1">
-                                <SmallOscilloscope 
-                                    isActive={true}
-                                    analyserNode={instrumentAnalyserNodes ? instrumentAnalyserNodes[instrument] : null}
-                                    color={instrumentColors[index]}
-                                />
+                            <div key={`${instrument}-recorder`} className={`relative flex items-center justify-center h-12 sm:h-14 p-1 ${surface.scopeBezel}`}>
+                                <Tooltip text={isRecording ? "Click to stop recording sample" : "Click to start recording from your microphone"}>
+                                    <button
+                                        onClick={onToggleRecording}
+                                        className={getButtonStyle(
+                                            visualizerStyle,
+                                            isRecording ? 'danger' : 'secondary',
+                                            isRecording,
+                                            false,
+                                            `w-full h-full ${isRecording ? 'animate-pulse' : ''}`
+                                        )}
+                                        aria-label={isRecording ? "Stop Recording Sample" : "Record Sample"}
+                                    >
+                                        {isRecording ? (
+                                            <div className="w-2.5 h-2.5 bg-current rounded-sm" />
+                                        ) : (
+                                            <div className="w-3 h-3 bg-[#d9381e] rounded-full shadow-[0_0_6px_rgba(217,56,30,0.7)]" />
+                                        )}
+                                    </button>
+                                </Tooltip>
+                            </div>
+                        );
+                    }
+                    return (
+                        <div key={`${instrument}-scope`} className={`relative flex items-center justify-center h-12 sm:h-14 px-1 overflow-hidden transform-gpu ${surface.scopeBezel}`}>
+                            <SmallOscilloscope 
+                                isActive={true}
+                                analyserNode={instrumentAnalyserNodes ? instrumentAnalyserNodes[instrument] : null}
+                                color={instrumentColors[index]}
+                            />
+                        </div>
+                    );
+                })}
+            </div>
+        );
+    }, [hideTrackScopes, instrumentVisibility, surface.scopeBezel, isRecording, onToggleRecording, visualizerStyle, instrumentAnalyserNodes, instrumentColors]);
+
+    const stepNumbersFooter = useMemo(() => (
+        <div className="relative z-10 flex justify-between gap-2 sm:gap-3 md:gap-4">
+            {[...Array(beatsPerMeasure).keys()].map(groupIndex => (
+                <div key={groupIndex} className="grid grid-cols-4 gap-1 sm:gap-1.5 w-full">
+                    {Array.from({ length: 4 }).map((_, stepInGroup) => {
+                        const stepIndex = groupIndex * 4 + stepInGroup;
+                        const isLit = (stepIndex % 4 === 0);
+                        return (
+                            <div 
+                                key={stepIndex} 
+                                className={`text-center text-xs pt-1 tabular-nums ${isLit ? surface.stepNumLit : surface.stepNumDim}`}
+                            >
+                                {stepIndex + 1}
                             </div>
                         );
                     })}
                 </div>
+            ))}
+        </div>
+    ), [beatsPerMeasure, surface.stepNumLit, surface.stepNumDim]);
+
+    return (
+        <div className="w-full flex flex-col gap-2">
+            <div className="flex gap-2 sm:gap-3">
+                {instrumentLabelsColumn}
+                {volumeFadersColumn}
+                {oscilloscopeColumn}
 
                 {/* Grid and Main Oscilloscope Wrapper */}
                 <div className="relative flex-1 flex flex-col gap-2">
-                    {!isPerformanceMode && (
+                    {!isPerformanceMode && !isMinimal && (
                         <>
                             {visualizerType === 'waveform' && (
                                 <Oscilloscope analyserNodes={instrumentAnalyserNodes} colors={instrumentColors} />
                             )}
                             {visualizerType === 'lissajous' && (
                                 <div 
-                                    className="absolute inset-0 z-0 rounded-xl overflow-hidden pointer-events-none"
+                                    className="absolute inset-0 z-0 rounded-xl overflow-hidden pointer-events-none transform-gpu"
                                     style={{ filter: `hue-rotate(-${hueRotate}deg)` }}
                                 >
                                     <XYOscilloscope
                                         isActive={isPlaying}
                                         wetAnalyser={masterAnalyser}
-                                        color="#d1d5db" // gray-300
+                                        color={visualizerStyle === 'braun' || visualizerStyle === 'bauhaus' || visualizerStyle === 'nagra' ? '#3b1547' : '#d1d5db'}
                                     />
                                 </div>
                             )}
                             {visualizerType === 'spectrum' && (
-                                <div className="absolute inset-0 z-0 rounded-xl overflow-hidden pointer-events-none">
+                                <div className="absolute inset-0 z-0 rounded-xl overflow-hidden pointer-events-none transform-gpu">
                                     <FrequencySpectrumVisualizer
                                         isActive={isPlaying}
                                         analyserNode={masterAnalyser}
@@ -231,7 +315,7 @@ const Sequencer: React.FC<SequencerProps> = ({
                     
                     {/* Step Grid */}
                     <div 
-                        className="relative z-10 flex flex-1 justify-between gap-2 sm:gap-3 md:gap-4 select-none"
+                        className="relative z-10 transform-gpu flex flex-1 justify-between gap-2 sm:gap-3 md:gap-4 select-none"
                         style={{ touchAction: 'none' }}
                         onPointerDown={handlePointerDown}
                         onPointerMove={handlePointerMove}
@@ -265,25 +349,7 @@ const Sequencer: React.FC<SequencerProps> = ({
                         ))}
                     </div>
                     
-                    {/* Step Numbers */}
-                    <div className="relative z-10 flex justify-between gap-2 sm:gap-3 md:gap-4">
-                        {[...Array(beatsPerMeasure).keys()].map(groupIndex => (
-                            <div key={groupIndex} className="grid grid-cols-4 gap-1 sm:gap-1.5 w-full">
-                                {Array.from({ length: 4 }).map((_, stepInGroup) => {
-                                    const stepIndex = groupIndex * 4 + stepInGroup;
-                                    const isLit = (stepIndex % 4 === 0);
-                                    return (
-                                        <div 
-                                            key={stepIndex} 
-                                            className={`text-center text-xs pt-1 ${isLit ? 'text-gray-400' : 'text-gray-600'}`}
-                                        >
-                                            {stepIndex + 1}
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        ))}
-                    </div>
+                    {stepNumbersFooter}
                 </div>
             </div>
         </div>

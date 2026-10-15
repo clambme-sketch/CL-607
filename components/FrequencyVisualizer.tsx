@@ -30,29 +30,45 @@ const FrequencyVisualizer: React.FC<FrequencyVisualizerProps> = ({ isActive, ana
             canvas.height = parent.clientHeight;
         }
 
-        analyserNode.fftSize = 4096; // Increased size for a more detailed view
+        if (analyserNode.fftSize !== 1024) {
+            analyserNode.fftSize = 1024;
+        }
         const bufferLength = analyserNode.frequencyBinCount;
         const dataArray = new Uint8Array(bufferLength);
+        const drawLength = Math.floor(bufferLength * 0.25);
+        const barWidth = canvas.width / drawLength;
+        const rectWidth = Math.max(0.5, barWidth - 0.5);
+        let wasSilent = false;
 
         const draw = () => {
             animationFrameId.current = requestAnimationFrame(draw);
             
             analyserNode.getByteFrequencyData(dataArray);
+
+            let isSilent = true;
+            for (let i = 0; i < drawLength; i += 4) {
+                if (dataArray[i] > 0) {
+                    isSilent = false;
+                    break;
+                }
+            }
+
+            if (isSilent && wasSilent) {
+                return;
+            }
+            wasSilent = isSilent;
             
             context.clearRect(0, 0, canvas.width, canvas.height);
+            if (isSilent) return;
             
-            // Only draw the first 1/4 of the frequencies (up to ~5.5kHz) as most energy is there
-            const drawLength = Math.floor(bufferLength * 0.25);
-            const barWidth = (canvas.width / drawLength);
             let x = 0;
-
+            context.fillStyle = color;
             for (let i = 0; i < drawLength; i++) {
-                // The values are 0-255. Map them to the canvas height.
-                const barHeight = (dataArray[i] / 255) * canvas.height;
-
-                context.fillStyle = color;
-                context.fillRect(x, canvas.height - barHeight, barWidth - 0.5, barHeight);
-                
+                const val = dataArray[i];
+                if (val > 0) {
+                    const barHeight = (val / 255) * canvas.height;
+                    context.fillRect(x, canvas.height - barHeight, rectWidth, barHeight);
+                }
                 x += barWidth;
             }
         };
@@ -67,4 +83,4 @@ const FrequencyVisualizer: React.FC<FrequencyVisualizerProps> = ({ isActive, ana
     return <canvas ref={canvasRef} className="absolute top-0 left-0 w-full h-full" />;
 };
 
-export default FrequencyVisualizer;
+export default React.memo(FrequencyVisualizer);

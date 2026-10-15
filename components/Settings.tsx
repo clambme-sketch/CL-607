@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import CollapsibleSection from './CollapsibleSection';
 import Tooltip from './Tooltip';
 import { Instrument, VisualizerType, VisualizerStyle } from '../types';
-import { getButtonStyle } from '../utils';
+import { getButtonStyle, VISUAL_STYLE_OPTIONS } from '../utils';
 
 interface SettingsProps {
     visualizer: VisualizerType;
@@ -14,6 +14,8 @@ interface SettingsProps {
     onShiftPattern: (direction: 'left' | 'right') => void;
     isPerformanceMode: boolean;
     onTogglePerformanceMode: () => void;
+    isSlowComputerMode: boolean;
+    onToggleSlowComputerMode: () => void;
     onFactoryReset: () => void;
     tooltipsEnabled: boolean;
     onToggleTooltips: () => void;
@@ -25,7 +27,12 @@ interface SettingsProps {
     onToggleKeyboardDrumming: () => void;
     keyboardMap: Record<string, Instrument>;
     onUpdateKeyboardMap: (key: string, instrument: Instrument) => void;
+    isInvertColors: boolean;
+    onToggleInvertColors: () => void;
+    onToggleCappuccinoMode: () => void;
     dragHandleProps?: React.HTMLAttributes<HTMLButtonElement>;
+    sectionIndex?: number;
+    onSectionPointerDown?: (e: React.PointerEvent<HTMLButtonElement>, index: number) => void;
     isDragging?: boolean;
 }
 
@@ -47,14 +54,22 @@ const RadioButton = ({ id, value, checked, onChange, label, type, disabled }: { 
     </label>
 );
 
-const ToggleSwitch: React.FC<{ isEnabled: boolean; onToggle: () => void; label: string; id: string }> = ({ isEnabled, onToggle, label, id }) => (
-     <label htmlFor={id} className="flex items-center cursor-pointer">
+const ToggleSwitch: React.FC<{ isEnabled: boolean; onToggle: () => void; label: string; id: string; isMinimal?: boolean }> = ({ isEnabled, onToggle, label, id, isMinimal = false }) => (
+     <label htmlFor={id} className="flex items-center justify-between cursor-pointer max-w-[240px]">
         <span className="text-sm text-gray-300 mr-3">{label}</span>
-        <div className="relative">
-            <input id={id} type="checkbox" className="sr-only" checked={isEnabled} onChange={onToggle} />
-            <div className={`block w-11 h-6 rounded-full transition-colors ${isEnabled ? 'bg-blue-600' : 'bg-gray-600'}`}></div>
-            <div className={`dot absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-transform duration-200 ease-in-out ${isEnabled ? 'transform translate-x-5' : ''}`}></div>
-        </div>
+        {isMinimal ? (
+            <div className="relative">
+                <input id={id} type="checkbox" className="sr-only" checked={isEnabled} onChange={onToggle} />
+                <div className={`w-9 h-4 border ${isEnabled ? 'bg-[#f4f4f5] border-[#f4f4f5]' : 'bg-[#09090b] border-[#27272a]'}`} />
+                <div className={`absolute top-0.5 w-3 h-3 ${isEnabled ? 'left-5 bg-[#09090b]' : 'left-0.5 bg-[#52525b]'}`} />
+            </div>
+        ) : (
+            <div className="relative">
+                <input id={id} type="checkbox" className="sr-only" checked={isEnabled} onChange={onToggle} />
+                <div className={`block w-11 h-6 rounded-full transition-colors ${isEnabled ? 'bg-blue-600' : 'bg-gray-600'}`}></div>
+                <div className={`dot absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-transform duration-200 ease-in-out ${isEnabled ? 'transform translate-x-5' : ''}`}></div>
+            </div>
+        )}
     </label>
 );
 
@@ -81,6 +96,8 @@ const Settings: React.FC<SettingsProps> = ({
     onShiftPattern, 
     isPerformanceMode, 
     onTogglePerformanceMode, 
+    isSlowComputerMode,
+    onToggleSlowComputerMode,
     onFactoryReset, 
     tooltipsEnabled, 
     onToggleTooltips, 
@@ -92,9 +109,32 @@ const Settings: React.FC<SettingsProps> = ({
     onToggleKeyboardDrumming,
     keyboardMap,
     onUpdateKeyboardMap,
+    isInvertColors,
+    onToggleInvertColors,
+    onToggleCappuccinoMode,
     dragHandleProps, 
+    sectionIndex,
+    onSectionPointerDown,
     isDragging 
 }) => {
+    const isMinimal = visualizerStyle === 'minimal';
+    const visualStyleClickRef = useRef({ count: 0, lastTime: 0 });
+
+    const handleVisualStyleSecretClick = useCallback(() => {
+        const now = Date.now();
+        if (now - visualStyleClickRef.current.lastTime < 600) {
+            visualStyleClickRef.current.count += 1;
+        } else {
+            visualStyleClickRef.current.count = 1;
+        }
+        visualStyleClickRef.current.lastTime = now;
+
+        if (visualStyleClickRef.current.count === 3) {
+            onToggleCappuccinoMode();
+            visualStyleClickRef.current.count = 0;
+        }
+    }, [onToggleCappuccinoMode]);
+
     // --- Factory Reset Button Logic ---
     const [resetProgress, setResetProgress] = useState(0);
     const [isPoofing, setIsPoofing] = useState(false);
@@ -168,7 +208,7 @@ const Settings: React.FC<SettingsProps> = ({
     }, [editingKeyFor, onUpdateKeyboardMap]);
 
     return (
-        <CollapsibleSection title="Settings" dragHandleProps={dragHandleProps} isDragging={isDragging}>
+        <CollapsibleSection title="Settings" dragHandleProps={dragHandleProps} sectionIndex={sectionIndex} onSectionPointerDown={onSectionPointerDown} isDragging={isDragging} visualizerStyle={visualizerStyle}>
             {(isOpen) => (
                 <>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
@@ -207,56 +247,56 @@ const Settings: React.FC<SettingsProps> = ({
                                 </div>
                             </div>
                             <div className="flex flex-col gap-3">
-                                <h4 className="font-bold text-xs text-gray-400 uppercase tracking-wider">Visual Style</h4>
-                                <div className="flex flex-col gap-2">
-                                    <RadioButton
-                                        type="visualizerStyle"
-                                        id="style-default"
-                                        value="default"
-                                        checked={visualizerStyle === 'default'}
-                                        onChange={onVisualizerStyleChange}
-                                        label="Default"
-                                    />
-                                    <RadioButton
-                                        type="visualizerStyle"
-                                        id="style-neon"
-                                        value="neon"
-                                        checked={visualizerStyle === 'neon'}
-                                        onChange={onVisualizerStyleChange}
-                                        label="Neon Dreams"
-                                    />
-                                    <RadioButton
-                                        type="visualizerStyle"
-                                        id="style-minimal"
-                                        value="minimal"
-                                        checked={visualizerStyle === 'minimal'}
-                                        onChange={onVisualizerStyleChange}
-                                        label="Minimalist"
-                                    />
-                                    <RadioButton
-                                        type="visualizerStyle"
-                                        id="style-retro"
-                                        value="retro"
-                                        checked={visualizerStyle === 'retro'}
-                                        onChange={onVisualizerStyleChange}
-                                        label="Retro Terminal"
-                                    />
-                                    <RadioButton
-                                        type="visualizerStyle"
-                                        id="style-mpc"
-                                        value="mpc"
-                                        checked={visualizerStyle === 'mpc'}
-                                        onChange={onVisualizerStyleChange}
-                                        label="MPC Inspired"
-                                    />
-                                    <RadioButton
-                                        type="visualizerStyle"
-                                        id="style-cyberpunk"
-                                        value="cyberpunk"
-                                        checked={visualizerStyle === 'cyberpunk'}
-                                        onChange={onVisualizerStyleChange}
-                                        label="Cyberpunk"
-                                    />
+                                <h4
+                                    onClick={handleVisualStyleSecretClick}
+                                    className="font-bold text-xs text-gray-400 uppercase tracking-wider select-none cursor-pointer"
+                                >
+                                    Visual Style
+                                </h4>
+                                <div className="grid grid-cols-1 gap-2">
+                                    {VISUAL_STYLE_OPTIONS.map((styleOpt) => {
+                                        const isSelected = visualizerStyle === styleOpt.id;
+                                        return (
+                                            <button
+                                                key={styleOpt.id}
+                                                type="button"
+                                                onClick={() => {
+                                                    onVisualizerStyleChange(styleOpt.id);
+                                                    handleVisualStyleSecretClick();
+                                                }}
+                                                aria-pressed={isSelected}
+                                                className={`w-full flex items-center justify-between p-2.5 text-left ${isMinimal ? '' : 'transition-colors duration-150'} ${getButtonStyle(
+                                                    visualizerStyle,
+                                                    isSelected ? 'primary' : 'secondary',
+                                                    isSelected,
+                                                    false,
+                                                    '!justify-between !normal-case'
+                                                )}`}
+                                            >
+                                                <span className="text-xs sm:text-sm font-bold tracking-wider uppercase">
+                                                    {styleOpt.label}
+                                                </span>
+                                                <div className="flex items-center gap-1.5 ml-3 flex-shrink-0">
+                                                    {styleOpt.swatches.map((hex, idx) => (
+                                                        <span
+                                                            key={idx}
+                                                            aria-hidden="true"
+                                                            className="w-3.5 h-3.5 border border-black/30 shadow-sm"
+                                                            style={{
+                                                                backgroundColor: hex,
+                                                                borderRadius:
+                                                                    styleOpt.id === 'bauhaus' || styleOpt.id === 'cyberpunk' || styleOpt.id === 'minimal'
+                                                                        ? '0px'
+                                                                        : styleOpt.id === 'koto'
+                                                                        ? '999px'
+                                                                        : '2px',
+                                                            }}
+                                                        />
+                                                    ))}
+                                                </div>
+                                            </button>
+                                        );
+                                    })}
                                 </div>
                             </div>
                             <div className="flex flex-col gap-3">
@@ -268,7 +308,7 @@ const Settings: React.FC<SettingsProps> = ({
                                         value="808"
                                         checked={drumKit === '808'}
                                         onChange={onDrumKitChange}
-                                        label="Classic 808"
+                                        label="Roland 808"
                                     />
                                     <RadioButton
                                         type="drumKit"
@@ -284,7 +324,7 @@ const Settings: React.FC<SettingsProps> = ({
                                         value="727"
                                         checked={drumKit === '727'}
                                         onChange={onDrumKitChange}
-                                        label="Roland 727 (Latin)"
+                                        label="Roland 727"
                                     />
                                 </div>
                             </div>
@@ -300,7 +340,7 @@ const Settings: React.FC<SettingsProps> = ({
                                         <Tooltip key={bpm} text={`${bpm}/4 Time Signature`}>
                                             <button
                                                 onClick={() => onBeatsPerMeasureChange(bpm)}
-                                                className={getButtonStyle(visualizerStyle, beatsPerMeasure === bpm ? 'primary' : 'secondary', beatsPerMeasure === bpm, false, 'flex items-center justify-center w-10 h-10 text-lg')}
+                                                className={getButtonStyle(visualizerStyle, beatsPerMeasure === bpm ? 'primary' : 'secondary', beatsPerMeasure === bpm, false, 'flex items-center justify-center w-10 h-10 text-lg tabular-nums')}
                                             >
                                                 {bpm}
                                             </button>
@@ -345,11 +385,12 @@ const Settings: React.FC<SettingsProps> = ({
                                         isEnabled={keyboardDrummingEnabled}
                                         onToggle={onToggleKeyboardDrumming}
                                         label="Enable Keyboard Drumming"
+                                        isMinimal={isMinimal}
                                     />
                                 </Tooltip>
                                 
                                 {keyboardDrummingEnabled && (
-                                    <div className="mt-2 flex flex-col gap-2 bg-gray-800/50 p-3 rounded-lg border border-gray-700">
+                                    <div className={isMinimal ? "mt-2 flex flex-col gap-2 bg-[#0e0e11] p-3 border border-[#27272a]" : "mt-2 flex flex-col gap-2 bg-gray-800/50 p-3 rounded-lg border border-gray-700"}>
                                         <div className="text-xs text-gray-400 mb-1">Click a key to remap it, then press the new key.</div>
                                         {(['kick', 'snare', 'hihat', 'snap', 'clave', 'cowbell', 'sample'] as Instrument[]).map((inst) => {
                                             // Find the key mapped to this instrument
@@ -361,7 +402,7 @@ const Settings: React.FC<SettingsProps> = ({
                                                     <span className="text-gray-300 capitalize">{inst}</span>
                                                     <button
                                                         onClick={() => setEditingKeyFor(isEditing ? null : inst)}
-                                                        className={getButtonStyle(visualizerStyle, isEditing ? 'primary' : 'secondary', isEditing, false, `px-3 py-1 font-mono text-xs ${isEditing ? 'animate-pulse' : ''}`)}
+                                                        className={getButtonStyle(visualizerStyle, isEditing ? 'primary' : 'secondary', isEditing, false, `px-3 py-1 font-mono text-xs ${isEditing && !isMinimal ? 'animate-pulse' : ''}`)}
                                                     >
                                                         {isEditing ? 'Press any key...' : mappedKey.toUpperCase()}
                                                     </button>
@@ -384,6 +425,7 @@ const Settings: React.FC<SettingsProps> = ({
                                         isEnabled={tooltipsEnabled}
                                         onToggle={onToggleTooltips}
                                         label="Enable Tooltips"
+                                        isMinimal={isMinimal}
                                     />
                                 </Tooltip>
                                 <Tooltip text="Show rhythmic subdivisions (1e&a) on each sequencer step">
@@ -392,6 +434,7 @@ const Settings: React.FC<SettingsProps> = ({
                                         isEnabled={showBeatNumbers}
                                         onToggle={onToggleBeatNumbers}
                                         label="Show Beat Subdivisions"
+                                        isMinimal={isMinimal}
                                     />
                                 </Tooltip>
                                 <Tooltip text="Disable all animations for improved performance">
@@ -400,8 +443,43 @@ const Settings: React.FC<SettingsProps> = ({
                                         isEnabled={isPerformanceMode}
                                         onToggle={onTogglePerformanceMode}
                                         label="Performance Mode"
+                                        isMinimal={isMinimal}
                                     />
                                 </Tooltip>
+                                <Tooltip text="Invert all interface colors for inverted contrast">
+                                    <ToggleSwitch
+                                        id="invert-colors-toggle"
+                                        isEnabled={isInvertColors}
+                                        onToggle={onToggleInvertColors}
+                                        label="Invert Colors"
+                                        isMinimal={isMinimal}
+                                    />
+                                </Tooltip>
+
+                                <div className="pt-2">
+                                    <button
+                                        type="button"
+                                        onClick={onToggleSlowComputerMode}
+                                        aria-pressed={isSlowComputerMode}
+                                        className={getButtonStyle(
+                                            visualizerStyle,
+                                            isSlowComputerMode ? 'primary' : 'secondary',
+                                            isSlowComputerMode,
+                                            false,
+                                            'w-full px-3.5 py-2.5 text-xs font-mono tracking-wider !normal-case flex items-center justify-between gap-2'
+                                        )}
+                                    >
+                                        <span>my computer is really really slow</span>
+                                        <span
+                                            aria-hidden="true"
+                                            className={`w-2 h-2 flex-shrink-0 ${
+                                                isSlowComputerMode
+                                                    ? 'bg-[#ff3b1d]'
+                                                    : 'bg-zinc-600'
+                                            }`}
+                                        />
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -432,4 +510,4 @@ const Settings: React.FC<SettingsProps> = ({
     );
 };
 
-export default Settings;
+export default React.memo(Settings);

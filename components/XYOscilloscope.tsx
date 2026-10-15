@@ -31,16 +31,33 @@ const XYOscilloscope: React.FC<XYOscilloscopeProps> = ({ isActive, wetAnalyser, 
         }
 
         const bufferLength = 256;
-        wetAnalyser.fftSize = bufferLength;
+        if (wetAnalyser.fftSize !== bufferLength) {
+            wetAnalyser.fftSize = bufferLength;
+        }
 
         const wetData = new Float32Array(bufferLength);
+        let wasSilent = false;
 
         const draw = () => {
             animationFrameId.current = requestAnimationFrame(draw);
 
             wetAnalyser.getFloatTimeDomainData(wetData);
 
+            let isSilent = true;
+            for (let i = 0; i < bufferLength; i += 8) {
+                if (Math.abs(wetData[i]) > 0.002) {
+                    isSilent = false;
+                    break;
+                }
+            }
+
+            if (isSilent && wasSilent) {
+                return;
+            }
+            wasSilent = isSilent;
+
             context.clearRect(0, 0, canvas.width, canvas.height);
+            if (isSilent) return;
 
             context.lineWidth = 1.5;
             context.strokeStyle = color;

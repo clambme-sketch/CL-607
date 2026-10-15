@@ -29,36 +29,62 @@ const FrequencySpectrumVisualizer: React.FC<FrequencySpectrumVisualizerProps> = 
             canvas.height = parent.clientHeight;
         }
 
-        analyserNode.fftSize = 4096;
+        if (analyserNode.fftSize !== 2048) {
+            analyserNode.fftSize = 2048;
+        }
         const bufferLength = analyserNode.frequencyBinCount;
         const dataArray = new Uint8Array(bufferLength);
+
+        const gradient = context.createLinearGradient(0, canvas.height / 2, 0, canvas.height);
+        gradient.addColorStop(0, '#6366f1'); // indigo-500
+        gradient.addColorStop(0.5, '#a855f7'); // purple-500
+        gradient.addColorStop(1, '#ec4899'); // pink-500
+
+        const drawLength = Math.floor(bufferLength * 0.25);
+        const barWidth = canvas.width / drawLength;
+        const rectWidth = Math.max(0.5, barWidth - 0.5);
+        const halfHeight = canvas.height / 2;
+        let silentFrames = 0;
 
         const draw = () => {
             animationFrameId.current = requestAnimationFrame(draw);
             
             analyserNode.getByteFrequencyData(dataArray);
+
+            let hasEnergy = false;
+            for (let i = 0; i < drawLength; i += 4) {
+                if (dataArray[i] > 0) {
+                    hasEnergy = true;
+                    break;
+                }
+            }
+
+            if (!hasEnergy) {
+                silentFrames++;
+                if (silentFrames > 20) {
+                    if (silentFrames === 21) {
+                        context.clearRect(0, 0, canvas.width, canvas.height);
+                    }
+                    return;
+                }
+            } else {
+                silentFrames = 0;
+            }
             
             context.fillStyle = 'rgba(10, 10, 20, 0.2)'; // Dark blue with alpha for fade effect
             context.fillRect(0, 0, canvas.width, canvas.height);
             
-            // Only draw the first 1/4 of the frequencies as most energy is there
-            const drawLength = Math.floor(bufferLength * 0.25);
-            const barWidth = (canvas.width / drawLength);
-            let x = 0;
+            if (!hasEnergy) return;
 
-            const gradient = context.createLinearGradient(0, canvas.height / 2, 0, canvas.height);
-            gradient.addColorStop(0, '#6366f1'); // indigo-500
-            gradient.addColorStop(0.5, '#a855f7'); // purple-500
-            gradient.addColorStop(1, '#ec4899'); // pink-500
+            let x = 0;
             context.fillStyle = gradient;
 
             for (let i = 0; i < drawLength; i++) {
-                const barHeight = (dataArray[i] / 255) * (canvas.height / 2) * 1.2;
-                
-                // Symmetrical drawing from the center
-                const y = canvas.height / 2 - barHeight;
-                context.fillRect(x, y, barWidth - 0.5, barHeight * 2);
-                
+                const val = dataArray[i];
+                if (val > 0) {
+                    const barHeight = (val / 255) * halfHeight * 1.2;
+                    context.fillRect(x, halfHeight - barHeight, rectWidth, barHeight * 2);
+                }
                 x += barWidth;
             }
         };

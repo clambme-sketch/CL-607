@@ -30,31 +30,50 @@ const SmallOscilloscope: React.FC<SmallOscilloscopeProps> = ({ isActive, analyse
             canvas.height = parent.clientHeight;
         }
 
-        analyserNode.fftSize = 1024; // Reduced for performance in a small view.
+        if (analyserNode.fftSize !== 2048) {
+            analyserNode.fftSize = 2048;
+        }
         const bufferLength = analyserNode.fftSize;
         const dataArray = new Float32Array(bufferLength);
+        let wasSilent = false;
 
         const draw = () => {
             animationFrameId.current = requestAnimationFrame(draw);
             
             analyserNode.getFloatTimeDomainData(dataArray);
+
+            let isSilent = true;
+            for (let i = 0; i < bufferLength; i += 16) {
+                if (Math.abs(dataArray[i]) > 0.002) {
+                    isSilent = false;
+                    break;
+                }
+            }
+
+            if (isSilent && wasSilent) {
+                return;
+            }
+            wasSilent = isSilent;
             
             context.clearRect(0, 0, canvas.width, canvas.height);
+            if (isSilent) return;
+
             context.lineWidth = 1.5;
             context.strokeStyle = color;
             context.lineCap = 'round';
             context.lineJoin = 'round';
             context.beginPath();
 
-            const sliceWidth = canvas.width * 1.0 / bufferLength;
+            const step = Math.max(4, Math.floor(bufferLength / Math.max(1, canvas.width)));
+            const sliceWidth = canvas.width / bufferLength;
             
             // Start path at the left edge, using the oldest sample in the buffer to reverse direction.
-            context.moveTo(0, (dataArray[bufferLength - 1] + 1) / 2 * canvas.height);
+            context.moveTo(0, ((dataArray[bufferLength - 1] + 1) * 0.5) * canvas.height);
 
-            for (let i = 1; i < bufferLength; i++) {
+            for (let i = step; i < bufferLength; i += step) {
                 // Read the data array backwards to make the wave appear to move from left to right.
                 const dataIndex = bufferLength - 1 - i;
-                const v = (dataArray[dataIndex] + 1) / 2;
+                const v = (dataArray[dataIndex] + 1) * 0.5;
                 const x = i * sliceWidth;
                 const y = v * canvas.height;
                 context.lineTo(x, y);
@@ -72,4 +91,4 @@ const SmallOscilloscope: React.FC<SmallOscilloscopeProps> = ({ isActive, analyse
     return <canvas ref={canvasRef} className="absolute top-0 left-0 w-full h-full" />;
 };
 
-export default SmallOscilloscope;
+export default React.memo(SmallOscilloscope);

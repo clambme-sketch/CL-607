@@ -1,53 +1,135 @@
-import React, { useState, useCallback, useEffect } from 'react';
-import { useAudioEngine } from '../hooks/useAudioEngine';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import SampleVisualizer from './SampleVisualizer';
 import { Instrument, InstrumentParams, VisualizerStyle } from '../types';
-import { getButtonStyle } from '../utils';
+import { getButtonStyle, getThemeSurface } from '../utils';
+import { MIN_FILTER_FREQ, MAX_FILTER_FREQ } from '../constants';
+
+const EMPTY_VISUALIZER_DATA = new Float32Array(256);
+const EMPTY_SAMPLE_DATA = new Float32Array(0);
+
+// Logarithmic frequency slider helpers (matching Effects & InstrumentSettings)
+const sliderToFreq = (value: number): number => {
+    const min = Math.log(MIN_FILTER_FREQ);
+    const max = Math.log(MAX_FILTER_FREQ);
+    const scale = (max - min) / 100;
+    return Math.exp(min + scale * value);
+};
+
+const freqToSlider = (freq: number): number => {
+    if (freq <= MIN_FILTER_FREQ) return 0;
+    if (freq >= MAX_FILTER_FREQ) return 100;
+    const min = Math.log(MIN_FILTER_FREQ);
+    const max = Math.log(MAX_FILTER_FREQ);
+    const scale = (max - min) / 100;
+    return (Math.log(freq) - min) / scale;
+};
+
+const formatFreq = (hz: number): string => {
+    if (hz >= 1000) {
+        return `${(hz / 1000).toFixed(hz >= 10000 ? 1 : 2)} kHz`;
+    }
+    return `${Math.round(hz)} Hz`;
+};
 
 interface SampleRecorderMenuProps {
     isAudioEngineReady: boolean;
     audioContext: AudioContext | null;
-    startRecording: () => void;
-    stopRecording: () => void;
-    getRecordedAudioData: () => Float32Array;
-    setSampleAudioData: (data: Float32Array) => void;
-    updateInstrumentParameter: (instrument: Instrument, param: keyof InstrumentParams, value: number) => void;
+    isRecording: boolean;
+    onToggleRecording: () => void;
+    fullAudioData: Float32Array;
+    setFullAudioData: React.Dispatch<React.SetStateAction<Float32Array>>;
+    originalAudioData: Float32Array;
+    setOriginalAudioData: React.Dispatch<React.SetStateAction<Float32Array>>;
+    trimRange: { start: number; end: number };
+    setTrimRange: React.Dispatch<React.SetStateAction<{ start: number; end: number }>>;
+    sampleParams: InstrumentParams;
+    onParamChange: (instrument: Instrument, param: keyof InstrumentParams, value: number) => void;
     playSample: (volume: number, time?: number, params?: Partial<InstrumentParams>) => void;
     visualizerStyle: VisualizerStyle;
 }
 
-const SampleRecorderMenu: React.FC<SampleRecorderMenuProps> = ({ 
-    isAudioEngineReady, 
+const SampleRecorderMenu: React.FC<SampleRecorderMenuProps> = ({
+    isAudioEngineReady,
     audioContext,
-    startRecording, 
-    stopRecording, 
-    getRecordedAudioData,
-    setSampleAudioData,
-    updateInstrumentParameter,
+    isRecording,
+    onToggleRecording,
+    fullAudioData,
+    setFullAudioData,
+    originalAudioData,
+    setOriginalAudioData,
+    trimRange,
+    setTrimRange,
+    sampleParams,
+    onParamChange,
     playSample,
-    visualizerStyle
+    visualizerStyle,
 }) => {
-    const [isRecording, setIsRecording] = useState(false);
-    const [fullAudioData, setFullAudioData] = useState<Float32Array>(new Float32Array(0));
-    const [originalAudioData, setOriginalAudioData] = useState<Float32Array>(new Float32Array(0));
-    const [trimRange, setTrimRange] = useState({ start: 0, end: 1 });
     const [message, setMessage] = useState<string | null>(null);
-    const recordingTimeoutRef = React.useRef<number | null>(null);
+    const [isDragOver, setIsDragOver] = useState(false);
+    const [recordingElapsed, setRecordingElapsed] = useState(0);
+    const [previewProgress, setPreviewProgress] = useState<number | null>(null);
 
-    const handleDrop = useCallback(async (e: React.DragEvent) => {
-        e.preventDefault();
+    const fileInputRef = useRef<HTMLInputElement | null>(null);
+    const messageTimerRef = useRef<number | null>(null);
+    const previewRafRef = useRef<number | null>(null);
+
+    const pitch = sampleParams.pitch ?? 1;
+    const decay = sampleParams.decay ?? 1;
+    const highPass = sampleParams.highPass ?? MIN_FILTER_FREQ;
+    const lowPass = sampleParams.lowPass ?? MAX_FILTER_FREQ;
+
+    const sampleRate = audioContext?.sampleRate || 44100;
+    const hasSample = fullAudioData.length > 0;
+    const totalSeconds = hasSample ? fullAudioData.length / sampleRate : 0;
+    const selectedSeconds = hasSample ? (trimRange.end - trimRange.start) * totalSeconds : 0;
+    const isTrimmedSubregion = hasSample && (trimRange.start > 0.005 || trimRange.end < 0.995);
+
+    const areParamsModified =
+        Math.abs(pitch - 1) > 0.005 ||
+        Math.abs(decay - 1) > 0.005 ||
+        highPass > MIN_FILTER_FREQ + 2 ||
+        lowPass < MAX_FILTER_FREQ - 50;
+
+    const showStatusMessage = useCallback((msg: string) => {
+        setMessage(msg);
+        if (messageTimerRef.current) {
+            window.clearTimeout(messageTimerRef.current);
+        }
+        messageTimerRef.current = window.setTimeout(() => {
+            setMessage(null);
+            messageTimerRef.current = null;
+        }, 3000);
+    }, []);
+
+    useEffect(() => {
+        return () => {
+            if (messageTimerRef.current) window.clearTimeout(messageTimerRef.current);
+            if (previewRafRef.current) cancelAnimationFrame(previewRafRef.current);
+        };
+    }, []);
+
+    // Track elapsed microphone recording time
+    useEffect(() => {
+        if (!isRecording) {
+            setRecordingElapsed(0);
+            return;
+        }
+        const start = performance.now();
+        const interval = window.setInterval(() => {
+            setRecordingElapsed((performance.now() - start) / 1000);
+        }, 100);
+        return () => window.clearInterval(interval);
+    }, [isRecording]);
+
+    const decodeAndLoadFile = useCallback(async (file: File) => {
         if (!audioContext) {
-            setMessage("Please start the audio engine first.");
-            setTimeout(() => setMessage(null), 3000);
+            showStatusMessage("Start the audio engine first.");
             return;
         }
-        const file = e.dataTransfer.files[0];
-        if (!file || !file.type.startsWith('audio/')) {
-            setMessage("Please drop an audio file.");
-            setTimeout(() => setMessage(null), 3000);
+        if (!file.type.startsWith('audio/') && !/\.(wav|mp3|ogg|flac|m4a|aac|webm)$/i.test(file.name)) {
+            showStatusMessage("Please select a valid audio file.");
             return;
         }
-
         try {
             const arrayBuffer = await file.arrayBuffer();
             const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
@@ -56,92 +138,91 @@ const SampleRecorderMenu: React.FC<SampleRecorderMenuProps> = ({
             setFullAudioData(data);
             setOriginalAudioData(data);
             setTrimRange({ start: 0, end: 1 });
-            setMessage("Sample loaded.");
-            setTimeout(() => setMessage(null), 3000);
+            showStatusMessage(`Loaded "${file.name.replace(/\.[^/.]+$/, '')}" (${audioBuffer.duration.toFixed(2)}s)`);
         } catch (err) {
             console.error("Error decoding audio:", err);
-            setMessage("Error loading audio file.");
-            setTimeout(() => setMessage(null), 3000);
+            showStatusMessage("Could not decode audio file.");
         }
-    }, [audioContext]);
+    }, [audioContext, setFullAudioData, setOriginalAudioData, setTrimRange, showStatusMessage]);
+
+    const handleDrop = useCallback(async (e: React.DragEvent) => {
+        e.preventDefault();
+        setIsDragOver(false);
+        const file = e.dataTransfer.files[0];
+        if (file) {
+            await decodeAndLoadFile(file);
+        }
+    }, [decodeAndLoadFile]);
 
     const handleDragOver = useCallback((e: React.DragEvent) => {
         e.preventDefault();
+        if (!isDragOver) setIsDragOver(true);
+    }, [isDragOver]);
+
+    const handleDragLeave = useCallback((e: React.DragEvent) => {
+        e.preventDefault();
+        setIsDragOver(false);
     }, []);
 
-    useEffect(() => {
-        let intervalId: number;
-        if (isRecording) {
-            intervalId = window.setInterval(() => {
-                const data = getRecordedAudioData();
-                if (data.length > 0) {
-                    setFullAudioData(data);
-                }
-            }, 250);
+    const handleFileInputChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            await decodeAndLoadFile(file);
         }
-        return () => {
-            if (intervalId) window.clearInterval(intervalId);
-        };
-    }, [isRecording, getRecordedAudioData]);
+        e.target.value = '';
+    }, [decodeAndLoadFile]);
 
-    const stopRecordingAction = useCallback(() => {
-        const data = getRecordedAudioData();
-        stopRecording();
-        setIsRecording(false);
-        setFullAudioData(data);
-        setOriginalAudioData(data);
-        setTrimRange({ start: 0, end: 1 });
-        if (recordingTimeoutRef.current) {
-            window.clearTimeout(recordingTimeoutRef.current);
-            recordingTimeoutRef.current = null;
-        }
-    }, [stopRecording, getRecordedAudioData]);
-
-    const handleToggleRecording = () => {
+    const handleRecordButtonClick = () => {
         if (!isAudioEngineReady) {
-            setMessage("Please start the audio engine first.");
-            setTimeout(() => setMessage(null), 3000);
+            showStatusMessage("Start the audio engine first.");
             return;
         }
-        if (isRecording) {
-            stopRecordingAction();
-        } else {
-            // Reset before starting
-            setFullAudioData(new Float32Array(0));
-            setTrimRange({ start: 0, end: 1 });
-            startRecording();
-            setIsRecording(true);
-            
-            // Auto-stop after 10 seconds
-            recordingTimeoutRef.current = window.setTimeout(() => {
-                stopRecordingAction();
-                setMessage("Maximum recording time (10s) reached.");
-                setTimeout(() => setMessage(null), 3000);
-            }, 10000);
-        }
+        onToggleRecording();
     };
 
     const handleTrim = useCallback((start: number, end: number) => {
         setTrimRange({ start, end });
-    }, []);
+    }, [setTrimRange]);
 
-    // Update the audio engine whenever fullAudioData or trimRange changes
-    useEffect(() => {
-        if (fullAudioData.length === 0) {
-            setSampleAudioData(new Float32Array(0));
-            return;
+    const getTrimmedData = useCallback(() => {
+        if (fullAudioData.length === 0) return EMPTY_SAMPLE_DATA;
+        const startIndex = Math.floor(trimRange.start * fullAudioData.length);
+        const endIndex = Math.floor(trimRange.end * fullAudioData.length);
+        return fullAudioData.subarray(startIndex, endIndex);
+    }, [fullAudioData, trimRange]);
+
+    const handlePreview = useCallback(() => {
+        if (!hasSample || isRecording) return;
+        playSample(1, undefined, sampleParams);
+
+        if (previewRafRef.current) {
+            cancelAnimationFrame(previewRafRef.current);
         }
-        const startIndex = Math.floor(trimRange.start * fullAudioData.length);
-        const endIndex = Math.floor(trimRange.end * fullAudioData.length);
-        const trimmed = fullAudioData.slice(startIndex, endIndex);
-        setSampleAudioData(trimmed);
-    }, [fullAudioData, trimRange, setSampleAudioData]);
 
-    const getTrimmedData = () => {
-        if (fullAudioData.length === 0) return new Float32Array(0);
-        const startIndex = Math.floor(trimRange.start * fullAudioData.length);
-        const endIndex = Math.floor(trimRange.end * fullAudioData.length);
-        return fullAudioData.slice(startIndex, endIndex);
+        const effectiveDurationMs = Math.max(80, (selectedSeconds / Math.max(0.25, pitch)) * 1000);
+        const startTime = performance.now();
+
+        const animatePlayhead = (now: number) => {
+            const elapsed = now - startTime;
+            const progress = elapsed / effectiveDurationMs;
+            if (progress < 1) {
+                setPreviewProgress(progress);
+                previewRafRef.current = requestAnimationFrame(animatePlayhead);
+            } else {
+                setPreviewProgress(null);
+                previewRafRef.current = null;
+            }
+        };
+        setPreviewProgress(0);
+        previewRafRef.current = requestAnimationFrame(animatePlayhead);
+    }, [hasSample, isRecording, playSample, sampleParams, selectedSeconds, pitch]);
+
+    const handleCropToTrim = () => {
+        const trimmed = getTrimmedData();
+        if (trimmed.length === 0) return;
+        setFullAudioData(new Float32Array(trimmed));
+        setTrimRange({ start: 0, end: 1 });
+        showStatusMessage("Cropped to selection.");
     };
 
     const handleNormalize = () => {
@@ -159,8 +240,7 @@ const SampleRecorderMenu: React.FC<SampleRecorderMenuProps> = ({
         }
         setFullAudioData(normalized);
         setTrimRange({ start: 0, end: 1 });
-        setMessage("Audio normalized.");
-        setTimeout(() => setMessage(null), 3000);
+        showStatusMessage("Normalized to 0 dBFS.");
     };
 
     const handleReverse = () => {
@@ -169,55 +249,56 @@ const SampleRecorderMenu: React.FC<SampleRecorderMenuProps> = ({
         const reversed = new Float32Array(trimmed).reverse();
         setFullAudioData(reversed);
         setTrimRange({ start: 0, end: 1 });
-        setMessage("Audio reversed.");
-        setTimeout(() => setMessage(null), 3000);
-    };
-
-    const handleRevert = () => {
-        if (originalAudioData.length === 0) return;
-        setFullAudioData(originalAudioData);
-        setTrimRange({ start: 0, end: 1 });
-        setMessage("Reverted to original recording.");
-        setTimeout(() => setMessage(null), 3000);
+        showStatusMessage("Sample reversed.");
     };
 
     const handleFadeIn = () => {
         const trimmed = getTrimmedData();
         if (trimmed.length === 0) return;
         const faded = new Float32Array(trimmed);
-        const fadeLength = Math.floor(faded.length * 0.2); // 20% fade
+        const fadeLength = Math.floor(faded.length * 0.2);
         for (let i = 0; i < fadeLength; i++) {
-            faded[i] *= (i / fadeLength);
+            faded[i] *= i / fadeLength;
         }
         setFullAudioData(faded);
         setTrimRange({ start: 0, end: 1 });
-        setMessage("Fade in applied.");
-        setTimeout(() => setMessage(null), 3000);
+        showStatusMessage("20% fade-in applied.");
     };
 
-    const [pitch, setPitch] = useState(1);
-    const [decay, setDecay] = useState(1);
-    const [highPass, setHighPass] = useState(20);
-    const [lowPass, setLowPass] = useState(20000);
-
-    const handlePitchChange = (val: number) => {
-        setPitch(val);
-        updateInstrumentParameter('sample', 'pitch', val);
+    const handleFadeOut = () => {
+        const trimmed = getTrimmedData();
+        if (trimmed.length === 0) return;
+        const faded = new Float32Array(trimmed);
+        const fadeLength = Math.floor(faded.length * 0.25);
+        const fadeStart = faded.length - fadeLength;
+        for (let i = 0; i < fadeLength; i++) {
+            faded[fadeStart + i] *= 1 - i / fadeLength;
+        }
+        setFullAudioData(faded);
+        setTrimRange({ start: 0, end: 1 });
+        showStatusMessage("25% fade-out applied.");
     };
 
-    const handleDecayChange = (val: number) => {
-        setDecay(val);
-        updateInstrumentParameter('sample', 'decay', val);
+    const handleRevert = () => {
+        if (originalAudioData.length === 0) return;
+        setFullAudioData(originalAudioData);
+        setTrimRange({ start: 0, end: 1 });
+        showStatusMessage("Reverted to original sample.");
     };
 
-    const handleHighPassChange = (val: number) => {
-        setHighPass(val);
-        updateInstrumentParameter('sample', 'highPass', val);
+    const handleClear = () => {
+        setFullAudioData(new Float32Array(0));
+        setTrimRange({ start: 0, end: 1 });
+        setPreviewProgress(null);
+        showStatusMessage("Sample cleared.");
     };
 
-    const handleLowPassChange = (val: number) => {
-        setLowPass(val);
-        updateInstrumentParameter('sample', 'lowPass', val);
+    const handleResetParams = () => {
+        onParamChange('sample', 'pitch', 1);
+        onParamChange('sample', 'decay', 1);
+        onParamChange('sample', 'highPass', MIN_FILTER_FREQ);
+        onParamChange('sample', 'lowPass', MAX_FILTER_FREQ);
+        showStatusMessage("Sample parameters reset.");
     };
 
     const handleApplyProcessing = async () => {
@@ -226,205 +307,400 @@ const SampleRecorderMenu: React.FC<SampleRecorderMenuProps> = ({
 
         try {
             const playbackRate = pitch;
-            const newLength = Math.ceil(trimmed.length / playbackRate);
-            const sampleRate = 44100; // Assuming 44100, standard for Web Audio
-            
+            const newLength = Math.max(1, Math.ceil(trimmed.length / playbackRate));
+
             const ctx = new OfflineAudioContext(1, newLength, sampleRate);
             const buffer = ctx.createBuffer(1, trimmed.length, sampleRate);
             buffer.getChannelData(0).set(trimmed);
-            
+
             const source = ctx.createBufferSource();
             source.buffer = buffer;
             source.playbackRate.value = playbackRate;
-            
+
             let lastNode: AudioNode = source;
-            
-            if (highPass > 0) {
+
+            if (highPass > MIN_FILTER_FREQ) {
                 const hpFilter = ctx.createBiquadFilter();
                 hpFilter.type = 'highpass';
                 hpFilter.frequency.value = highPass;
                 lastNode.connect(hpFilter);
                 lastNode = hpFilter;
             }
-            
-            if (lowPass < 20000) {
+
+            if (lowPass < MAX_FILTER_FREQ) {
                 const lpFilter = ctx.createBiquadFilter();
                 lpFilter.type = 'lowpass';
                 lpFilter.frequency.value = lowPass;
                 lastNode.connect(lpFilter);
                 lastNode = lpFilter;
             }
-            
+
             const gainNode = ctx.createGain();
             gainNode.gain.setValueAtTime(1, 0);
-            // Decay is in seconds, we need to scale it by playbackRate if we want it to match real time
-            // Actually, decay is just a time in seconds.
-            gainNode.gain.exponentialRampToValueAtTime(0.01, Math.max(0.01, decay));
+            if (decay < 2) {
+                gainNode.gain.exponentialRampToValueAtTime(0.001, Math.max(0.01, decay * 2.5));
+            }
             lastNode.connect(gainNode);
             lastNode = gainNode;
-            
+
             lastNode.connect(ctx.destination);
             source.start(0);
-            
+
             const renderedBuffer = await ctx.startRendering();
-            const processedData = renderedBuffer.getChannelData(0);
-            
+            const processedData = new Float32Array(renderedBuffer.getChannelData(0));
+
             setFullAudioData(processedData);
             setTrimRange({ start: 0, end: 1 });
-            
-            // Reset UI parameters
-            setPitch(1);
-            setDecay(1);
-            setHighPass(20);
-            setLowPass(20000);
-            
-            // Reset instrument parameters so they don't double-apply
-            updateInstrumentParameter('sample', 'pitch', 1);
-            updateInstrumentParameter('sample', 'decay', 1);
-            updateInstrumentParameter('sample', 'highPass', 20);
-            updateInstrumentParameter('sample', 'lowPass', 20000);
-            
-            setMessage("Processing applied destructively to sample.");
-            setTimeout(() => setMessage(null), 3000);
+
+            // Reset shared sample parameters so they don't double-apply in either tab
+            onParamChange('sample', 'pitch', 1);
+            onParamChange('sample', 'decay', 1);
+            onParamChange('sample', 'highPass', MIN_FILTER_FREQ);
+            onParamChange('sample', 'lowPass', MAX_FILTER_FREQ);
+
+            showStatusMessage("Effects baked into sample waveform.");
         } catch (err) {
             console.error("Error applying processing:", err);
-            setMessage("Error applying processing.");
-            setTimeout(() => setMessage(null), 3000);
+            showStatusMessage("Error baking sample effects.");
         }
     };
 
+    const isMinimal = visualizerStyle === 'minimal';
+    const surface = getThemeSurface(visualizerStyle);
+    const semitones = Math.round(12 * Math.log2(Math.max(0.25, pitch)) * 10) / 10;
+    const semitoneStr = semitones === 0 ? '0 st' : `${semitones > 0 ? '+' : ''}${semitones.toFixed(1)} st`;
+
     return (
-        <div className="bg-gray-900/50 rounded-lg p-4 flex flex-col gap-4" onDrop={handleDrop} onDragOver={handleDragOver}>
-            <div className="flex justify-between items-center">
-                <h4 className="font-bold text-sm uppercase tracking-wider text-white">
-                    SAMPLE RECORDER
-                </h4>
-                {message && <div className="text-xs text-red-400 font-bold">{message}</div>}
-            </div>
-            
-            <div className="flex flex-row gap-4 items-center">
-                <button
-                    onClick={handleToggleRecording}
-                    className={getButtonStyle(visualizerStyle, isRecording ? 'danger' : 'secondary', isRecording, false, `w-14 h-14 rounded-full flex-shrink-0 flex items-center justify-center font-bold text-[10px] uppercase tracking-wider transition-all ${isRecording ? 'animate-pulse shadow-[0_0_15px_rgba(220,38,38,0.6)]' : ''}`)}
-                >
-                    {isRecording ? 'STOP' : 'REC'}
-                </button>
-                <div className="flex-1 min-w-0 h-20 bg-gray-900 rounded-md border border-gray-700 overflow-hidden">
-                    <SampleVisualizer audioData={fullAudioData.length > 0 ? fullAudioData : new Float32Array(256)} onTrim={handleTrim} disabled={isRecording} />
+        <div
+            className={
+                isMinimal
+                    ? 'bg-[#0e0e11] border border-[#27272a] p-4 sm:p-5 flex flex-col gap-5'
+                    : 'bg-gray-900/50 rounded-lg p-4 sm:p-5 flex flex-col gap-5'
+            }
+            onDrop={handleDrop}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+        >
+            <input
+                ref={fileInputRef}
+                type="file"
+                accept="audio/*"
+                className="hidden"
+                onChange={handleFileInputChange}
+            />
+
+            {/* Top Transport & Metadata Bar */}
+            <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-white/10">
+                <div className="flex flex-wrap items-center gap-2">
+                    {/* Record / Stop Button */}
+                    <button
+                        type="button"
+                        onClick={handleRecordButtonClick}
+                        className={getButtonStyle(
+                            visualizerStyle,
+                            isRecording ? 'danger' : 'secondary',
+                            isRecording,
+                            false,
+                            'h-10 px-4 text-xs gap-2'
+                        )}
+                    >
+                        <span
+                            className={`w-2.5 h-2.5 flex-shrink-0 ${
+                                isRecording
+                                    ? 'bg-current rounded-[2px] animate-pulse'
+                                    : 'rounded-full bg-[#e11d48]'
+                            }`}
+                        />
+                        <span className="tabular-nums">
+                            {isRecording ? `STOP (${recordingElapsed.toFixed(1)}s)` : 'REC MIC'}
+                        </span>
+                    </button>
+
+                    {/* Preview Button */}
+                    <button
+                        type="button"
+                        onClick={handlePreview}
+                        disabled={!hasSample || isRecording}
+                        className={getButtonStyle(
+                            visualizerStyle,
+                            'primary',
+                            previewProgress !== null,
+                            !hasSample || isRecording,
+                            'h-10 px-4 text-xs gap-1.5'
+                        )}
+                    >
+                        <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24">
+                            <path d="M5.25 5.653c0-1.426 1.529-2.33 2.779-1.643l11.54 6.647c1.295.742 1.295 2.545 0 3.286L8.029 20.99c-1.25.717-2.779-.217-2.779-1.643V5.653z" />
+                        </svg>
+                        <span>PREVIEW</span>
+                    </button>
+
+                    {/* Load Audio File Button */}
+                    <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={isRecording}
+                        className={getButtonStyle(
+                            visualizerStyle,
+                            'secondary',
+                            false,
+                            isRecording,
+                            'h-10 px-3.5 text-xs gap-1.5'
+                        )}
+                    >
+                        <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                            <polyline points="17 8 12 3 7 8" />
+                            <line x1="12" y1="3" x2="12" y2="15" />
+                        </svg>
+                        <span>LOAD FILE</span>
+                    </button>
+                </div>
+
+                {/* Unboxed Telemetry & Status Feedback */}
+                <div className="flex items-center gap-2 text-xs font-mono tabular-nums text-gray-400">
+                    {message ? (
+                        <span className="font-bold text-amber-400">{message}</span>
+                    ) : hasSample ? (
+                        <>
+                            <span className="text-gray-200 font-semibold">{selectedSeconds.toFixed(2)}s active</span>
+                            <span aria-hidden="true">·</span>
+                            <span>{totalSeconds.toFixed(2)}s total</span>
+                            <span aria-hidden="true">·</span>
+                            <span>{(sampleRate / 1000).toFixed(1)} kHz</span>
+                        </>
+                    ) : (
+                        <span>Max clip length: 5.0s · Drop WAV/MP3 or record mic</span>
+                    )}
                 </div>
             </div>
 
-            {fullAudioData.length > 0 && !isRecording && (
-                <div className="flex flex-col gap-2 mt-2">
-                    <div className="flex gap-2">
+            {/* Waveform Display & Trim Scope */}
+            <div className={`w-full h-36 sm:h-40 overflow-hidden transform-gpu ${surface.scopeBezel}`}>
+                <SampleVisualizer
+                    audioData={hasSample ? fullAudioData : EMPTY_VISUALIZER_DATA}
+                    trimRange={trimRange}
+                    onTrim={handleTrim}
+                    sampleRate={sampleRate}
+                    disabled={isRecording}
+                    isRecording={isRecording}
+                    previewProgress={previewProgress}
+                    visualizerStyle={visualizerStyle}
+                    isDragOver={isDragOver}
+                />
+            </div>
+
+            {/* Waveform Edit Action Bar */}
+            <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-1.5 flex-1">
+                    <button
+                        type="button"
+                        onClick={handleCropToTrim}
+                        disabled={!isTrimmedSubregion || isRecording}
+                        title="Crop sample to the current IN/OUT trim handles"
+                        className={getButtonStyle(visualizerStyle, 'secondary', false, !isTrimmedSubregion || isRecording, 'h-8 px-3 text-[11px]')}
+                    >
+                        CROP TRIM
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setTrimRange({ start: 0, end: 1 })}
+                        disabled={!isTrimmedSubregion || isRecording}
+                        title="Expand trim handles to full sample length"
+                        className={getButtonStyle(visualizerStyle, 'secondary', false, !isTrimmedSubregion || isRecording, 'h-8 px-3 text-[11px]')}
+                    >
+                        FULL RANGE
+                    </button>
+                    <button
+                        type="button"
+                        onClick={handleNormalize}
+                        disabled={!hasSample || isRecording}
+                        title="Boost peak level of trimmed region to 0 dB"
+                        className={getButtonStyle(visualizerStyle, 'secondary', false, !hasSample || isRecording, 'h-8 px-3 text-[11px]')}
+                    >
+                        NORMALIZE
+                    </button>
+                    <button
+                        type="button"
+                        onClick={handleReverse}
+                        disabled={!hasSample || isRecording}
+                        title="Reverse the audio waveform"
+                        className={getButtonStyle(visualizerStyle, 'secondary', false, !hasSample || isRecording, 'h-8 px-3 text-[11px]')}
+                    >
+                        REVERSE
+                    </button>
+                    <button
+                        type="button"
+                        onClick={handleFadeIn}
+                        disabled={!hasSample || isRecording}
+                        title="Apply a smooth 20% fade-in ramp"
+                        className={getButtonStyle(visualizerStyle, 'secondary', false, !hasSample || isRecording, 'h-8 px-3 text-[11px]')}
+                    >
+                        FADE IN
+                    </button>
+                    <button
+                        type="button"
+                        onClick={handleFadeOut}
+                        disabled={!hasSample || isRecording}
+                        title="Apply a smooth 25% fade-out ramp"
+                        className={getButtonStyle(visualizerStyle, 'secondary', false, !hasSample || isRecording, 'h-8 px-3 text-[11px]')}
+                    >
+                        FADE OUT
+                    </button>
+                </div>
+
+                <div className="flex items-center gap-1.5">
+                    <button
+                        type="button"
+                        onClick={handleRevert}
+                        disabled={originalAudioData.length === 0 || isRecording}
+                        title="Restore original unedited recording or file"
+                        className={getButtonStyle(visualizerStyle, 'secondary', false, originalAudioData.length === 0 || isRecording, 'h-8 px-3 text-[11px]')}
+                    >
+                        REVERT
+                    </button>
+                    <button
+                        type="button"
+                        onClick={handleClear}
+                        disabled={!hasSample || isRecording}
+                        title="Clear sample buffer"
+                        className={getButtonStyle(visualizerStyle, 'danger', false, !hasSample || isRecording, 'h-8 px-3 text-[11px]')}
+                    >
+                        CLEAR
+                    </button>
+                </div>
+            </div>
+
+            {/* Tone & Envelope Shaping Rack */}
+            <div className={`pt-4 border-t border-white/10 flex flex-col gap-4 ${!hasSample || isRecording ? 'opacity-50 pointer-events-none' : ''}`}>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                        <h5 className="text-xs font-bold uppercase tracking-wider text-gray-200">
+                            Tone &amp; Envelope Shaping
+                        </h5>
+                        <span className="text-[11px] text-gray-400 hidden sm:inline">
+                            · Double-click any slider to reset
+                        </span>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                        {areParamsModified && (
+                            <button
+                                type="button"
+                                onClick={handleResetParams}
+                                className={getButtonStyle(visualizerStyle, 'secondary', false, false, 'h-7 px-2.5 text-[10px]')}
+                            >
+                                RESET PARAMS
+                            </button>
+                        )}
                         <button
-                            onClick={() => {
-                                setFullAudioData(new Float32Array(0));
-                                setTrimRange({ start: 0, end: 1 });
-                            }}
-                            className={getButtonStyle(visualizerStyle, 'secondary', false, false, 'flex-1 px-4 py-2 text-xs')}
+                            type="button"
+                            onClick={handleApplyProcessing}
+                            disabled={!hasSample || isRecording}
+                            title="Permanently render current Pitch, Decay, HPF & LPF into the sample waveform"
+                            className={getButtonStyle(visualizerStyle, 'primary', false, !hasSample || isRecording, 'h-7 px-3 text-[10px]')}
                         >
-                            BACK
-                        </button>
-                        <button
-                            onClick={handleNormalize}
-                            className={getButtonStyle(visualizerStyle, 'secondary', false, false, 'flex-1 px-4 py-2 text-xs')}
-                        >
-                            NORMALIZE
-                        </button>
-                        <button
-                            onClick={handleReverse}
-                            className={getButtonStyle(visualizerStyle, 'secondary', false, false, 'flex-1 px-4 py-2 text-xs')}
-                        >
-                            REVERSE
-                        </button>
-                        <button
-                            onClick={handleFadeIn}
-                            className={getButtonStyle(visualizerStyle, 'secondary', false, false, 'flex-1 px-4 py-2 text-xs')}
-                        >
-                            FADE IN
-                        </button>
-                        <button
-                            onClick={handleRevert}
-                            className={getButtonStyle(visualizerStyle, 'secondary', false, false, 'flex-1 px-4 py-2 text-xs')}
-                        >
-                            REVERT
-                        </button>
-                        <button
-                            onClick={() => playSample(1)}
-                            className={getButtonStyle(visualizerStyle, 'primary', false, false, 'flex-1 px-4 py-2 text-xs')}
-                        >
-                            PREVIEW
+                            BAKE TO WAVEFORM
                         </button>
                     </div>
                 </div>
-            )}
-            
-            <div className={`flex flex-col gap-2 mt-2 bg-gray-800/50 p-3 rounded-md ${isRecording || fullAudioData.length === 0 ? 'opacity-50 pointer-events-none' : ''}`}>
-                <h5 className="text-xs font-bold text-gray-400 uppercase">Processing</h5>
-                <div className="grid grid-cols-2 gap-4">
-                    <div className="flex flex-col gap-1">
-                        <label className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Pitch</label>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
+                    {/* Pitch / Playback Rate */}
+                    <div className="flex flex-col gap-1.5">
+                        <div className="flex items-center justify-between">
+                            <label htmlFor="sample-rec-pitch" className="text-[11px] font-bold uppercase tracking-wider text-gray-300">
+                                Pitch
+                            </label>
+                            <span className="text-[11px] font-mono tabular-nums text-gray-400">
+                                {pitch.toFixed(2)}x · {semitoneStr}
+                            </span>
+                        </div>
                         <input
+                            id="sample-rec-pitch"
                             type="range"
                             min="0.5"
                             max="2"
                             step="0.01"
                             value={pitch}
-                            onChange={(e) => handlePitchChange(parseFloat(e.target.value))}
-                            className="w-full accent-blue-500"
+                            onChange={(e) => onParamChange('sample', 'pitch', parseFloat(e.target.value))}
+                            onDoubleClick={() => onParamChange('sample', 'pitch', 1)}
+                            className="w-full h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-sky-500"
                         />
-                        <div className="text-[10px] text-gray-500 text-right">{pitch.toFixed(2)}x</div>
                     </div>
-                    <div className="flex flex-col gap-1">
-                        <label className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Decay</label>
+
+                    {/* Decay Envelope */}
+                    <div className="flex flex-col gap-1.5">
+                        <div className="flex items-center justify-between">
+                            <label htmlFor="sample-rec-decay" className="text-[11px] font-bold uppercase tracking-wider text-gray-300">
+                                Decay
+                            </label>
+                            <span className="text-[11px] font-mono tabular-nums text-gray-400">
+                                {decay >= 1.99 ? 'SUSTAIN' : `${decay.toFixed(2)}s`}
+                            </span>
+                        </div>
                         <input
+                            id="sample-rec-decay"
                             type="range"
                             min="0.1"
                             max="2"
                             step="0.01"
                             value={decay}
-                            onChange={(e) => handleDecayChange(parseFloat(e.target.value))}
-                            className="w-full accent-blue-500"
+                            onChange={(e) => onParamChange('sample', 'decay', parseFloat(e.target.value))}
+                            onDoubleClick={() => onParamChange('sample', 'decay', 1)}
+                            className="w-full h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-sky-500"
                         />
-                        <div className="text-[10px] text-gray-500 text-right">{decay.toFixed(2)}s</div>
                     </div>
-                    <div className="flex flex-col gap-1">
-                        <label className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">High Pass</label>
+
+                    {/* High Pass Filter (Logarithmic) */}
+                    <div className="flex flex-col gap-1.5">
+                        <div className="flex items-center justify-between">
+                            <label htmlFor="sample-rec-hpf" className="text-[11px] font-bold uppercase tracking-wider text-gray-300">
+                                High Pass
+                            </label>
+                            <span className="text-[11px] font-mono tabular-nums text-gray-400">
+                                {formatFreq(highPass)}
+                            </span>
+                        </div>
                         <input
+                            id="sample-rec-hpf"
                             type="range"
-                            min="20"
-                            max="5000"
-                            step="10"
-                            value={highPass}
-                            onChange={(e) => handleHighPassChange(parseFloat(e.target.value))}
-                            className="w-full accent-blue-500"
+                            min="0"
+                            max="100"
+                            step="0.5"
+                            value={freqToSlider(highPass)}
+                            onChange={(e) => onParamChange('sample', 'highPass', sliderToFreq(parseFloat(e.target.value)))}
+                            onDoubleClick={() => onParamChange('sample', 'highPass', MIN_FILTER_FREQ)}
+                            className="w-full h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-sky-500"
                         />
-                        <div className="text-[10px] text-gray-500 text-right">{highPass} Hz</div>
                     </div>
-                    <div className="flex flex-col gap-1">
-                        <label className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Low Pass</label>
+
+                    {/* Low Pass Filter (Logarithmic) */}
+                    <div className="flex flex-col gap-1.5">
+                        <div className="flex items-center justify-between">
+                            <label htmlFor="sample-rec-lpf" className="text-[11px] font-bold uppercase tracking-wider text-gray-300">
+                                Low Pass
+                            </label>
+                            <span className="text-[11px] font-mono tabular-nums text-gray-400">
+                                {formatFreq(lowPass)}
+                            </span>
+                        </div>
                         <input
+                            id="sample-rec-lpf"
                             type="range"
-                            min="500"
-                            max="20000"
-                            step="100"
-                            value={lowPass}
-                            onChange={(e) => handleLowPassChange(parseFloat(e.target.value))}
-                            className="w-full accent-blue-500"
+                            min="0"
+                            max="100"
+                            step="0.5"
+                            value={freqToSlider(lowPass)}
+                            onChange={(e) => onParamChange('sample', 'lowPass', sliderToFreq(parseFloat(e.target.value)))}
+                            onDoubleClick={() => onParamChange('sample', 'lowPass', MAX_FILTER_FREQ)}
+                            className="w-full h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-sky-500"
                         />
-                        <div className="text-[10px] text-gray-500 text-right">{lowPass} Hz</div>
                     </div>
                 </div>
-                <button
-                    onClick={handleApplyProcessing}
-                    className={getButtonStyle(visualizerStyle, 'primary', false, false, 'mt-2 px-4 py-2 text-xs')}
-                >
-                    APPLY EFFECTS TO SAMPLE
-                </button>
             </div>
         </div>
     );
 };
 
-export default SampleRecorderMenu;
+export default React.memo(SampleRecorderMenu);

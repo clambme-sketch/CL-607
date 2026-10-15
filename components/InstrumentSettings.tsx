@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { Instrument, AllInstrumentParams, InstrumentParams, KickDesignerParams } from '../types';
+import { Instrument, AllInstrumentParams, InstrumentParams, KickDesignerParams, VisualizerStyle } from '../types';
 import { INSTRUMENTS, INSTRUMENT_LABELS, MIN_FILTER_FREQ, MAX_FILTER_FREQ } from '../constants';
 import KickDrumDesigner from './BassDrumDesigner';
 import Tooltip from './Tooltip';
@@ -13,6 +13,7 @@ interface InstrumentSettingsProps {
     onVisibilityChange: (index: number) => void;
     kickDesignerParams: KickDesignerParams;
     onKickDesignerParamChange: (param: keyof KickDesignerParams, value: number) => void;
+    visualizerStyle?: VisualizerStyle;
 }
 
 // Convert a linear slider value (0-100) to a logarithmic frequency scale
@@ -77,8 +78,9 @@ const INSTRUMENT_PARAM_CONFIG: Record<Instrument, ParamConfig[]> = {
     ],
 };
 
-const InstrumentSettings: React.FC<InstrumentSettingsProps> = ({ isActive, params, instrumentColors, onParamChange, instrumentVisibility, onVisibilityChange, kickDesignerParams, onKickDesignerParamChange }) => {
+const InstrumentSettings: React.FC<InstrumentSettingsProps> = ({ isActive, params, instrumentColors, onParamChange, instrumentVisibility, onVisibilityChange, kickDesignerParams, onKickDesignerParamChange, visualizerStyle = 'default' }) => {
     const [isInteracting, setIsInteracting] = useState(false);
+    const isMinimal = visualizerStyle === 'minimal';
 
     const handleSliderInteractionStart = useCallback(() => {
         setIsInteracting(true);
@@ -100,13 +102,29 @@ const InstrumentSettings: React.FC<InstrumentSettingsProps> = ({ isActive, param
         return null;
     }
 
+    const cardClass = isMinimal
+        ? 'bg-[#0e0e11] border border-[#27272a] p-4 flex flex-col gap-3'
+        : 'bg-gray-900/50 rounded-lg p-4 flex flex-col gap-3';
+
     return (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            <div className="bg-gray-900/50 rounded-lg p-4 flex flex-col gap-3 md:col-span-2 lg:col-span-3">
-                <div className="flex items-center justify-between gap-3">
-                    <h4 className="font-bold text-sm uppercase tracking-wider" style={{ color: instrumentColors[0] }}>
-                        {INSTRUMENT_LABELS['kick']} DESIGNER
-                    </h4>
+            <div className={`${cardClass} md:col-span-2 lg:col-span-3`}>
+                <div className={`flex items-center justify-between gap-3 ${isMinimal ? 'border-b border-[#1f1f23] pb-2.5' : ''}`}>
+                    <div className="flex items-center gap-2">
+                        {isMinimal && (
+                            <span
+                                aria-hidden="true"
+                                className="w-1.5 h-3.5 flex-shrink-0"
+                                style={{ backgroundColor: instrumentColors[0] }}
+                            />
+                        )}
+                        <h4
+                            className="font-bold text-sm uppercase tracking-wider"
+                            style={{ color: isMinimal ? '#f4f4f5' : instrumentColors[0] }}
+                        >
+                            {INSTRUMENT_LABELS['kick']} DESIGNER
+                        </h4>
+                    </div>
                     <Tooltip text={`Show/Hide the ${INSTRUMENT_LABELS['kick']} track`}>
                         <input
                             type="checkbox"
@@ -133,11 +151,23 @@ const InstrumentSettings: React.FC<InstrumentSettingsProps> = ({ isActive, param
                 const color = instrumentColors[index];
 
                 return (
-                    <div key={instrument} className="bg-gray-900/50 rounded-lg p-4 flex flex-col gap-3">
-                        <div className="flex items-center justify-between gap-3">
-                            <h4 className="font-bold text-sm uppercase tracking-wider" style={{ color }}>
-                                {INSTRUMENT_LABELS[instrument]}
-                            </h4>
+                    <div key={instrument} className={cardClass}>
+                        <div className={`flex items-center justify-between gap-3 ${isMinimal ? 'border-b border-[#1f1f23] pb-2.5' : ''}`}>
+                            <div className="flex items-center gap-2">
+                                {isMinimal && (
+                                    <span
+                                        aria-hidden="true"
+                                        className="w-1.5 h-3.5 flex-shrink-0"
+                                        style={{ backgroundColor: color }}
+                                    />
+                                )}
+                                <h4
+                                    className="font-bold text-sm uppercase tracking-wider"
+                                    style={{ color: isMinimal ? '#f4f4f5' : color }}
+                                >
+                                    {INSTRUMENT_LABELS[instrument]}
+                                </h4>
+                            </div>
                             <Tooltip text={`Show/Hide the ${INSTRUMENT_LABELS[instrument]} track`}>
                                 <input
                                     type="checkbox"
@@ -181,7 +211,7 @@ const InstrumentSettings: React.FC<InstrumentSettingsProps> = ({ isActive, param
                                                 style={{ accentColor: color }}
                                             />
                                         </Tooltip>
-                                        <span className="text-xs text-gray-500 text-right tabular-nums col-span-1">
+                                        <span className="font-mono text-xs text-gray-500 text-right tabular-nums col-span-1">
                                             {paramConfig.displayTransform ? paramConfig.displayTransform(value) : (currentParams?.[paramConfig.name] ?? value).toFixed(2) }
                                         </span>
                                     </div>
