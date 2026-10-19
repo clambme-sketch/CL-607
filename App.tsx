@@ -3,7 +3,7 @@ import Sequencer from './components/Sequencer';
 import Controls from './components/Controls';
 import Effects, { getDelayDivisionTimeSeconds } from './components/Effects';
 import { useAudioEngine, AllAnalyserNodes } from './hooks/useAudioEngine';
-import type { Grid, Instrument, AllInstrumentParams, InstrumentParams, KickDesignerParams, SavedPattern, VisualizerType, VisualizerStyle, LiveRecording, StutterDivision, BeatRepeatDivision, DelayDivision } from './types';
+import type { Grid, Instrument, AllInstrumentParams, InstrumentParams, KickDesignerParams, SavedPattern, VisualizerType, VisualizerStyle, LiveRecording, StutterDivision, BeatRepeatDivision, DelayDivision, ReverbType, PadLabelMode, NotationTextMode } from './types';
 import { INSTRUMENTS, INSTRUMENT_LABELS, DEFAULT_TEMPO, MIN_FILTER_FREQ, MAX_FILTER_FREQ, BASE_INSTRUMENT_COLORS_HSL } from './constants';
 import NotationVisualizer from './components/NotationVisualizer';
 import CollapsibleSection from './components/CollapsibleSection';
@@ -136,13 +136,117 @@ const DJ_EFFECT_SHORTCUT_OPTIONS: {
     { id: 'highPass', shortName: 'HIGH PASS', menuName: 'HIGH PASS FILTER', paramLabel: 'FREQ', accentClass: 'accent-blue-500', tooltip: 'Adjust High Pass Filter cutoff frequency (click name to switch effect)' },
 ];
 
+// --- ZIP ARCHIVE HELPER FOR INDIVIDUAL STEMS EXPORT ---
+const crc32Table = (() => {
+    const table = new Uint32Array(256);
+    for (let i = 0; i < 256; i++) {
+        let c = i;
+        for (let k = 0; k < 8; k++) {
+            c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+        }
+        table[i] = c >>> 0;
+    }
+    return table;
+})();
+
+const computeCrc32 = (data: Uint8Array): number => {
+    let crc = 0xffffffff;
+    for (let i = 0; i < data.length; i++) {
+        crc = crc32Table[(crc ^ data[i]) & 0xff] ^ (crc >>> 8);
+    }
+    return (crc ^ 0xffffffff) >>> 0;
+};
+
+const createZipBlob = async (files: { path: string; blob: Blob }[]): Promise<Blob> => {
+    const encoder = new TextEncoder();
+    const entries: {
+        nameBytes: Uint8Array;
+        dataBytes: Uint8Array;
+        crc: number;
+        offset: number;
+    }[] = [];
+
+    let offset = 0;
+    const chunks: Uint8Array[] = [];
+
+    for (const file of files) {
+        const nameBytes = encoder.encode(file.path);
+        const arrayBuf = await file.blob.arrayBuffer();
+        const dataBytes = new Uint8Array(arrayBuf);
+        const crc = computeCrc32(dataBytes);
+
+        const localHeader = new Uint8Array(30 + nameBytes.length);
+        const view = new DataView(localHeader.buffer);
+        view.setUint32(0, 0x04034b50, true);
+        view.setUint16(4, 20, true);
+        view.setUint16(6, 0, true);
+        view.setUint16(8, 0, true);
+        view.setUint16(10, 0, true);
+        view.setUint16(12, 0x21, true);
+        view.setUint32(14, crc, true);
+        view.setUint32(18, dataBytes.length, true);
+        view.setUint32(22, dataBytes.length, true);
+        view.setUint16(26, nameBytes.length, true);
+        view.setUint16(28, 0, true);
+        localHeader.set(nameBytes, 30);
+
+        entries.push({ nameBytes, dataBytes, crc, offset });
+        chunks.push(localHeader, dataBytes);
+        offset += localHeader.length + dataBytes.length;
+    }
+
+    const centralDirOffset = offset;
+    let centralDirSize = 0;
+
+    for (const entry of entries) {
+        const centralHeader = new Uint8Array(46 + entry.nameBytes.length);
+        const view = new DataView(centralHeader.buffer);
+        view.setUint32(0, 0x02014b50, true);
+        view.setUint16(4, 20, true);
+        view.setUint16(6, 20, true);
+        view.setUint16(8, 0, true);
+        view.setUint16(10, 0, true);
+        view.setUint16(12, 0, true);
+        view.setUint16(14, 0x21, true);
+        view.setUint32(16, entry.crc, true);
+        view.setUint32(20, entry.dataBytes.length, true);
+        view.setUint32(24, entry.dataBytes.length, true);
+        view.setUint16(28, entry.nameBytes.length, true);
+        view.setUint16(30, 0, true);
+        view.setUint16(32, 0, true);
+        view.setUint16(34, 0, true);
+        view.setUint16(36, 0, true);
+        view.setUint32(38, 0, true);
+        view.setUint32(42, entry.offset, true);
+        centralHeader.set(entry.nameBytes, 46);
+
+        chunks.push(centralHeader);
+        centralDirSize += centralHeader.length;
+    }
+
+    const eocd = new Uint8Array(22);
+    const eocdView = new DataView(eocd.buffer);
+    eocdView.setUint32(0, 0x06054b50, true);
+    eocdView.setUint16(4, 0, true);
+    eocdView.setUint16(6, 0, true);
+    eocdView.setUint16(8, entries.length, true);
+    eocdView.setUint16(10, entries.length, true);
+    eocdView.setUint32(12, centralDirSize, true);
+    eocdView.setUint32(16, centralDirOffset, true);
+    eocdView.setUint16(20, 0, true);
+    chunks.push(eocd);
+
+    return new Blob(chunks, { type: 'application/zip' });
+};
+
 const DEFAULT_DJ_SETTINGS = {
     randomizeIntensity: 3,
     chainMode: 'off' as ChainMode,
     isolatorGains: { low: 1, mid: 1, high: 1 },
     lofiMix: 0,
     stutterDivision: '1/16' as StutterDivision,
-    stutterSource: 'all' as Instrument | 'all',
+    stutterSource: 'clave' as Instrument | 'all',
+    stutterSwingLocked: true,
     beatRepeatDivision: '1BEAT' as BeatRepeatDivision,
     tapeStopDuration: 0.64,
 };
@@ -152,12 +256,14 @@ const DEFAULT_EFFECTS_SETTINGS = {
     highPassFreq: MIN_FILTER_FREQ,
     reverbMix: 0,
     reverbDecay: 0.4,
+    reverbType: 'plate' as ReverbType,
+    reverbTone: 12000,
     reverbSource: 'all' as Instrument | 'all',
     delayMix: 0,
-    delayTime: 0.27,
+    delayTime: getDelayDivisionTimeSeconds('1/8', DEFAULT_TEMPO),
     delayFeedback: 0.3,
     delaySource: 'all' as Instrument | 'all',
-    delaySyncDivision: null as DelayDivision | null,
+    delaySyncDivision: '1/8' as DelayDivision | null,
     kickSidechainAmount: 0,
     kickSidechainThreshold: -20,
     kickSidechainRatio: 4,
@@ -203,6 +309,8 @@ const App: React.FC = () => {
     const [highPassFreq, setHighPassFreq] = useState<number>(DEFAULT_EFFECTS_SETTINGS.highPassFreq);
     const [reverbMix, setReverbMix] = useState(DEFAULT_EFFECTS_SETTINGS.reverbMix);
     const [reverbDecay, setReverbDecay] = useState(DEFAULT_EFFECTS_SETTINGS.reverbDecay);
+    const [reverbType, setReverbType] = useState<ReverbType>(DEFAULT_EFFECTS_SETTINGS.reverbType);
+    const [reverbTone, setReverbTone] = useState(DEFAULT_EFFECTS_SETTINGS.reverbTone);
     const [reverbSource, setReverbSource] = useState<Instrument | 'all'>(DEFAULT_EFFECTS_SETTINGS.reverbSource);
     const [delayMix, setDelayMix] = useState(DEFAULT_EFFECTS_SETTINGS.delayMix);
     const [delayTime, setDelayTime] = useState(DEFAULT_EFFECTS_SETTINGS.delayTime);
@@ -230,6 +338,11 @@ const App: React.FC = () => {
     const [isStutterHeld, setIsStutterHeld] = useState<boolean>(false);
     const [stutterDivision, setStutterDivision] = useState<StutterDivision>(DEFAULT_DJ_SETTINGS.stutterDivision);
     const [stutterSource, setStutterSource] = useState<Instrument | 'all'>(DEFAULT_DJ_SETTINGS.stutterSource);
+    const [isStutterSwingLocked, setIsStutterSwingLocked] = useState<boolean>(() => {
+        const saved = safeGetItem('cl607-stutterSwingLocked');
+        return saved !== null ? JSON.parse(saved) : DEFAULT_DJ_SETTINGS.stutterSwingLocked;
+    });
+    const isStutterSwingLockedRef = useRef<boolean>(isStutterSwingLocked);
     const [isBeatRepeatActive, setIsBeatRepeatActive] = useState<boolean>(false);
     const [isBeatRepeatHeld, setIsBeatRepeatHeld] = useState<boolean>(false);
     const [beatRepeatDivision, setBeatRepeatDivision] = useState<BeatRepeatDivision>(DEFAULT_DJ_SETTINGS.beatRepeatDivision);
@@ -238,6 +351,7 @@ const App: React.FC = () => {
     const isBeatRepeatActiveRef = useRef<boolean>(false);
     const beatRepeatDivisionRef = useRef<BeatRepeatDivision>(DEFAULT_DJ_SETTINGS.beatRepeatDivision);
     const stutterSourceRef = useRef<Instrument | 'all'>(DEFAULT_DJ_SETTINGS.stutterSource);
+    const stutterDivisionRef = useRef<StutterDivision>(DEFAULT_DJ_SETTINGS.stutterDivision);
     const [djShortcutEffects, setDjShortcutEffects] = useState<[EffectName, EffectName]>(['delay', 'reverb']);
     const [openDjShortcutDropdown, setOpenDjShortcutDropdown] = useState<0 | 1 | null>(null);
     const djShortcutsRef = useRef<HTMLDivElement | null>(null);
@@ -245,6 +359,17 @@ const App: React.FC = () => {
     const [chainMode, setChainMode] = useState<ChainMode>(DEFAULT_DJ_SETTINGS.chainMode);
     const [hueRotate, setHueRotate] = useState<number>(0);
     const [isColorAnimating, setIsColorAnimating] = useState<boolean>(false);
+    const [sixSevenSpeed, setSixSevenSpeed] = useState<number>(() => {
+        const savedSpeed = safeGetItem('cl607-sixSevenSpeed');
+        if (savedSpeed !== null) {
+            const parsed = parseFloat(savedSpeed);
+            if (!isNaN(parsed) && parsed >= 0.1 && parsed <= 5) {
+                return parsed;
+            }
+        }
+        return 1;
+    });
+    const sixSevenSpeedRef = useRef<number>(sixSevenSpeed);
     const [isRecording, setIsRecording] = useState<boolean>(false);
     const [isLiveRecording, setIsLiveRecording] = useState<boolean>(false);
     const [liveRecordings, setLiveRecordings] = useState<LiveRecording[]>([]);
@@ -308,8 +433,36 @@ const App: React.FC = () => {
         }
         return safeGetItem('cl607-visualizerStyle') === 'minimal';
     });
-    const [tooltipsEnabled, setTooltipsEnabled] = useState<boolean>(true);
-    const [showBeatNumbers, setShowBeatNumbers] = useState<boolean>(false);
+    const [tooltipsEnabled, setTooltipsEnabled] = useState<boolean>(() => {
+        const saved = safeGetItem('cl607-tooltipsEnabled-v2');
+        if (saved !== null) {
+            try {
+                return Boolean(JSON.parse(saved));
+            } catch {}
+        }
+        return false;
+    });
+    const [padLabelMode, setPadLabelMode] = useState<PadLabelMode>(() => {
+        const savedMode = safeGetItem('cl607-padLabelMode');
+        if (savedMode === 'subdivisions' || savedMode === 'syllables' || savedMode === 'off') {
+            return savedMode;
+        }
+        const savedBeatNumbers = safeGetItem('cl607-showBeatNumbers');
+        if (savedBeatNumbers !== null) {
+            try {
+                return JSON.parse(savedBeatNumbers) ? 'subdivisions' : 'off';
+            } catch {}
+        }
+        return 'off';
+    });
+    const showBeatNumbers = padLabelMode === 'subdivisions';
+    const [notationTextMode, setNotationTextMode] = useState<NotationTextMode>(() => {
+        const saved = safeGetItem('cl607-notationTextMode');
+        if (saved === 'subdivisions' || saved === 'syllables' || saved === 'off') {
+            return saved;
+        }
+        return 'syllables';
+    });
     const [isInvertColors, setIsInvertColors] = useState<boolean>(() => {
         const savedInvert = safeGetItem('cl607-invertColors');
         if (savedInvert !== null) {
@@ -322,7 +475,7 @@ const App: React.FC = () => {
     const preSlowSettingsRef = useRef<{ visualizerStyle: VisualizerStyle; isPerformanceMode: boolean; tooltipsEnabled: boolean }>({
         visualizerStyle: 'default',
         isPerformanceMode: true,
-        tooltipsEnabled: true,
+        tooltipsEnabled: false,
     });
     
     // Keyboard drumming state
@@ -405,7 +558,10 @@ const App: React.FC = () => {
         isBeatRepeatActiveRef.current = isBeatRepeatActive || isBeatRepeatHeld;
         beatRepeatDivisionRef.current = beatRepeatDivision;
         stutterSourceRef.current = stutterSource;
-    }, [grids, volumes, tempo, isRandomizeActive, randomizeIntensity, instrumentParams, swing, chainMode, activePattern, instrumentVisibility, beatsPerMeasure, isBeatRepeatActive, isBeatRepeatHeld, beatRepeatDivision, stutterSource]);
+        stutterDivisionRef.current = stutterDivision;
+        isStutterSwingLockedRef.current = isStutterSwingLocked;
+        sixSevenSpeedRef.current = sixSevenSpeed;
+    }, [grids, volumes, tempo, isRandomizeActive, randomizeIntensity, instrumentParams, swing, chainMode, activePattern, instrumentVisibility, beatsPerMeasure, isBeatRepeatActive, isBeatRepeatHeld, beatRepeatDivision, stutterSource, stutterDivision, isStutterSwingLocked, sixSevenSpeed]);
 
     // When the user manually changes the pattern or chain mode, reset the counter.
     useEffect(() => {
@@ -415,15 +571,24 @@ const App: React.FC = () => {
 
     // Load saved patterns from localStorage and initialize working state on first mount
     useEffect(() => {
-        // Load tooltip setting
-        const savedTooltipsSetting = safeGetItem('cl607-tooltipsEnabled');
+        // Load tooltip setting (v2 defaults to false)
+        const savedTooltipsSetting = safeGetItem('cl607-tooltipsEnabled-v2');
         if (savedTooltipsSetting !== null) {
-            setTooltipsEnabled(JSON.parse(savedTooltipsSetting));
+            try {
+                setTooltipsEnabled(Boolean(JSON.parse(savedTooltipsSetting)));
+            } catch {}
         }
 
-        const savedBeatNumbers = safeGetItem('cl607-showBeatNumbers');
-        if (savedBeatNumbers !== null) {
-            setShowBeatNumbers(JSON.parse(savedBeatNumbers));
+        const savedPadMode = safeGetItem('cl607-padLabelMode');
+        if (savedPadMode === 'subdivisions' || savedPadMode === 'syllables' || savedPadMode === 'off') {
+            setPadLabelMode(savedPadMode as PadLabelMode);
+        } else {
+            const savedBeatNumbers = safeGetItem('cl607-showBeatNumbers');
+            if (savedBeatNumbers !== null) {
+                try {
+                    setPadLabelMode(JSON.parse(savedBeatNumbers) ? 'subdivisions' : 'off');
+                } catch {}
+            }
         }
 
         const savedInvert = safeGetItem('cl607-invertColors');
@@ -437,7 +602,7 @@ const App: React.FC = () => {
         }
 
         const savedStyle = safeGetItem('cl607-visualizerStyle');
-        const validStyles: VisualizerStyle[] = ['default', 'cyberpunk', 'braun', 'bauhaus', 'nagra', 'koto', 'minimal'];
+        const validStyles: VisualizerStyle[] = ['default', 'classic607', 'cyberpunk', 'braun', 'bauhaus', 'nagra', 'koto', 'minimal'];
         if (savedStyle && validStyles.includes(savedStyle as VisualizerStyle)) {
             setVisualizerStyle(savedStyle as VisualizerStyle);
             if (savedStyle === 'minimal') {
@@ -459,6 +624,121 @@ const App: React.FC = () => {
         const savedTitle = safeGetItem('cl607-customTitle');
         if (savedTitle && savedTitle.trim()) {
             setCustomTitle(savedTitle);
+        }
+
+        // Load comprehensive session state (all effects, DJ settings, instrument settings, and UI preferences)
+        let savedSlotIndex = 0;
+        const savedSessionRaw = safeGetItem('cl607-sessionState');
+        if (savedSessionRaw) {
+            try {
+                const s = JSON.parse(savedSessionRaw);
+                if (typeof s.currentPatternIndex === 'number' && s.currentPatternIndex >= 0 && s.currentPatternIndex < 4) {
+                    savedSlotIndex = s.currentPatternIndex;
+                    setCurrentPatternIndex(s.currentPatternIndex);
+                }
+                if (s.activePattern === 'a' || s.activePattern === 'b') {
+                    setActivePattern(s.activePattern);
+                    activePatternRef.current = s.activePattern;
+                }
+                if (typeof s.masterVolume === 'number') setMasterVolume(s.masterVolume);
+                if (s.drumKit === '808' || s.drumKit === '909' || s.drumKit === '727') {
+                    setDrumKit(s.drumKit);
+                }
+                if (s.kickDesignerParams && typeof s.kickDesignerParams === 'object') {
+                    setKickDesignerParams({ ...DEFAULT_KICK_DESIGNER_PARAMS, ...s.kickDesignerParams });
+                }
+                if (Array.isArray(s.instrumentVisibility) && s.instrumentVisibility.length === INSTRUMENTS.length) {
+                    setInstrumentVisibility(s.instrumentVisibility);
+                    instrumentVisibilityRef.current = s.instrumentVisibility;
+                }
+                if (typeof s.exportMeasures === 'number') setExportMeasures(s.exportMeasures);
+                if (typeof s.exportIncludeTail === 'boolean') setExportIncludeTail(s.exportIncludeTail);
+
+                // Restore all Effects settings
+                if (typeof s.lowPassFreq === 'number') setLowPassFreq(s.lowPassFreq);
+                if (typeof s.highPassFreq === 'number') setHighPassFreq(s.highPassFreq);
+                if (typeof s.reverbMix === 'number') setReverbMix(s.reverbMix);
+                if (typeof s.reverbDecay === 'number') setReverbDecay(s.reverbDecay);
+                if (s.reverbType === 'room' || s.reverbType === 'plate' || s.reverbType === 'hall') {
+                    setReverbType(s.reverbType);
+                }
+                if (typeof s.reverbTone === 'number') setReverbTone(s.reverbTone);
+                if (s.reverbSource) setReverbSource(s.reverbSource);
+                if (typeof s.delayMix === 'number') setDelayMix(s.delayMix);
+                if (typeof s.delayTime === 'number') setDelayTime(s.delayTime);
+                if (typeof s.delayFeedback === 'number') setDelayFeedback(s.delayFeedback);
+                if (s.delaySource) setDelaySource(s.delaySource);
+                if (s.delaySyncDivision !== undefined) setDelaySyncDivision(s.delaySyncDivision);
+                if (typeof s.kickSidechainAmount === 'number') setKickSidechainAmount(s.kickSidechainAmount);
+                if (typeof s.kickSidechainThreshold === 'number') setKickSidechainThreshold(s.kickSidechainThreshold);
+                if (typeof s.kickSidechainRatio === 'number') setKickSidechainRatio(s.kickSidechainRatio);
+                if (typeof s.crushAmount === 'number') setCrushAmount(s.crushAmount);
+                if (typeof s.tapeSaturationMix === 'number') setTapeSaturationMix(s.tapeSaturationMix);
+                if (typeof s.tapeSaturationAmount === 'number') setTapeSaturationAmount(s.tapeSaturationAmount);
+                if (typeof s.tapeSaturationTone === 'number') setTapeSaturationTone(s.tapeSaturationTone);
+                if (typeof s.envelopeFilterMix === 'number') setEnvelopeFilterMix(s.envelopeFilterMix);
+                if (typeof s.envelopeFilterAmount === 'number') setEnvelopeFilterAmount(s.envelopeFilterAmount);
+                if (typeof s.envelopeFilterBaseFreq === 'number') setEnvelopeFilterBaseFreq(s.envelopeFilterBaseFreq);
+                if (typeof s.envelopeFilterQ === 'number') setEnvelopeFilterQ(s.envelopeFilterQ);
+                if (s.effectsEnabled && typeof s.effectsEnabled === 'object') {
+                    setEffectsEnabled(prev => ({ ...prev, ...s.effectsEnabled }));
+                }
+
+                // Restore all Live DJ settings
+                if (typeof s.randomizeIntensity === 'number') {
+                    setRandomizeIntensity(s.randomizeIntensity);
+                    randomizeIntensityRef.current = s.randomizeIntensity;
+                }
+                if (s.chainMode) {
+                    setChainMode(s.chainMode);
+                    chainModeRef.current = s.chainMode;
+                }
+                if (s.isolatorGains && typeof s.isolatorGains === 'object') {
+                    setIsolatorGains(prev => ({ ...prev, ...s.isolatorGains }));
+                }
+                if (typeof s.lofiMix === 'number') setLofiMix(s.lofiMix);
+                if (s.stutterDivision) {
+                    setStutterDivision(s.stutterDivision);
+                    stutterDivisionRef.current = s.stutterDivision;
+                }
+                if (s.stutterSource) {
+                    setStutterSource(s.stutterSource);
+                    stutterSourceRef.current = s.stutterSource;
+                }
+                if (typeof s.isStutterSwingLocked === 'boolean') {
+                    setIsStutterSwingLocked(s.isStutterSwingLocked);
+                    isStutterSwingLockedRef.current = s.isStutterSwingLocked;
+                }
+                if (s.beatRepeatDivision) {
+                    setBeatRepeatDivision(s.beatRepeatDivision);
+                    beatRepeatDivisionRef.current = s.beatRepeatDivision;
+                }
+                if (typeof s.tapeStopDuration === 'number') setTapeStopDuration(s.tapeStopDuration);
+                if (Array.isArray(s.djShortcutEffects) && s.djShortcutEffects.length === 2) {
+                    setDjShortcutEffects(s.djShortcutEffects as [EffectName, EffectName]);
+                }
+
+                // Restore Settings & UI preferences
+                if (s.visualizerType === 'waveform' || s.visualizerType === 'lissajous' || s.visualizerType === 'spectrum') {
+                    setVisualizerType(s.visualizerType);
+                }
+                if (typeof s.isPerformanceMode === 'boolean' && !Boolean(s.isSlowComputerMode)) {
+                    setIsPerformanceMode(s.isPerformanceMode);
+                }
+                if (s.keyboardMap && typeof s.keyboardMap === 'object') {
+                    setKeyboardMap(s.keyboardMap);
+                }
+                if (Array.isArray(s.sectionOrder) && s.sectionOrder.length === 6) {
+                    setSectionOrder(s.sectionOrder);
+                }
+                if (typeof s.hueRotate === 'number') setHueRotate(s.hueRotate);
+                if (typeof s.isCappuccinoMode === 'boolean') setIsCappuccinoMode(s.isCappuccinoMode);
+                if (s.notationTextMode === 'subdivisions' || s.notationTextMode === 'syllables' || s.notationTextMode === 'off') {
+                    setNotationTextMode(s.notationTextMode);
+                }
+            } catch (e) {
+                console.error('Failed to load session state', e);
+            }
         }
 
         // Load patterns
@@ -484,14 +764,18 @@ const App: React.FC = () => {
             }
         }
 
-        const initialPattern = loadedPatterns[0];
+        const initialPattern = loadedPatterns[savedSlotIndex] || loadedPatterns[0];
         if (initialPattern) {
             setGrids(initialPattern.grids);
             setVolumes(initialPattern.volumes);
             setTempo(initialPattern.tempo);
+            tempoRef.current = initialPattern.tempo;
             setInstrumentParams(initialPattern.instrumentParams);
+            instrumentParamsRef.current = initialPattern.instrumentParams;
             setSwing(initialPattern.swing ?? 0);
+            swingRef.current = initialPattern.swing ?? 0;
             setBeatsPerMeasure(initialPattern.beatsPerMeasure || 4);
+            beatsPerMeasureRef.current = initialPattern.beatsPerMeasure || 4;
         } else {
              const defaultPattern: SavedPattern = {
                 grids: { a: createInitialGrid(16), b: createInitialGrid(16) },
@@ -509,7 +793,7 @@ const App: React.FC = () => {
         setIsAppLoaded(true);
     }, []);
     
-    // Autosave effect: when working state changes, update savedPatterns array and localStorage
+    // Autosave effect: when working pattern state changes, update savedPatterns array and localStorage
     useEffect(() => {
         if (!isAppLoaded) return;
 
@@ -522,26 +806,155 @@ const App: React.FC = () => {
             beatsPerMeasure,
         };
 
+        try {
+            safeSetItem(`cl607-pattern-${currentPatternIndex}`, JSON.stringify(patternData));
+        } catch (e) {
+            console.error(`Failed to save pattern to slot ${currentPatternIndex}`, e);
+        }
+
         const debounceSave = setTimeout(() => {
             setSavedPatterns(prev => {
                 const newPatterns = [...prev];
-                // Only update if data has actually changed to prevent unnecessary re-renders
                 if (JSON.stringify(newPatterns[currentPatternIndex]) !== JSON.stringify(patternData)) {
                     newPatterns[currentPatternIndex] = patternData;
-                    try {
-                        safeSetItem(`cl607-pattern-${currentPatternIndex}`, JSON.stringify(patternData));
-                    } catch (e) {
-                        console.error(`Failed to save pattern to slot ${currentPatternIndex}`, e);
-                    }
                     return newPatterns;
                 }
                 return prev;
             });
-        }, 500); // Debounce saves to avoid excessive writes
+        }, 150);
 
         return () => clearTimeout(debounceSave);
 
     }, [isAppLoaded, grids, volumes, tempo, instrumentParams, swing, beatsPerMeasure, currentPatternIndex]);
+
+    // Comprehensive autosave effect for all Effects, Live DJ controls, Instrument Designer, and UI Settings
+    useEffect(() => {
+        if (!isAppLoaded) return;
+
+        const sessionState = {
+            currentPatternIndex,
+            activePattern,
+            masterVolume,
+            drumKit,
+            kickDesignerParams,
+            instrumentVisibility,
+            exportMeasures,
+            exportIncludeTail,
+            // Effects
+            lowPassFreq,
+            highPassFreq,
+            reverbMix,
+            reverbDecay,
+            reverbType,
+            reverbTone,
+            reverbSource,
+            delayMix,
+            delayTime,
+            delayFeedback,
+            delaySource,
+            delaySyncDivision,
+            kickSidechainAmount,
+            kickSidechainThreshold,
+            kickSidechainRatio,
+            crushAmount,
+            tapeSaturationMix,
+            tapeSaturationAmount,
+            tapeSaturationTone,
+            envelopeFilterMix,
+            envelopeFilterAmount,
+            envelopeFilterBaseFreq,
+            envelopeFilterQ,
+            effectsEnabled,
+            // Live DJ
+            randomizeIntensity,
+            chainMode,
+            isolatorGains,
+            lofiMix,
+            stutterDivision,
+            stutterSource,
+            isStutterSwingLocked,
+            beatRepeatDivision,
+            tapeStopDuration,
+            djShortcutEffects,
+            // Settings & UI
+            visualizerType,
+            visualizerStyle,
+            isPerformanceMode,
+            isSlowComputerMode,
+            tooltipsEnabled,
+            padLabelMode,
+            notationTextMode,
+            isInvertColors,
+            isCappuccinoMode,
+            hueRotate,
+            sixSevenSpeed,
+            keyboardDrummingEnabled,
+            keyboardMap,
+            sectionOrder,
+            customTitle,
+        };
+
+        safeSetItem('cl607-sessionState', JSON.stringify(sessionState));
+    }, [
+        isAppLoaded,
+        currentPatternIndex,
+        activePattern,
+        masterVolume,
+        drumKit,
+        kickDesignerParams,
+        instrumentVisibility,
+        exportMeasures,
+        exportIncludeTail,
+        lowPassFreq,
+        highPassFreq,
+        reverbMix,
+        reverbDecay,
+        reverbType,
+        reverbTone,
+        reverbSource,
+        delayMix,
+        delayTime,
+        delayFeedback,
+        delaySource,
+        delaySyncDivision,
+        kickSidechainAmount,
+        kickSidechainThreshold,
+        kickSidechainRatio,
+        crushAmount,
+        tapeSaturationMix,
+        tapeSaturationAmount,
+        tapeSaturationTone,
+        envelopeFilterMix,
+        envelopeFilterAmount,
+        envelopeFilterBaseFreq,
+        envelopeFilterQ,
+        effectsEnabled,
+        randomizeIntensity,
+        chainMode,
+        isolatorGains,
+        lofiMix,
+        stutterDivision,
+        stutterSource,
+        isStutterSwingLocked,
+        beatRepeatDivision,
+        tapeStopDuration,
+        djShortcutEffects,
+        visualizerType,
+        visualizerStyle,
+        isPerformanceMode,
+        isSlowComputerMode,
+        tooltipsEnabled,
+        padLabelMode,
+        notationTextMode,
+        isInvertColors,
+        isCappuccinoMode,
+        hueRotate,
+        sixSevenSpeed,
+        keyboardDrummingEnabled,
+        keyboardMap,
+        sectionOrder,
+        customTitle,
+    ]);
 
 
     const { 
@@ -549,6 +962,8 @@ const App: React.FC = () => {
         setLowPassFrequency, setHighPassFrequency,
         setReverbMix: setAudioEngineReverbMix, 
         setReverbDecay: setAudioEngineReverbDecay,
+        setReverbType: setAudioEngineReverbType,
+        setReverbTone: setAudioEngineReverbTone,
         setReverbSource: setAudioEngineReverbSource,
         setDelayMix: setAudioEngineDelayMix, 
         setDelayTime: setAudioEngineDelayTime, 
@@ -699,7 +1114,9 @@ const App: React.FC = () => {
                 if (scheduledStep % 4 === 0) {
                     const src = stutterSourceRef.current;
                     const srcVol = src === 'all' ? 0.7 : (currentVolumes[INSTRUMENTS.indexOf(src)] ?? 0.7);
-                    syncStutterTransport(true, scheduledTime, currentTempo, isFirstBeatAfterTransportStart, src, srcVol);
+                    const div = stutterDivisionRef.current;
+                    const effSwing = (!isStutterSwingLockedRef.current || div === '1/8T' || div === '1/16T') ? 0 : currentSwing;
+                    syncStutterTransport(true, scheduledTime, currentTempo, isFirstBeatAfterTransportStart, src, srcVol, effSwing);
                     isFirstBeatAfterTransportStart = false;
                 }
 
@@ -784,6 +1201,8 @@ const App: React.FC = () => {
     
     const instrumentColors = useMemo(() => {
         switch (visualizerStyle) {
+            case 'default':
+                return ['#9df5d2', '#93eef7', '#9ad1ff', '#a9b2ff', '#c6a8ff', '#e5a9ff', '#ffaad9'];
             case 'braun':
                 return ['#ea5b0c', '#d9381e', '#2563eb', '#0d9488', '#2d6a4f', '#d97706', '#6d28d9'];
             case 'bauhaus':
@@ -794,6 +1213,7 @@ const App: React.FC = () => {
                 return ['#d9462f', '#d4af37', '#e08238', '#5c9e73', '#4f75b8', '#c99b3b', '#b85d79'];
             case 'cyberpunk':
                 return ['#ff003c', '#fcee0a', '#00f0ff', '#00ff9f', '#ff00a0', '#ff6600', '#9d00ff'];
+            case 'classic607':
             default:
                 return BASE_INSTRUMENT_COLORS_HSL.map(baseColor => {
                     return `hsl(${baseColor.h}, ${baseColor.s}%, ${baseColor.l}%)`;
@@ -875,7 +1295,11 @@ const App: React.FC = () => {
     useEffect(() => {
         kickDesignerParamsRef.current = kickDesignerParams;
         drumKitRef.current = drumKit;
-    }, [kickDesignerParams, drumKit]);
+        if (!isInitialized) {
+            prevKickDesignerParamsRef.current = kickDesignerParams;
+            prevDrumKitRef.current = drumKit;
+        }
+    }, [kickDesignerParams, drumKit, isInitialized]);
 
     // This effect listens ONLY for changes to the kick designer parameters
     // and triggers a re-render of the kick sound buffer without re-rendering other instruments.
@@ -1014,68 +1438,173 @@ const App: React.FC = () => {
         setLiveRecordings(prev => prev.map(r => r.id === id ? { ...r, name: trimmed } : r));
     }, []);
 
-    const handleDownload = useCallback(async (customFilename?: string, measuresOverride?: number, includeTailOverride?: boolean) => {
+    const handleDownload = useCallback(async (customFilename?: string, measuresOverride?: number, includeTailOverride?: boolean, exportStems?: boolean) => {
         setIsRendering(true);
         try {
-            const wavBlob = await renderBeatToBuffer(
-                grids,
-                volumes,
-                tempo,
-                swing,
-                masterVolume,
-                effectsEnabled.lowPass ? lowPassFreq : MAX_FILTER_FREQ,
-                effectsEnabled.highPass ? highPassFreq : MIN_FILTER_FREQ,
-                effectsEnabled.reverb ? reverbMix : 0,
-                reverbDecay,
-                reverbSource,
-                effectsEnabled.delay ? delayMix : 0,
-                delayTime,
-                delayFeedback,
-                delaySource,
-                effectsEnabled.sidechain ? kickSidechainAmount : 0,
-                effectsEnabled.crush ? crushAmount : 0,
-                effectsEnabled.tape ? tapeSaturationMix : 0,
-                tapeSaturationAmount,
-                tapeSaturationTone,
-                effectsEnabled.envelope ? envelopeFilterMix : 0,
-                envelopeFilterAmount,
-                envelopeFilterBaseFreq,
-                envelopeFilterQ,
-                instrumentVisibility,
-                isolatorGains,
-                lofiMix,
-                activePattern,
-                chainMode,
-                kickSidechainThreshold,
-                kickSidechainRatio,
-                isRandomizeActive,
-                randomizeIntensity,
-                isStutterActive || isStutterHeld,
-                stutterDivision,
-                isBeatRepeatActive || isBeatRepeatHeld,
-                beatRepeatDivision,
-                beatRepeatAnchorStep,
-                stutterSource,
-                measuresOverride ?? exportMeasures,
-                includeTailOverride ?? exportIncludeTail
-            );
+            const defaultBase = `drums_bpm${tempo}`;
+            const rawBase = (customFilename ?? defaultBase).trim().replace(/(\.wav|\.zip)$/i, '');
+            const sanitizedBase = rawBase.replace(/[:/\\?%*|"<>]/g, '_').trim() || defaultBase;
 
-            if (wavBlob) {
-                const defaultBase = `drums_bpm${tempo}`;
-                const rawBase = (customFilename ?? defaultBase).trim().replace(/\.wav$/i, '');
-                const sanitizedBase = rawBase.replace(/[:/\\?%*|"<>]/g, '_').trim() || defaultBase;
-                const filename = `${sanitizedBase}.wav`;
-                const url = URL.createObjectURL(wavBlob);
-                const a = document.createElement('a');
-                a.style.display = 'none';
-                a.href = url;
-                a.download = filename;
-                document.body.appendChild(a);
-                a.click();
-                window.URL.revokeObjectURL(url);
-                document.body.removeChild(a);
+            if (exportStems) {
+                const folderName = `${sanitizedBase}_stems`;
+                const isAPatternActive = grids.a.some(row => row.some(step => step));
+                const isBPatternActive = grids.b.some(row => row.some(step => step));
+                const stemFiles: { path: string; blob: Blob }[] = [];
+
+                const instrumentsWithHits = INSTRUMENTS.filter((_, idx) => {
+                    if (!instrumentVisibility[idx] || volumes[idx] <= 0) return false;
+                    if (chainMode !== 'off') {
+                        return Boolean(grids.a[idx]?.some(Boolean) || grids.b[idx]?.some(Boolean));
+                    }
+                    const targetGrid =
+                        activePattern === 'a' && !isAPatternActive && isBPatternActive
+                            ? grids.b
+                            : activePattern === 'b' && !isBPatternActive && isAPatternActive
+                            ? grids.a
+                            : grids[activePattern];
+                    return Boolean(targetGrid[idx]?.some(Boolean));
+                });
+
+                const targetInstruments = instrumentsWithHits.length > 0
+                    ? instrumentsWithHits
+                    : INSTRUMENTS.filter((_, idx) => instrumentVisibility[idx] && volumes[idx] > 0);
+
+                for (let idx = 0; idx < targetInstruments.length; idx++) {
+                    const inst = targetInstruments[idx];
+                    const instIndex = INSTRUMENTS.indexOf(inst);
+                    const stemBlob = await renderBeatToBuffer(
+                        grids,
+                        volumes,
+                        tempo,
+                        swing,
+                        masterVolume,
+                        effectsEnabled.lowPass ? lowPassFreq : MAX_FILTER_FREQ,
+                        effectsEnabled.highPass ? highPassFreq : MIN_FILTER_FREQ,
+                        effectsEnabled.reverb ? reverbMix : 0,
+                        reverbDecay,
+                        reverbSource,
+                        effectsEnabled.delay ? delayMix : 0,
+                        delayTime,
+                        delayFeedback,
+                        delaySource,
+                        effectsEnabled.sidechain ? kickSidechainAmount : 0,
+                        effectsEnabled.crush ? crushAmount : 0,
+                        effectsEnabled.tape ? tapeSaturationMix : 0,
+                        tapeSaturationAmount,
+                        tapeSaturationTone,
+                        effectsEnabled.envelope ? envelopeFilterMix : 0,
+                        envelopeFilterAmount,
+                        envelopeFilterBaseFreq,
+                        envelopeFilterQ,
+                        instrumentVisibility,
+                        isolatorGains,
+                        lofiMix,
+                        activePattern,
+                        chainMode,
+                        kickSidechainThreshold,
+                        kickSidechainRatio,
+                        isRandomizeActive,
+                        randomizeIntensity,
+                        isStutterActive || isStutterHeld,
+                        stutterDivision,
+                        isBeatRepeatActive || isBeatRepeatHeld,
+                        beatRepeatDivision,
+                        beatRepeatAnchorStep,
+                        stutterSource,
+                        measuresOverride ?? exportMeasures,
+                        includeTailOverride ?? exportIncludeTail,
+                        inst,
+                        isStutterSwingLocked ? swing : 0,
+                        reverbType,
+                        reverbTone
+                    );
+                    if (stemBlob) {
+                        const paddedIndex = String(instIndex + 1).padStart(2, '0');
+                        stemFiles.push({
+                            path: `${folderName}/${paddedIndex}_${inst}.wav`,
+                            blob: stemBlob,
+                        });
+                    }
+                }
+
+                if (stemFiles.length > 0) {
+                    const zipBlob = await createZipBlob(stemFiles);
+                    const url = URL.createObjectURL(zipBlob);
+                    const a = document.createElement('a');
+                    a.style.display = 'none';
+                    a.href = url;
+                    a.download = `${folderName}.zip`;
+                    document.body.appendChild(a);
+                    a.click();
+                    setTimeout(() => {
+                        window.URL.revokeObjectURL(url);
+                        document.body.removeChild(a);
+                    }, 200);
+                }
             } else {
-                console.error("Rendering failed, received null blob.");
+                const wavBlob = await renderBeatToBuffer(
+                    grids,
+                    volumes,
+                    tempo,
+                    swing,
+                    masterVolume,
+                    effectsEnabled.lowPass ? lowPassFreq : MAX_FILTER_FREQ,
+                    effectsEnabled.highPass ? highPassFreq : MIN_FILTER_FREQ,
+                    effectsEnabled.reverb ? reverbMix : 0,
+                    reverbDecay,
+                    reverbSource,
+                    effectsEnabled.delay ? delayMix : 0,
+                    delayTime,
+                    delayFeedback,
+                    delaySource,
+                    effectsEnabled.sidechain ? kickSidechainAmount : 0,
+                    effectsEnabled.crush ? crushAmount : 0,
+                    effectsEnabled.tape ? tapeSaturationMix : 0,
+                    tapeSaturationAmount,
+                    tapeSaturationTone,
+                    effectsEnabled.envelope ? envelopeFilterMix : 0,
+                    envelopeFilterAmount,
+                    envelopeFilterBaseFreq,
+                    envelopeFilterQ,
+                    instrumentVisibility,
+                    isolatorGains,
+                    lofiMix,
+                    activePattern,
+                    chainMode,
+                    kickSidechainThreshold,
+                    kickSidechainRatio,
+                    isRandomizeActive,
+                    randomizeIntensity,
+                    isStutterActive || isStutterHeld,
+                    stutterDivision,
+                    isBeatRepeatActive || isBeatRepeatHeld,
+                    beatRepeatDivision,
+                    beatRepeatAnchorStep,
+                    stutterSource,
+                    measuresOverride ?? exportMeasures,
+                    includeTailOverride ?? exportIncludeTail,
+                    undefined,
+                    isStutterSwingLocked ? swing : 0,
+                    reverbType,
+                    reverbTone
+                );
+
+                if (wavBlob) {
+                    const filename = `${sanitizedBase}.wav`;
+                    const url = URL.createObjectURL(wavBlob);
+                    const a = document.createElement('a');
+                    a.style.display = 'none';
+                    a.href = url;
+                    a.download = filename;
+                    document.body.appendChild(a);
+                    a.click();
+                    setTimeout(() => {
+                        window.URL.revokeObjectURL(url);
+                        document.body.removeChild(a);
+                    }, 200);
+                } else {
+                    console.error("Rendering failed, received null blob.");
+                }
             }
         } catch (error) {
             console.error("Failed to render beat:", error);
@@ -1084,13 +1613,14 @@ const App: React.FC = () => {
         }
     }, [
         renderBeatToBuffer, grids, volumes, tempo, swing, masterVolume, lowPassFreq, highPassFreq,
-        reverbMix, reverbDecay, reverbSource, delayMix, delayTime, delayFeedback, delaySource,
+        reverbMix, reverbDecay, reverbType, reverbTone, reverbSource,
+        delayMix, delayTime, delayFeedback, delaySource,
         kickSidechainAmount, kickSidechainThreshold, kickSidechainRatio,
         crushAmount, tapeSaturationMix, tapeSaturationAmount, tapeSaturationTone,
         envelopeFilterMix, envelopeFilterAmount, envelopeFilterBaseFreq, envelopeFilterQ,
         effectsEnabled, instrumentVisibility, isolatorGains, lofiMix, activePattern, chainMode,
         isRandomizeActive, randomizeIntensity, isStutterActive, isStutterHeld, stutterDivision,
-        isBeatRepeatActive, isBeatRepeatHeld, beatRepeatDivision, beatRepeatAnchorStep, stutterSource,
+        isStutterSwingLocked, isBeatRepeatActive, isBeatRepeatHeld, beatRepeatDivision, beatRepeatAnchorStep, stutterSource,
         exportMeasures, exportIncludeTail
     ]);
 
@@ -1137,7 +1667,11 @@ const App: React.FC = () => {
                 beatRepeatAnchorStep,
                 stutterSource,
                 measuresOverride ?? exportMeasures,
-                includeTailOverride ?? exportIncludeTail
+                includeTailOverride ?? exportIncludeTail,
+                undefined,
+                isStutterSwingLocked ? swing : 0,
+                reverbType,
+                reverbTone
             );
 
             if (wavBlob) {
@@ -1155,13 +1689,14 @@ const App: React.FC = () => {
         }
     }, [
         renderBeatToBuffer, grids, volumes, tempo, swing, masterVolume, lowPassFreq, highPassFreq,
-        reverbMix, reverbDecay, reverbSource, delayMix, delayTime, delayFeedback, delaySource,
+        reverbMix, reverbDecay, reverbType, reverbTone, reverbSource,
+        delayMix, delayTime, delayFeedback, delaySource,
         kickSidechainAmount, kickSidechainThreshold, kickSidechainRatio,
         crushAmount, tapeSaturationMix, tapeSaturationAmount, tapeSaturationTone,
         envelopeFilterMix, envelopeFilterAmount, envelopeFilterBaseFreq, envelopeFilterQ,
         effectsEnabled, instrumentVisibility, isolatorGains, lofiMix, activePattern, chainMode,
         isRandomizeActive, randomizeIntensity, isStutterActive, isStutterHeld, stutterDivision,
-        isBeatRepeatActive, isBeatRepeatHeld, beatRepeatDivision, beatRepeatAnchorStep, stutterSource,
+        isStutterSwingLocked, isBeatRepeatActive, isBeatRepeatHeld, beatRepeatDivision, beatRepeatAnchorStep, stutterSource,
         exportMeasures, exportIncludeTail
     ]);
 
@@ -1174,7 +1709,8 @@ const App: React.FC = () => {
         });
     }, [
         grids, volumes, tempo, swing, masterVolume, lowPassFreq, highPassFreq,
-        reverbMix, reverbDecay, reverbSource, delayMix, delayTime, delayFeedback, delaySource,
+        reverbMix, reverbDecay, reverbType, reverbTone, reverbSource,
+        delayMix, delayTime, delayFeedback, delaySource,
         kickSidechainAmount, kickSidechainThreshold, kickSidechainRatio,
         crushAmount, tapeSaturationMix, tapeSaturationAmount, tapeSaturationTone,
         envelopeFilterMix, envelopeFilterAmount, envelopeFilterBaseFreq, envelopeFilterQ,
@@ -1278,6 +1814,19 @@ const App: React.FC = () => {
         }
     }, [toggleXyFilter, setXyFilterParams]);
 
+    const getStutterSourceVolume = useCallback((source: Instrument | 'all') => {
+        if (source === 'all') return 0.7;
+        const idx = INSTRUMENTS.indexOf(source);
+        return idx !== -1 ? volumesRef.current[idx] : 0.7;
+    }, []);
+
+    const getEffectiveStutterSwing = useCallback((div: StutterDivision, locked: boolean, swingAmount: number): number => {
+        if (!locked) return 0;
+        // Keep triplets in strict time (straight timing, no swing applied)
+        if (div === '1/8T' || div === '1/16T') return 0;
+        return swingAmount;
+    }, []);
+
     const handleTempoChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
         const nextTempo = Number(e.target.value);
         tempoRef.current = nextTempo;
@@ -1291,7 +1840,20 @@ const App: React.FC = () => {
         const nextSwing = Number(e.target.value);
         swingRef.current = nextSwing;
         setSwing(nextSwing);
-    }, []);
+        if (isStutterActive || isStutterHeld) {
+            const effSwing = (!isStutterSwingLockedRef.current || stutterDivision === '1/8T' || stutterDivision === '1/16T') ? 0 : nextSwing;
+            updateStutterParams(stutterDivision, tempoRef.current, stutterSource, getStutterSourceVolume(stutterSource), effSwing);
+        }
+    }, [isStutterActive, isStutterHeld, stutterDivision, stutterSource, getStutterSourceVolume, updateStutterParams]);
+
+    const handleDirectSwingChange = useCallback((nextSwing: number) => {
+        swingRef.current = nextSwing;
+        setSwing(nextSwing);
+        if (isStutterActive || isStutterHeld) {
+            const effSwing = (!isStutterSwingLockedRef.current || stutterDivision === '1/8T' || stutterDivision === '1/16T') ? 0 : nextSwing;
+            updateStutterParams(stutterDivision, tempoRef.current, stutterSource, getStutterSourceVolume(stutterSource), effSwing);
+        }
+    }, [isStutterActive, isStutterHeld, stutterDivision, stutterSource, getStutterSourceVolume, updateStutterParams]);
     const handleMasterVolumeChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => setMasterVolume(Number(e.target.value)), []);
     
     const handleRandomizePressStart = useCallback(() => {
@@ -1317,6 +1879,14 @@ const App: React.FC = () => {
 
     const handleRandomizeIntensityChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => setRandomizeIntensity(Number(e.target.value)), []);
     const handleToggleColorAnimation = useCallback(() => setIsColorAnimating(p => !p), []);
+    const handleResetColorKnob = useCallback(() => {
+        if (animationFrameRef.current) {
+            cancelAnimationFrame(animationFrameRef.current);
+            animationFrameRef.current = null;
+        }
+        setIsColorAnimating(false);
+        setHueRotate(0);
+    }, []);
     const handleIsolatorGainChange = useCallback((band: 'low' | 'mid' | 'high', value: number) => {
         setIsolatorGains(prev => ({ ...prev, [band]: value }));
     }, []);
@@ -1354,44 +1924,69 @@ const App: React.FC = () => {
         updateTapeStopDuration(nextDur, tempoRef.current);
     }, [updateTapeStopDuration]);
 
-    const getStutterSourceVolume = useCallback((source: Instrument | 'all') => {
-        if (source === 'all') return 0.7;
-        const idx = INSTRUMENTS.indexOf(source);
-        return idx !== -1 ? volumesRef.current[idx] : 0.7;
-    }, []);
+    const handleToggleStutterSwing = useCallback(() => {
+        setIsStutterSwingLocked(prev => {
+            const next = !prev;
+            isStutterSwingLockedRef.current = next;
+            safeSetItem('cl607-stutterSwingLocked', JSON.stringify(next));
+            const effSwing = getEffectiveStutterSwing(stutterDivision, next, swingRef.current);
+            updateStutterParams(stutterDivision, tempoRef.current, stutterSource, getStutterSourceVolume(stutterSource), effSwing);
+            return next;
+        });
+    }, [stutterDivision, stutterSource, getStutterSourceVolume, updateStutterParams, getEffectiveStutterSwing]);
 
     const handleStutterPressStart = useCallback(() => {
         setIsStutterActive(true);
-        setStutterState(true, false, stutterDivision, tempoRef.current, stutterSource, getStutterSourceVolume(stutterSource));
-    }, [setStutterState, stutterDivision, stutterSource, getStutterSourceVolume]);
+        const effSwing = getEffectiveStutterSwing(stutterDivision, isStutterSwingLockedRef.current, swingRef.current);
+        setStutterState(true, isStutterHeld, stutterDivision, tempoRef.current, stutterSource, getStutterSourceVolume(stutterSource), effSwing);
+    }, [isStutterHeld, setStutterState, stutterDivision, stutterSource, getStutterSourceVolume, getEffectiveStutterSwing]);
 
     const handleStutterPressEnd = useCallback(() => {
+        const effSwing = getEffectiveStutterSwing(stutterDivision, isStutterSwingLockedRef.current, swingRef.current);
         if (isStutterHeld) {
             setIsStutterActive(true);
-            setStutterState(true, true, stutterDivision, tempoRef.current, stutterSource, getStutterSourceVolume(stutterSource));
+            setStutterState(true, true, stutterDivision, tempoRef.current, stutterSource, getStutterSourceVolume(stutterSource), effSwing);
             return;
         }
         setIsStutterActive(false);
-        setStutterState(false, false, stutterDivision, tempoRef.current, stutterSource, getStutterSourceVolume(stutterSource));
-    }, [isStutterHeld, setStutterState, stutterDivision, stutterSource, getStutterSourceVolume]);
+        setStutterState(false, false, stutterDivision, tempoRef.current, stutterSource, getStutterSourceVolume(stutterSource), effSwing);
+    }, [isStutterHeld, setStutterState, stutterDivision, stutterSource, getStutterSourceVolume, getEffectiveStutterSwing]);
+
+    useEffect(() => {
+        if (!isStutterActive || isStutterHeld) return;
+        const onGlobalRelease = () => {
+            handleStutterPressEnd();
+        };
+        window.addEventListener('mouseup', onGlobalRelease);
+        window.addEventListener('touchend', onGlobalRelease);
+        window.addEventListener('touchcancel', onGlobalRelease);
+        return () => {
+            window.removeEventListener('mouseup', onGlobalRelease);
+            window.removeEventListener('touchend', onGlobalRelease);
+            window.removeEventListener('touchcancel', onGlobalRelease);
+        };
+    }, [isStutterActive, isStutterHeld, handleStutterPressEnd]);
 
     const handleToggleStutterHold = useCallback(() => {
         const nextHeld = !isStutterHeld;
         setIsStutterHeld(nextHeld);
         setIsStutterActive(nextHeld);
-        setStutterState(nextHeld, nextHeld, stutterDivision, tempoRef.current, stutterSource, getStutterSourceVolume(stutterSource));
-    }, [isStutterHeld, setStutterState, stutterDivision, stutterSource, getStutterSourceVolume]);
+        const effSwing = getEffectiveStutterSwing(stutterDivision, isStutterSwingLockedRef.current, swingRef.current);
+        setStutterState(nextHeld, nextHeld, stutterDivision, tempoRef.current, stutterSource, getStutterSourceVolume(stutterSource), effSwing);
+    }, [isStutterHeld, setStutterState, stutterDivision, stutterSource, getStutterSourceVolume, getEffectiveStutterSwing]);
 
     const handleStutterDivisionChange = useCallback((div: StutterDivision) => {
         setStutterDivision(div);
-        updateStutterParams(div, tempoRef.current, stutterSource, getStutterSourceVolume(stutterSource));
-    }, [updateStutterParams, stutterSource, getStutterSourceVolume]);
+        const effSwing = getEffectiveStutterSwing(div, isStutterSwingLockedRef.current, swingRef.current);
+        updateStutterParams(div, tempoRef.current, stutterSource, getStutterSourceVolume(stutterSource), effSwing);
+    }, [updateStutterParams, stutterSource, getStutterSourceVolume, getEffectiveStutterSwing]);
 
     const handleStutterSourceChange = useCallback((e: React.ChangeEvent<HTMLSelectElement>) => {
         const nextSource = e.target.value as Instrument | 'all';
         setStutterSource(nextSource);
-        updateStutterParams(stutterDivision, tempoRef.current, nextSource, getStutterSourceVolume(nextSource));
-    }, [stutterDivision, updateStutterParams, getStutterSourceVolume]);
+        const effSwing = getEffectiveStutterSwing(stutterDivision, isStutterSwingLockedRef.current, swingRef.current);
+        updateStutterParams(stutterDivision, tempoRef.current, nextSource, getStutterSourceVolume(nextSource), effSwing);
+    }, [stutterDivision, updateStutterParams, getStutterSourceVolume, getEffectiveStutterSwing]);
 
     const computeBeatRepeatAnchor = useCallback((div: BeatRepeatDivision) => {
         const numSteps = beatsPerMeasureRef.current * 4;
@@ -1637,51 +2232,162 @@ const App: React.FC = () => {
         });
     }, []);
     
+    // --- Start: Reset button logic ---
+    const handleResetDjSettings = useCallback(() => {
+        setRandomizeIntensity(DEFAULT_DJ_SETTINGS.randomizeIntensity);
+        setChainMode(DEFAULT_DJ_SETTINGS.chainMode);
+        setIsolatorGains({ ...DEFAULT_DJ_SETTINGS.isolatorGains });
+        setLofiMix(DEFAULT_DJ_SETTINGS.lofiMix);
+        setIsRandomizeActive(false);
+        if (scrambleIntervalRef.current) {
+            clearInterval(scrambleIntervalRef.current);
+            scrambleIntervalRef.current = null;
+        }
+        setRandomizeButtonText('RANDOMIZE');
+        setIsXyFilterHeld(false);
+        toggleXyFilter(false);
+        if (tapeStopReleaseTimerRef.current) {
+            clearTimeout(tapeStopReleaseTimerRef.current);
+            tapeStopReleaseTimerRef.current = null;
+        }
+        setIsTapeStopActive(false);
+        setTapeStopDuration(DEFAULT_DJ_SETTINGS.tapeStopDuration);
+        setTapeStop(false, DEFAULT_DJ_SETTINGS.tapeStopDuration, tempoRef.current);
+        setIsStutterHeld(false);
+        setIsStutterActive(false);
+        setIsStutterSwingLocked(DEFAULT_DJ_SETTINGS.stutterSwingLocked);
+        isStutterSwingLockedRef.current = DEFAULT_DJ_SETTINGS.stutterSwingLocked;
+        safeSetItem('cl607-stutterSwingLocked', JSON.stringify(DEFAULT_DJ_SETTINGS.stutterSwingLocked));
+        setStutterDivision(DEFAULT_DJ_SETTINGS.stutterDivision);
+        setStutterSource(DEFAULT_DJ_SETTINGS.stutterSource);
+        setStutterState(false, false, DEFAULT_DJ_SETTINGS.stutterDivision, tempoRef.current, DEFAULT_DJ_SETTINGS.stutterSource, 0.7, DEFAULT_DJ_SETTINGS.stutterSwingLocked ? swingRef.current : 0);
+        isBeatRepeatActiveRef.current = false;
+        beatRepeatDivisionRef.current = DEFAULT_DJ_SETTINGS.beatRepeatDivision;
+        beatRepeatAnchorStepRef.current = 0;
+        setIsBeatRepeatHeld(false);
+        setIsBeatRepeatActive(false);
+        setBeatRepeatDivision(DEFAULT_DJ_SETTINGS.beatRepeatDivision);
+        setBeatRepeatAnchorStep(0);
+    }, [toggleXyFilter, setTapeStop, setStutterState]);
+
+    const handleResetEffectsSettings = useCallback(() => {
+        setLowPassFreq(DEFAULT_EFFECTS_SETTINGS.lowPassFreq);
+        setHighPassFreq(DEFAULT_EFFECTS_SETTINGS.highPassFreq);
+        setReverbMix(DEFAULT_EFFECTS_SETTINGS.reverbMix);
+        setReverbDecay(DEFAULT_EFFECTS_SETTINGS.reverbDecay);
+        setReverbType(DEFAULT_EFFECTS_SETTINGS.reverbType);
+        setReverbTone(DEFAULT_EFFECTS_SETTINGS.reverbTone);
+        setReverbSource(DEFAULT_EFFECTS_SETTINGS.reverbSource);
+        setDelayMix(DEFAULT_EFFECTS_SETTINGS.delayMix);
+        setDelayTime(
+            DEFAULT_EFFECTS_SETTINGS.delaySyncDivision
+                ? getDelayDivisionTimeSeconds(DEFAULT_EFFECTS_SETTINGS.delaySyncDivision, tempoRef.current)
+                : DEFAULT_EFFECTS_SETTINGS.delayTime
+        );
+        setDelayFeedback(DEFAULT_EFFECTS_SETTINGS.delayFeedback);
+        setDelaySource(DEFAULT_EFFECTS_SETTINGS.delaySource);
+        setDelaySyncDivision(DEFAULT_EFFECTS_SETTINGS.delaySyncDivision);
+        setKickSidechainAmount(DEFAULT_EFFECTS_SETTINGS.kickSidechainAmount);
+        setCrushAmount(DEFAULT_EFFECTS_SETTINGS.crushAmount);
+        setTapeSaturationMix(DEFAULT_EFFECTS_SETTINGS.tapeSaturationMix);
+        setTapeSaturationAmount(DEFAULT_EFFECTS_SETTINGS.tapeSaturationAmount);
+        setTapeSaturationTone(DEFAULT_EFFECTS_SETTINGS.tapeSaturationTone);
+        setEnvelopeFilterMix(DEFAULT_EFFECTS_SETTINGS.envelopeFilterMix);
+        setEnvelopeFilterAmount(DEFAULT_EFFECTS_SETTINGS.envelopeFilterAmount);
+        setEnvelopeFilterBaseFreq(DEFAULT_EFFECTS_SETTINGS.envelopeFilterBaseFreq);
+        setEnvelopeFilterQ(DEFAULT_EFFECTS_SETTINGS.envelopeFilterQ);
+    }, []);
+
     const handleFactoryReset = useCallback(() => {
         // Stop playback if it's running
         if (isPlaying) {
             setIsPlaying(false);
         }
+        setCurrentStep(null);
 
         // 1. Clear storage
         for (let i = 0; i < 4; i++) {
             safeRemoveItem(`cl607-pattern-${i}`);
         }
         safeRemoveItem('cl607-tooltipsEnabled');
+        safeRemoveItem('cl607-tooltipsEnabled-v2');
         safeRemoveItem('cl607-showBeatNumbers');
+        safeRemoveItem('cl607-padLabelMode');
+        safeRemoveItem('cl607-notationTextMode');
+        safeRemoveItem('cl607-stutterSwingLocked');
         safeRemoveItem('cl607-invertColors');
         safeRemoveItem('cl607-customTitle');
         safeRemoveItem('cl607-visualizerStyle');
         safeRemoveItem('cl607-slowComputerMode');
         safeRemoveItem('cl607-keyboardDrummingEnabled');
+        safeRemoveItem('cl607-sixSevenSpeed');
+        safeRemoveItem('cl607-sessionState');
     
         // 2. Reset all state to defaults
-        // Core sequencer state
+        const freshInstParams: AllInstrumentParams = JSON.parse(JSON.stringify(DEFAULT_INSTRUMENT_PARAMS));
+        const freshKickParams: KickDesignerParams = JSON.parse(JSON.stringify(DEFAULT_KICK_DESIGNER_PARAMS));
+        const freshVolumes = [...DEFAULT_VOLUMES];
+
+        // Core sequencer & kit state
         setBeatsPerMeasure(4);
         setGrids({ a: createInitialGrid(16), b: createInitialGrid(16) });
-        setVolumes([...DEFAULT_VOLUMES]);
+        setVolumes(freshVolumes);
+        tempoRef.current = DEFAULT_TEMPO;
         setTempo(DEFAULT_TEMPO);
+        swingRef.current = 0;
         setSwing(0);
         setActivePattern('a');
         setMasterVolume(0.5);
-        setInstrumentParams(JSON.parse(JSON.stringify(DEFAULT_INSTRUMENT_PARAMS)));
-        setKickDesignerParams(JSON.parse(JSON.stringify(DEFAULT_KICK_DESIGNER_PARAMS)));
-        
+        setDrumKit('808');
+        drumKitRef.current = '808';
+        prevDrumKitRef.current = '808';
+        setInstrumentParams(freshInstParams);
+        instrumentParamsRef.current = freshInstParams;
+        setKickDesignerParams(freshKickParams);
+        kickDesignerParamsRef.current = freshKickParams;
+        prevKickDesignerParamsRef.current = freshKickParams;
+
+        // Immediately re-render audio engine instrument buffers to default 808 kit & params
+        if (isInitialized && rerenderAllInstruments) {
+            rerenderAllInstruments(freshKickParams, '808', freshInstParams);
+            if (updateInstrumentParameter) {
+                updateInstrumentParameter('sample', 'highPass', MIN_FILTER_FREQ, '808');
+                updateInstrumentParameter('sample', 'lowPass', MAX_FILTER_FREQ, '808');
+            }
+        }
+        if (isAudioEngineReady) {
+            setSampleAudioData(new Float32Array(0));
+        }
+
         // Effects state
         handleResetEffectsSettings();
+        setKickSidechainThreshold(DEFAULT_EFFECTS_SETTINGS.kickSidechainThreshold);
+        setKickSidechainRatio(DEFAULT_EFFECTS_SETTINGS.kickSidechainRatio);
         
         // DJ state
         handleResetDjSettings();
+        setDjShortcutEffects(['delay', 'reverb']);
+        setOpenDjShortcutDropdown(null);
         
-        // Settings state
+        // Settings & UI state
         setVisualizerType('waveform');
         setVisualizerStyle('default');
         setIsSlowComputerMode(false);
         setIsPerformanceMode(true);
-        setTooltipsEnabled(true);
-        setShowBeatNumbers(false);
+        setTooltipsEnabled(false);
+        setPadLabelMode('off');
+        setNotationTextMode('syllables');
         setIsInvertColors(false);
         setKeyboardDrummingEnabled(true);
+        setKeyboardMap({
+            'a': 'kick',
+            's': 'snare',
+            'd': 'hihat',
+            'f': 'snap',
+            'g': 'clave',
+            'h': 'cowbell',
+            'j': 'sample'
+        });
         setInstrumentVisibility(Array(INSTRUMENTS.length).fill(true));
         setEffectsEnabled({
             lowPass: true, highPass: true, sidechain: true, crush: true, tape: true, envelope: true, reverb: true, delay: true
@@ -1689,12 +2395,16 @@ const App: React.FC = () => {
         setSectionOrder(['dj', 'effects', 'instruments', 'recorder', 'notation', 'settings']);
         setHueRotate(0);
         setIsColorAnimating(false);
-        setIsCappuccinoMode(false); // Reset hidden mode
+        setSixSevenSpeed(1);
+        sixSevenSpeedRef.current = 1;
+        setIsCappuccinoMode(false);
         setCustomTitle('CL-607 Drum Machine');
         setIsEditingTitle(false);
         setFullAudioData(new Float32Array(0));
         setOriginalAudioData(new Float32Array(0));
         setTrimRange({ start: 0, end: 1 });
+        setExportMeasures(1);
+        setExportIncludeTail(false);
     
         // Pattern management state
         const defaultPattern: SavedPattern = {
@@ -1709,8 +2419,46 @@ const App: React.FC = () => {
         newSavedPatterns[0] = defaultPattern;
         setSavedPatterns(newSavedPatterns);
         setCurrentPatternIndex(0);
-    
-    }, [isPlaying]);
+        try {
+            safeSetItem('cl607-pattern-0', JSON.stringify(defaultPattern));
+        } catch {}
+    }, [
+        isPlaying, isInitialized, isAudioEngineReady, rerenderAllInstruments,
+        updateInstrumentParameter, setSampleAudioData, handleResetEffectsSettings, handleResetDjSettings
+    ]);
+
+    const handleResetInstrumentSettings = useCallback(() => {
+        const freshInstParams = JSON.parse(JSON.stringify(DEFAULT_INSTRUMENT_PARAMS));
+        const freshKickParams = JSON.parse(JSON.stringify(DEFAULT_KICK_DESIGNER_PARAMS));
+        const freshVolumes = [...DEFAULT_VOLUMES];
+        setInstrumentParams(freshInstParams);
+        instrumentParamsRef.current = freshInstParams;
+        setKickDesignerParams(freshKickParams);
+        kickDesignerParamsRef.current = freshKickParams;
+        prevKickDesignerParamsRef.current = freshKickParams;
+        setVolumes(freshVolumes);
+        setInstrumentVisibility(Array(INSTRUMENTS.length).fill(true));
+        if (isInitialized && rerenderAllInstruments) {
+            rerenderAllInstruments(freshKickParams, drumKitRef.current, freshInstParams);
+        }
+    }, [isInitialized, rerenderAllInstruments]);
+
+    const handleResetSampleRecorder = useCallback(() => {
+        setFullAudioData(new Float32Array(0));
+        setOriginalAudioData(new Float32Array(0));
+        setTrimRange({ start: 0, end: 1 });
+        if (isAudioEngineReady) {
+            setSampleAudioData(new Float32Array(0));
+        }
+        if (updateInstrumentParameter) {
+            updateInstrumentParameter('sample', 'highPass', MIN_FILTER_FREQ, drumKitRef.current);
+            updateInstrumentParameter('sample', 'lowPass', MAX_FILTER_FREQ, drumKitRef.current);
+        }
+        setInstrumentParams(prev => ({
+            ...prev,
+            sample: { ...DEFAULT_INSTRUMENT_PARAMS.sample }
+        }));
+    }, [isAudioEngineReady, setSampleAudioData, updateInstrumentParameter]);
 
     const handleSliderInteractionStart = useCallback(() => {
         setIsInteractingWithSlider(true);
@@ -1808,100 +2556,51 @@ const App: React.FC = () => {
         onTouchStart: handleSliderInteractionStart,
     }), [handleSliderInteractionStart]);
 
-    useEffect(() => { setLowPassFrequency(effectsEnabled.lowPass ? lowPassFreq : MAX_FILTER_FREQ) }, [lowPassFreq, effectsEnabled.lowPass, setLowPassFrequency]);
-    useEffect(() => { setHighPassFrequency(effectsEnabled.highPass ? highPassFreq : MIN_FILTER_FREQ) }, [highPassFreq, effectsEnabled.highPass, setHighPassFrequency]);
-    useEffect(() => { setAudioEngineReverbMix(effectsEnabled.reverb ? reverbMix : 0) }, [reverbMix, effectsEnabled.reverb, setAudioEngineReverbMix]);
-    useEffect(() => { setAudioEngineReverbDecay(reverbDecay) }, [reverbDecay, setAudioEngineReverbDecay]);
-    useEffect(() => { if (setAudioEngineReverbSource) setAudioEngineReverbSource(reverbSource) }, [reverbSource, setAudioEngineReverbSource]);
-    useEffect(() => { setAudioEngineDelayMix(effectsEnabled.delay ? delayMix : 0) }, [delayMix, effectsEnabled.delay, setAudioEngineDelayMix]);
-    useEffect(() => { setAudioEngineDelayTime(delayTime) }, [delayTime, setAudioEngineDelayTime]);
-    useEffect(() => { setAudioEngineDelayFeedback(delayFeedback) }, [delayFeedback, setAudioEngineDelayFeedback]);
-    useEffect(() => { if (setAudioEngineDelaySource) setAudioEngineDelaySource(delaySource) }, [delaySource, setAudioEngineDelaySource]);
-    useEffect(() => { setAudioEngineKickSidechainAmount(effectsEnabled.sidechain ? kickSidechainAmount : 0) }, [kickSidechainAmount, effectsEnabled.sidechain, setAudioEngineKickSidechainAmount]);
-    useEffect(() => { if (setAudioEngineKickSidechainThreshold) setAudioEngineKickSidechainThreshold(kickSidechainThreshold) }, [kickSidechainThreshold, setAudioEngineKickSidechainThreshold]);
-    useEffect(() => { if (setAudioEngineKickSidechainRatio) setAudioEngineKickSidechainRatio(kickSidechainRatio) }, [kickSidechainRatio, setAudioEngineKickSidechainRatio]);
-    useEffect(() => { setAudioEngineMasterVolume(masterVolume) }, [masterVolume, setAudioEngineMasterVolume]);
-    useEffect(() => { setAudioEngineCrushAmount(effectsEnabled.crush ? crushAmount : 0) }, [crushAmount, effectsEnabled.crush, setAudioEngineCrushAmount]);
+    useEffect(() => { setLowPassFrequency(effectsEnabled.lowPass ? lowPassFreq : MAX_FILTER_FREQ) }, [lowPassFreq, effectsEnabled.lowPass, setLowPassFrequency, isInitialized]);
+    useEffect(() => { setHighPassFrequency(effectsEnabled.highPass ? highPassFreq : MIN_FILTER_FREQ) }, [highPassFreq, effectsEnabled.highPass, setHighPassFrequency, isInitialized]);
+    useEffect(() => { setAudioEngineReverbMix(effectsEnabled.reverb ? reverbMix : 0) }, [reverbMix, effectsEnabled.reverb, setAudioEngineReverbMix, isInitialized]);
+    useEffect(() => { setAudioEngineReverbDecay(reverbDecay) }, [reverbDecay, setAudioEngineReverbDecay, isInitialized]);
+    useEffect(() => { if (setAudioEngineReverbType) setAudioEngineReverbType(reverbType) }, [reverbType, setAudioEngineReverbType, isInitialized]);
+    useEffect(() => { if (setAudioEngineReverbTone) setAudioEngineReverbTone(reverbTone) }, [reverbTone, setAudioEngineReverbTone, isInitialized]);
+    useEffect(() => { if (setAudioEngineReverbSource) setAudioEngineReverbSource(reverbSource) }, [reverbSource, setAudioEngineReverbSource, isInitialized]);
+    useEffect(() => { setAudioEngineDelayMix(effectsEnabled.delay ? delayMix : 0) }, [delayMix, effectsEnabled.delay, setAudioEngineDelayMix, isInitialized]);
+    useEffect(() => { setAudioEngineDelayTime(delayTime) }, [delayTime, setAudioEngineDelayTime, isInitialized]);
+    useEffect(() => { setAudioEngineDelayFeedback(delayFeedback) }, [delayFeedback, setAudioEngineDelayFeedback, isInitialized]);
+    useEffect(() => { if (setAudioEngineDelaySource) setAudioEngineDelaySource(delaySource) }, [delaySource, setAudioEngineDelaySource, isInitialized]);
+    useEffect(() => { setAudioEngineKickSidechainAmount(effectsEnabled.sidechain ? kickSidechainAmount : 0) }, [kickSidechainAmount, effectsEnabled.sidechain, setAudioEngineKickSidechainAmount, isInitialized]);
+    useEffect(() => { if (setAudioEngineKickSidechainThreshold) setAudioEngineKickSidechainThreshold(kickSidechainThreshold) }, [kickSidechainThreshold, setAudioEngineKickSidechainThreshold, isInitialized]);
+    useEffect(() => { if (setAudioEngineKickSidechainRatio) setAudioEngineKickSidechainRatio(kickSidechainRatio) }, [kickSidechainRatio, setAudioEngineKickSidechainRatio, isInitialized]);
+    useEffect(() => { setAudioEngineMasterVolume(masterVolume) }, [masterVolume, setAudioEngineMasterVolume, isInitialized]);
+    useEffect(() => { setAudioEngineCrushAmount(effectsEnabled.crush ? crushAmount : 0) }, [crushAmount, effectsEnabled.crush, setAudioEngineCrushAmount, isInitialized]);
     useEffect(() => { if (isInitialized) setAudioEngineTapeSaturationMix(effectsEnabled.tape ? tapeSaturationMix : 0) }, [tapeSaturationMix, effectsEnabled.tape, setAudioEngineTapeSaturationMix, isInitialized]);
     useEffect(() => { if (isInitialized) setAudioEngineTapeSaturationAmount(tapeSaturationAmount) }, [tapeSaturationAmount, setAudioEngineTapeSaturationAmount, isInitialized]);
     useEffect(() => { if (isInitialized) setAudioEngineTapeSaturationTone(tapeSaturationTone) }, [tapeSaturationTone, setAudioEngineTapeSaturationTone, isInitialized]);
-    useEffect(() => { setAudioEngineEnvelopeFilterMix(effectsEnabled.envelope ? envelopeFilterMix : 0) }, [envelopeFilterMix, effectsEnabled.envelope, setAudioEngineEnvelopeFilterMix]);
-    useEffect(() => { setAudioEngineEnvelopeFilterAmount(envelopeFilterAmount) }, [envelopeFilterAmount, setAudioEngineEnvelopeFilterAmount]);
-    useEffect(() => { setAudioEngineEnvelopeFilterBaseFreq(envelopeFilterBaseFreq) }, [envelopeFilterBaseFreq, setAudioEngineEnvelopeFilterBaseFreq]);
-    useEffect(() => { setAudioEngineEnvelopeFilterQ(envelopeFilterQ) }, [envelopeFilterQ, setAudioEngineEnvelopeFilterQ]);
+    useEffect(() => { setAudioEngineEnvelopeFilterMix(effectsEnabled.envelope ? envelopeFilterMix : 0) }, [envelopeFilterMix, effectsEnabled.envelope, setAudioEngineEnvelopeFilterMix, isInitialized]);
+    useEffect(() => { setAudioEngineEnvelopeFilterAmount(envelopeFilterAmount) }, [envelopeFilterAmount, setAudioEngineEnvelopeFilterAmount, isInitialized]);
+    useEffect(() => { setAudioEngineEnvelopeFilterBaseFreq(envelopeFilterBaseFreq) }, [envelopeFilterBaseFreq, setAudioEngineEnvelopeFilterBaseFreq, isInitialized]);
+    useEffect(() => { setAudioEngineEnvelopeFilterQ(envelopeFilterQ) }, [envelopeFilterQ, setAudioEngineEnvelopeFilterQ, isInitialized]);
     // FIX: Use the renamed `setLofiMix` function to avoid conflict with state setter
-    useEffect(() => { if (setAudioEngineLofiMix) setAudioEngineLofiMix(lofiMix); }, [lofiMix, setAudioEngineLofiMix]);
-    useEffect(() => { if (setIsoGain) setIsoGain('low', isolatorGains.low); }, [isolatorGains.low, setIsoGain]);
-    useEffect(() => { if (setIsoGain) setIsoGain('mid', isolatorGains.mid); }, [isolatorGains.mid, setIsoGain]);
-    useEffect(() => { if (setIsoGain) setIsoGain('high', isolatorGains.high); }, [isolatorGains.high, setIsoGain]);
+    useEffect(() => { if (setAudioEngineLofiMix) setAudioEngineLofiMix(lofiMix); }, [lofiMix, setAudioEngineLofiMix, isInitialized]);
+    useEffect(() => { if (setIsoGain) setIsoGain('low', isolatorGains.low); }, [isolatorGains.low, setIsoGain, isInitialized]);
+    useEffect(() => { if (setIsoGain) setIsoGain('mid', isolatorGains.mid); }, [isolatorGains.mid, setIsoGain, isInitialized]);
+    useEffect(() => { if (setIsoGain) setIsoGain('high', isolatorGains.high); }, [isolatorGains.high, setIsoGain, isInitialized]);
+    useEffect(() => {
+        if (updateTapeStopDuration) {
+            updateTapeStopDuration(tapeStopDuration, tempo);
+        }
+    }, [tapeStopDuration, tempo, updateTapeStopDuration, isInitialized]);
     useEffect(() => {
         if (updateStutterParams) {
             const srcVol = stutterSource === 'all' ? 0.7 : (volumes[INSTRUMENTS.indexOf(stutterSource)] ?? 0.7);
-            updateStutterParams(stutterDivision, tempo, stutterSource, srcVol);
+            const effSwing = getEffectiveStutterSwing(stutterDivision, isStutterSwingLocked, swing);
+            updateStutterParams(stutterDivision, tempo, stutterSource, srcVol, effSwing);
         }
-    }, [stutterDivision, tempo, stutterSource, volumes, updateStutterParams]);
+    }, [stutterDivision, tempo, stutterSource, volumes, isStutterSwingLocked, swing, updateStutterParams, getEffectiveStutterSwing, isInitialized]);
     useEffect(() => {
         if (delaySyncDivision !== null) {
             setDelayTime(getDelayDivisionTimeSeconds(delaySyncDivision, tempo));
         }
     }, [delaySyncDivision, tempo]);
-
-    // --- Start: Reset button logic ---
-    const handleResetDjSettings = useCallback(() => {
-        setRandomizeIntensity(DEFAULT_DJ_SETTINGS.randomizeIntensity);
-        setChainMode(DEFAULT_DJ_SETTINGS.chainMode);
-        setIsolatorGains({ ...DEFAULT_DJ_SETTINGS.isolatorGains });
-        setLofiMix(DEFAULT_DJ_SETTINGS.lofiMix);
-        setIsRandomizeActive(false);
-        if (scrambleIntervalRef.current) {
-            clearInterval(scrambleIntervalRef.current);
-            scrambleIntervalRef.current = null;
-        }
-        setRandomizeButtonText('RANDOMIZE');
-        setIsXyFilterHeld(false);
-        toggleXyFilter(false);
-        if (tapeStopReleaseTimerRef.current) {
-            clearTimeout(tapeStopReleaseTimerRef.current);
-            tapeStopReleaseTimerRef.current = null;
-        }
-        setIsTapeStopActive(false);
-        setTapeStopDuration(DEFAULT_DJ_SETTINGS.tapeStopDuration);
-        setTapeStop(false, DEFAULT_DJ_SETTINGS.tapeStopDuration, tempoRef.current);
-        setIsStutterHeld(false);
-        setIsStutterActive(false);
-        setStutterDivision(DEFAULT_DJ_SETTINGS.stutterDivision);
-        setStutterSource(DEFAULT_DJ_SETTINGS.stutterSource);
-        setStutterState(false, false, DEFAULT_DJ_SETTINGS.stutterDivision, tempoRef.current, DEFAULT_DJ_SETTINGS.stutterSource, 0.7);
-        isBeatRepeatActiveRef.current = false;
-        beatRepeatDivisionRef.current = DEFAULT_DJ_SETTINGS.beatRepeatDivision;
-        beatRepeatAnchorStepRef.current = 0;
-        setIsBeatRepeatHeld(false);
-        setIsBeatRepeatActive(false);
-        setBeatRepeatDivision(DEFAULT_DJ_SETTINGS.beatRepeatDivision);
-        setBeatRepeatAnchorStep(0);
-    }, [toggleXyFilter, setTapeStop, setStutterState]);
-
-    const handleResetEffectsSettings = useCallback(() => {
-        setLowPassFreq(DEFAULT_EFFECTS_SETTINGS.lowPassFreq);
-        setHighPassFreq(DEFAULT_EFFECTS_SETTINGS.highPassFreq);
-        setReverbMix(DEFAULT_EFFECTS_SETTINGS.reverbMix);
-        setReverbDecay(DEFAULT_EFFECTS_SETTINGS.reverbDecay);
-        setReverbSource(DEFAULT_EFFECTS_SETTINGS.reverbSource);
-        setDelayMix(DEFAULT_EFFECTS_SETTINGS.delayMix);
-        setDelayTime(DEFAULT_EFFECTS_SETTINGS.delayTime);
-        setDelayFeedback(DEFAULT_EFFECTS_SETTINGS.delayFeedback);
-        setDelaySource(DEFAULT_EFFECTS_SETTINGS.delaySource);
-        setDelaySyncDivision(DEFAULT_EFFECTS_SETTINGS.delaySyncDivision);
-        setKickSidechainAmount(DEFAULT_EFFECTS_SETTINGS.kickSidechainAmount);
-        setCrushAmount(DEFAULT_EFFECTS_SETTINGS.crushAmount);
-        setTapeSaturationMix(DEFAULT_EFFECTS_SETTINGS.tapeSaturationMix);
-        setTapeSaturationAmount(DEFAULT_EFFECTS_SETTINGS.tapeSaturationAmount);
-        setTapeSaturationTone(DEFAULT_EFFECTS_SETTINGS.tapeSaturationTone);
-        setEnvelopeFilterMix(DEFAULT_EFFECTS_SETTINGS.envelopeFilterMix);
-        setEnvelopeFilterAmount(DEFAULT_EFFECTS_SETTINGS.envelopeFilterAmount);
-        setEnvelopeFilterBaseFreq(DEFAULT_EFFECTS_SETTINGS.envelopeFilterBaseFreq);
-        setEnvelopeFilterQ(DEFAULT_EFFECTS_SETTINGS.envelopeFilterQ);
-    }, []);
 
     // Effect for checking if DJ settings are default
     useEffect(() => {
@@ -1914,24 +2613,30 @@ const App: React.FC = () => {
             lofiMix === DEFAULT_DJ_SETTINGS.lofiMix &&
             stutterDivision === DEFAULT_DJ_SETTINGS.stutterDivision &&
             stutterSource === DEFAULT_DJ_SETTINGS.stutterSource &&
+            isStutterSwingLocked === DEFAULT_DJ_SETTINGS.stutterSwingLocked &&
             beatRepeatDivision === DEFAULT_DJ_SETTINGS.beatRepeatDivision &&
             Math.abs(tapeStopDuration - DEFAULT_DJ_SETTINGS.tapeStopDuration) < 0.005 &&
             !isXyFilterHeld &&
             !isStutterHeld &&
             !isBeatRepeatHeld;
         setIsDjSettingsDefault(isDefault);
-    }, [randomizeIntensity, chainMode, isolatorGains, lofiMix, stutterDivision, stutterSource, beatRepeatDivision, tapeStopDuration, isXyFilterHeld, isStutterHeld, isBeatRepeatHeld]);
+    }, [randomizeIntensity, chainMode, isolatorGains, lofiMix, stutterDivision, stutterSource, isStutterSwingLocked, beatRepeatDivision, tapeStopDuration, isXyFilterHeld, isStutterHeld, isBeatRepeatHeld]);
 
     // Effect for checking if effects settings are default
     useEffect(() => {
+        const expectedDefaultDelayTime = DEFAULT_EFFECTS_SETTINGS.delaySyncDivision
+            ? getDelayDivisionTimeSeconds(DEFAULT_EFFECTS_SETTINGS.delaySyncDivision, tempo)
+            : DEFAULT_EFFECTS_SETTINGS.delayTime;
         const isDefault =
             lowPassFreq === DEFAULT_EFFECTS_SETTINGS.lowPassFreq &&
             highPassFreq === DEFAULT_EFFECTS_SETTINGS.highPassFreq &&
             reverbMix === DEFAULT_EFFECTS_SETTINGS.reverbMix &&
             reverbDecay === DEFAULT_EFFECTS_SETTINGS.reverbDecay &&
+            reverbType === DEFAULT_EFFECTS_SETTINGS.reverbType &&
+            Math.abs(reverbTone - DEFAULT_EFFECTS_SETTINGS.reverbTone) < 5 &&
             reverbSource === DEFAULT_EFFECTS_SETTINGS.reverbSource &&
             delayMix === DEFAULT_EFFECTS_SETTINGS.delayMix &&
-            delayTime === DEFAULT_EFFECTS_SETTINGS.delayTime &&
+            Math.abs(delayTime - expectedDefaultDelayTime) < 0.005 &&
             delayFeedback === DEFAULT_EFFECTS_SETTINGS.delayFeedback &&
             delaySource === DEFAULT_EFFECTS_SETTINGS.delaySource &&
             delaySyncDivision === DEFAULT_EFFECTS_SETTINGS.delaySyncDivision &&
@@ -1946,10 +2651,33 @@ const App: React.FC = () => {
             envelopeFilterQ === DEFAULT_EFFECTS_SETTINGS.envelopeFilterQ;
         setIsEffectsSettingsDefault(isDefault);
     }, [
-        lowPassFreq, highPassFreq, reverbMix, reverbDecay, reverbSource, delayMix, delayTime, delayFeedback, delaySource, delaySyncDivision,
+        lowPassFreq, highPassFreq, reverbMix, reverbDecay, reverbType, reverbTone, reverbSource,
+        delayMix, delayTime, delayFeedback, delaySource, delaySyncDivision, tempo,
         kickSidechainAmount, crushAmount, tapeSaturationMix, tapeSaturationAmount, tapeSaturationTone,
         envelopeFilterMix, envelopeFilterAmount, envelopeFilterBaseFreq, envelopeFilterQ
     ]);
+
+    const isInstrumentSettingsChanged = useMemo(() => {
+        if (JSON.stringify(instrumentParams) !== JSON.stringify(DEFAULT_INSTRUMENT_PARAMS)) return true;
+        if (JSON.stringify(kickDesignerParams) !== JSON.stringify(DEFAULT_KICK_DESIGNER_PARAMS)) return true;
+        if (volumes.length !== DEFAULT_VOLUMES.length || volumes.some((v, i) => Math.abs(v - DEFAULT_VOLUMES[i]) > 0.001)) return true;
+        if (instrumentVisibility.some(v => !v)) return true;
+        return false;
+    }, [instrumentParams, kickDesignerParams, volumes, instrumentVisibility]);
+
+    const isSampleRecorderChanged = useMemo(() => {
+        if (fullAudioData && fullAudioData.length > 0) return true;
+        if (originalAudioData && originalAudioData.length > 0) return true;
+        if (trimRange.start !== 0 || trimRange.end !== 1) return true;
+        const sampleParam = instrumentParams.sample;
+        const defaultSample = DEFAULT_INSTRUMENT_PARAMS.sample;
+        if (sampleParam && defaultSample) {
+            if (sampleParam.pitch !== defaultSample.pitch) return true;
+            if (sampleParam.highPass !== defaultSample.highPass) return true;
+            if (sampleParam.lowPass !== defaultSample.lowPass) return true;
+        }
+        return false;
+    }, [fullAudioData, originalAudioData, trimRange, instrumentParams.sample]);
 
     // Logic for DJ reset button hold-to-confirm
     const [djResetProgress, setDjResetProgress] = useState(0);
@@ -2035,7 +2763,7 @@ const App: React.FC = () => {
     useEffect(() => {
         if (isColorAnimating) {
             const animate = () => {
-                setHueRotate(prev => (prev + 1.8) % 360);
+                setHueRotate(prev => (prev + 1.8 * sixSevenSpeedRef.current) % 360);
                 animationFrameRef.current = requestAnimationFrame(animate);
             };
             animationFrameRef.current = requestAnimationFrame(animate);
@@ -2072,7 +2800,12 @@ const App: React.FC = () => {
     }, [handlePlayToggle]);
 
     const handleToggleTooltips = useCallback(() => setTooltipsEnabled(prev => !prev), []);
-    const handleToggleBeatNumbers = useCallback(() => setShowBeatNumbers(prev => !prev), []);
+    const handleToggleBeatNumbers = useCallback(() => {
+        setPadLabelMode(prev => (prev === 'subdivisions' ? 'off' : 'subdivisions'));
+    }, []);
+    const handleSetPadLabelMode = useCallback((mode: PadLabelMode) => {
+        setPadLabelMode(mode);
+    }, []);
     const handleToggleInvertColors = useCallback(() => setIsInvertColors(prev => !prev), []);
     const handleToggleCappuccinoMode = useCallback(() => setIsCappuccinoMode(prev => !prev), []);
     
@@ -2105,15 +2838,16 @@ const App: React.FC = () => {
         }
         // Only save if app is fully loaded to prevent overwriting on initial render
         if (isAppLoaded) {
-            safeSetItem('cl607-tooltipsEnabled', JSON.stringify(tooltipsEnabled));
+            safeSetItem('cl607-tooltipsEnabled-v2', JSON.stringify(tooltipsEnabled));
         }
     }, [tooltipsEnabled, isAppLoaded]);
     
     useEffect(() => {
         if (isAppLoaded) {
+            safeSetItem('cl607-padLabelMode', padLabelMode);
             safeSetItem('cl607-showBeatNumbers', JSON.stringify(showBeatNumbers));
         }
-    }, [showBeatNumbers, isAppLoaded]);
+    }, [padLabelMode, showBeatNumbers, isAppLoaded]);
 
     useEffect(() => {
         if (isAppLoaded) {
@@ -2144,6 +2878,12 @@ const App: React.FC = () => {
             safeSetItem('cl607-keyboardDrummingEnabled', JSON.stringify(keyboardDrummingEnabled));
         }
     }, [keyboardDrummingEnabled, isAppLoaded]);
+
+    useEffect(() => {
+        if (isAppLoaded) {
+            safeSetItem('cl607-sixSevenSpeed', String(sixSevenSpeed));
+        }
+    }, [sixSevenSpeed, isAppLoaded]);
 
     // Keyboard drumming effect
     useEffect(() => {
@@ -2242,6 +2982,15 @@ const App: React.FC = () => {
                         'linear-gradient(180deg, #1c1420 0%, #0d0a0f 100%)',
                     color: '#f2ece1',
                 };
+            case 'default':
+                return {
+                    filter: activeFilter,
+                    backgroundColor: '#09172e',
+                    backgroundImage:
+                        'linear-gradient(180deg, #10264a 0%, #09172e 100%)',
+                    color: '#e6f3ff',
+                };
+            case 'classic607':
             default:
                 return {
                     filter: activeFilter,
@@ -2256,12 +3005,16 @@ const App: React.FC = () => {
             ? 'text-[#3b1547]'
             : isMinimal
             ? 'bg-[#09090b] text-[#f4f4f5]'
+            : visualizerStyle === 'default'
+            ? 'bg-[#09172e] text-[#e6f3ff]'
             : 'bg-gray-900 text-gray-100'
     }`;
 
     const startTitleClass =
         visualizerStyle === 'minimal'
             ? "text-2xl sm:text-3xl font-bold font-mono uppercase tracking-[0.14em] text-[#f4f4f5]"
+            : visualizerStyle === 'default'
+            ? "text-2xl sm:text-3xl font-bold font-['IBM_Plex_Mono'] uppercase tracking-[0.14em] text-[#e6f3ff]"
             : visualizerStyle === 'braun'
             ? "text-3xl sm:text-4xl font-bold tracking-tight text-[#1c1c1a] font-['Plus_Jakarta_Sans']"
             : visualizerStyle === 'bauhaus'
@@ -2277,6 +3030,8 @@ const App: React.FC = () => {
     const startSubtitleClass =
         visualizerStyle === 'minimal'
             ? "text-xs text-[#71717a] font-mono uppercase tracking-[0.16em] mt-2 mb-8"
+            : visualizerStyle === 'default'
+            ? "text-xs text-[#ffc4d6] font-['IBM_Plex_Mono'] uppercase tracking-[0.16em] mt-2 mb-8"
             : visualizerStyle === 'braun'
             ? "text-sm text-[#737067] font-['Plus_Jakarta_Sans'] font-medium mt-1.5 mb-8"
             : visualizerStyle === 'bauhaus'
@@ -2290,7 +3045,7 @@ const App: React.FC = () => {
             : "text-sm text-gray-400 mt-1 mb-8";
 
     const startCardClass =
-        visualizerStyle === 'default'
+        visualizerStyle === 'classic607'
             ? 'flex flex-col items-center justify-center p-4 text-center'
             : `relative flex flex-col items-center justify-center px-8 py-10 sm:px-14 sm:py-12 text-center ${surface.mainDeck}`;
     
@@ -2303,10 +3058,14 @@ const App: React.FC = () => {
     
     const djCardClass = isMinimal
         ? 'flex flex-col items-center gap-3 p-3.5 bg-[#0e0e11] border border-[#27272a]'
+        : visualizerStyle === 'default'
+        ? 'flex flex-col items-center gap-3 p-3.5 rounded-none bg-gradient-to-b from-[#132d54] to-[#0b1d38] border border-[#244a7d]'
         : 'flex flex-col items-center gap-3 p-3 rounded-lg bg-gray-900/50';
 
     const djDropdownPanelClass = useMemo(() => {
         switch (visualizerStyle) {
+            case 'default':
+                return 'bg-[#0b1d38] border border-[#a8dcff] text-[#e6f3ff] shadow-[4px_4px_0px_#050f20]';
             case 'minimal':
                 return 'bg-[#09090b] border border-[#3f3f46] text-[#f4f4f5] shadow-2xl';
             case 'braun':
@@ -2319,6 +3078,7 @@ const App: React.FC = () => {
                 return 'bg-[#171512] border-2 border-[#b89728] text-[#f2ece1] shadow-[0_12px_32px_rgba(0,0,0,0.85)]';
             case 'cyberpunk':
                 return 'bg-[#0a0b10] border-2 border-[#00f0ff] text-[#fcee0a] shadow-[0_10px_28px_rgba(0,0,0,0.9)]';
+            case 'classic607':
             default:
                 return 'bg-gray-900 border border-gray-600 text-gray-100 shadow-2xl';
         }
@@ -2486,12 +3246,11 @@ const App: React.FC = () => {
                         </select>
                     </div>
                 </Tooltip>
-                <Tooltip text="Hold to repeat the current audio slice at the selected note rate (or click HOLD to lock)">
+                <Tooltip text="Hold to repeat the current audio slice at the selected note rate (or click HOLD to lock)" isInteracting={isStutterActive}>
                     <button
                         type="button"
                         onMouseDown={handleStutterPressStart}
                         onMouseUp={handleStutterPressEnd}
-                        onMouseLeave={handleStutterPressEnd}
                         onTouchStart={(e) => { e.preventDefault(); handleStutterPressStart(); }}
                         onTouchEnd={handleStutterPressEnd}
                         className={getButtonStyle(
@@ -2500,8 +3259,10 @@ const App: React.FC = () => {
                             isStutterActive || isStutterHeld,
                             false,
                             isMinimal
-                                ? 'w-36 h-11 text-xs font-mono tracking-widest'
-                                : 'w-36 h-11 text-sm font-bold tracking-wider bg-cyan-600 hover:bg-cyan-700 focus:ring-cyan-500'
+                                ? 'w-36 h-11 text-xs font-mono tracking-widest whitespace-nowrap'
+                                : visualizerStyle === 'default'
+                                ? 'w-36 h-11 text-xs font-bold tracking-wider whitespace-nowrap'
+                                : 'w-36 h-11 text-xs sm:text-sm font-bold tracking-wider whitespace-nowrap bg-cyan-600 hover:bg-cyan-700 focus:ring-cyan-500'
                         )}
                     >
                         {isStutterActive || isStutterHeld ? `STUTTER ${stutterDivision}` : 'STUTTER'}
@@ -2526,6 +3287,35 @@ const App: React.FC = () => {
                         </Tooltip>
                     ))}
                 </div>
+                <Tooltip text={isStutterSwingLocked
+                    ? "Swing is ON for Stutter (follows track swing; triplets stay in strict time). Click to turn OFF."
+                    : "Swing is OFF for Stutter (plays straight). Click to turn ON."}>
+                    <div className="flex items-center justify-between w-full pt-1 border-t border-gray-700/40">
+                        <span className="font-mono text-[10px] text-gray-400 uppercase tracking-wider">SWING</span>
+                        <button
+                            type="button"
+                            onClick={handleToggleStutterSwing}
+                            className={
+                                isMinimal
+                                    ? `px-2.5 py-0.5 text-[10px] font-mono font-bold uppercase tracking-wider border cursor-pointer ${
+                                        isStutterSwingLocked
+                                            ? 'bg-[#00f2fe]/20 text-[#00f2fe] border-[#00f2fe]'
+                                            : 'bg-[#141417] text-[#71717a] border-[#27272a] hover:text-[#f4f4f5]'
+                                    }`
+                                    : getButtonStyle(
+                                        visualizerStyle,
+                                        isStutterSwingLocked ? 'success' : 'secondary',
+                                        isStutterSwingLocked,
+                                        false,
+                                        '!px-2.5 !py-0.5 !text-[10px] font-mono uppercase tracking-wider'
+                                    )
+                            }
+                            aria-pressed={isStutterSwingLocked}
+                        >
+                            {isStutterSwingLocked ? 'ON' : 'OFF'}
+                        </button>
+                    </div>
+                </Tooltip>
             </div>
 
             {/* Beat Repeater */}
@@ -2601,7 +3391,7 @@ const App: React.FC = () => {
                 </div>
             </div>
             
-            <div className="flex flex-col items-center gap-3" ref={djShortcutsRef}>
+            <div className={`relative flex flex-col items-center gap-3 ${openDjShortcutDropdown !== null ? 'z-50' : 'z-20'}`} ref={djShortcutsRef}>
                 <div className={djCardClass}>
                     <h4 className="font-mono text-xs text-gray-400 uppercase tracking-wider">PATTERN CHAIN</h4>
                     <div className="flex items-center gap-2">
@@ -2619,7 +3409,7 @@ const App: React.FC = () => {
                 </div>
 
                 {/* Configurable Effect Mix Shortcuts (Default: DELAY & REVERB) */}
-                <div className={`${djCardClass} w-full min-w-[14.5rem]`}>
+                <div className={`${djCardClass} relative w-full min-w-[14.5rem] ${openDjShortcutDropdown !== null ? 'z-50' : 'z-20'}`}>
                     {([0, 1] as const).map((slotIndex) => {
                         const effectId = djShortcutEffects[slotIndex];
                         const meta = DJ_EFFECT_SHORTCUT_OPTIONS.find(o => o.id === effectId) || DJ_EFFECT_SHORTCUT_OPTIONS[0];
@@ -2627,7 +3417,7 @@ const App: React.FC = () => {
                         const isDropdownOpen = openDjShortcutDropdown === slotIndex;
 
                         return (
-                            <div key={slotIndex} className="relative w-full flex flex-col gap-1.5">
+                            <div key={slotIndex} className={`relative w-full flex flex-col gap-1.5 ${isDropdownOpen ? 'z-50' : 'z-10'}`}>
                                 <div className="w-full flex items-center justify-between gap-2">
                                     <div className="flex items-center gap-1.5">
                                         <Tooltip text={state.enabled ? `Turn ${meta.menuName} OFF` : `Turn ${meta.menuName} ON`}>
@@ -2677,7 +3467,7 @@ const App: React.FC = () => {
                                 {isDropdownOpen && (
                                     <div
                                         role="listbox"
-                                        className={`absolute left-0 top-6 z-50 w-48 py-1 rounded-md ${djDropdownPanelClass}`}
+                                        className={`absolute left-0 top-7 z-[100] w-52 py-1 rounded-md ${djDropdownPanelClass}`}
                                     >
                                         {DJ_EFFECT_SHORTCUT_OPTIONS.map((option) => {
                                             const isSelected = option.id === effectId;
@@ -2784,25 +3574,6 @@ const App: React.FC = () => {
                 isPerformanceMode={isPerformanceMode}
                 visualizerStyle={visualizerStyle}
             />
-
-             {!isDjSettingsDefault && (
-                <div className="w-full flex justify-center">
-                    <Tooltip text="Hold to reset all DJ controls to their defaults">
-                        <button
-                            onMouseDown={handleDjResetStart}
-                            onMouseUp={handleDjResetEnd}
-                            onMouseLeave={handleDjResetEnd}
-                            onTouchStart={(e) => { e.preventDefault(); handleDjResetStart(); }}
-                            onTouchEnd={handleDjResetEnd}
-                            className={`${getButtonStyle(visualizerStyle, 'secondary', false, false, 'mt-2 px-3 h-8 text-xs overflow-hidden')} ${isDjResetPoofing ? 'animate-poof' : ''}`}
-                            style={{ transform: `scale(${1 - djResetProgress * 0.15})` }}
-                            aria-label="Hold to reset DJ settings to default"
-                        >
-                            <span className="relative z-10">HOLD TO RESET LIVE DJ SETTINGS</span>
-                        </button>
-                    </Tooltip>
-                </div>
-            )}
         </div>
     ), [
         djCardClass, handleRandomizePressStart, handleRandomizePressEnd,
@@ -2811,6 +3582,7 @@ const App: React.FC = () => {
         handleTapeStopStart, handleTapeStopEnd, isTapeStopActive, tapeStopDuration, handleTapeStopDurationChange,
         isStutterHeld, handleToggleStutterHold, handleStutterPressStart, handleStutterPressEnd,
         isStutterActive, stutterDivision, handleStutterDivisionChange, stutterSource, handleStutterSourceChange,
+        isStutterSwingLocked, handleToggleStutterSwing,
         isBeatRepeatHeld, handleToggleBeatRepeatHold, handleBeatRepeatPressStart, handleBeatRepeatPressEnd,
         isBeatRepeatActive, beatRepeatDivision, handleBeatRepeatDivisionChange,
         chainOptions, chainMode, djShortcutEffects, getDjShortcutState, openDjShortcutDropdown,
@@ -2830,9 +3602,13 @@ const App: React.FC = () => {
             onHighPassChange={setHighPassFreq}
             reverbMix={reverbMix}
             reverbDecay={reverbDecay}
+            reverbType={reverbType}
+            reverbTone={reverbTone}
             reverbSource={reverbSource}
             onReverbMixChange={setReverbMix}
             onReverbDecayChange={setReverbDecay}
+            onReverbTypeChange={setReverbType}
+            onReverbToneChange={setReverbTone}
             onReverbSourceChange={setReverbSource}
             delayMix={delayMix}
             delayTime={delayTime}
@@ -2882,7 +3658,8 @@ const App: React.FC = () => {
             visualizerStyle={visualizerStyle}
         />
     ), [
-        lowPassFreq, highPassFreq, reverbMix, reverbDecay, reverbSource, delayMix, delayTime, delayFeedback, delaySource,
+        lowPassFreq, highPassFreq, reverbMix, reverbDecay, reverbType, reverbTone, reverbSource,
+        delayMix, delayTime, delayFeedback, delaySource,
         delaySyncDivision, tempo,
         kickSidechainAmount, kickSidechainThreshold, kickSidechainRatio, crushAmount, tapeSaturationMix,
         tapeSaturationAmount, tapeSaturationTone, envelopeFilterMix, envelopeFilterAmount, envelopeFilterBaseFreq,
@@ -2900,11 +3677,14 @@ const App: React.FC = () => {
             onVisibilityChange={handleInstrumentVisibilityChange}
             kickDesignerParams={kickDesignerParams}
             onKickDesignerParamChange={handleKickDesignerParamChange}
+            volumes={volumes}
+            onVolumeChange={handleVolumeChange}
             visualizerStyle={visualizerStyle}
         />
     ), [
         instrumentParams, instrumentColors, handleInstrumentParamChange, instrumentVisibility,
-        handleInstrumentVisibilityChange, kickDesignerParams, handleKickDesignerParamChange, visualizerStyle
+        handleInstrumentVisibilityChange, kickDesignerParams, handleKickDesignerParamChange,
+        volumes, handleVolumeChange, visualizerStyle
     ]);
 
     const renderRecorderContent = useCallback(() => (
@@ -2997,6 +3777,10 @@ const App: React.FC = () => {
                         sectionIndex={index}
                         onSectionPointerDown={handlePointerDown}
                         isDragging={isBeingDragged}
+                        elevated={openDjShortcutDropdown !== null}
+                        onReset={handleResetDjSettings}
+                        resetLabel="RESET"
+                        hasChanges={!isDjSettingsDefault}
                     >
                         {renderDjContent}
                     </CollapsibleSection>
@@ -3011,6 +3795,9 @@ const App: React.FC = () => {
                         sectionIndex={index}
                         onSectionPointerDown={handlePointerDown}
                         isDragging={isBeingDragged}
+                        onReset={handleResetEffectsSettings}
+                        resetLabel="RESET"
+                        hasChanges={!isEffectsSettingsDefault}
                     >
                         {renderEffectsContent}
                     </CollapsibleSection>
@@ -3026,6 +3813,9 @@ const App: React.FC = () => {
                         sectionIndex={index}
                         onSectionPointerDown={handlePointerDown}
                         isDragging={isBeingDragged}
+                        onReset={handleResetInstrumentSettings}
+                        resetLabel="RESET"
+                        hasChanges={isInstrumentSettingsChanged}
                     >
                         {renderInstrumentsContent}
                     </CollapsibleSection>
@@ -3041,6 +3831,9 @@ const App: React.FC = () => {
                         sectionIndex={index}
                         onSectionPointerDown={handlePointerDown}
                         isDragging={isBeingDragged}
+                        onReset={handleResetSampleRecorder}
+                        resetLabel="RESET"
+                        hasChanges={isSampleRecorderChanged}
                     >
                         {renderRecorderContent}
                     </CollapsibleSection>
@@ -3080,6 +3873,8 @@ const App: React.FC = () => {
                         onToggleTooltips={handleToggleTooltips}
                         showBeatNumbers={showBeatNumbers}
                         onToggleBeatNumbers={handleToggleBeatNumbers}
+                        padLabelMode={padLabelMode}
+                        onSetPadLabelMode={handleSetPadLabelMode}
                         beatsPerMeasure={beatsPerMeasure}
                         onBeatsPerMeasureChange={handleBeatsPerMeasureChange}
                         keyboardDrummingEnabled={keyboardDrummingEnabled}
@@ -3089,6 +3884,10 @@ const App: React.FC = () => {
                         isInvertColors={isInvertColors}
                         onToggleInvertColors={handleToggleInvertColors}
                         onToggleCappuccinoMode={handleToggleCappuccinoMode}
+                        sixSevenSpeed={sixSevenSpeed}
+                        onSixSevenSpeedChange={setSixSevenSpeed}
+                        isColorAnimating={isColorAnimating}
+                        onToggleColorAnimation={handleToggleColorAnimation}
                         sectionIndex={index}
                         onSectionPointerDown={handlePointerDown}
                         isDragging={isBeingDragged}
@@ -3271,6 +4070,37 @@ const App: React.FC = () => {
                                 {tempo} BPM // {beatsPerMeasure}/4
                             </div>
                         </div>
+                    ) : visualizerStyle === 'default' ? (
+                        <div className="relative flex items-center justify-center px-5 py-3 bg-gradient-to-b from-[#132d54] to-[#0b1d38] border border-[#244a7d] shadow-[4px_4px_0px_#050f20]">
+                            {/* Left Minimal Color-Block Accent Bar (Powder Pink & Powder Blue) */}
+                            <div aria-hidden="true" className="absolute left-0 top-0 bottom-0 flex">
+                                <span className="w-1.5 h-full bg-[#f4a8c4]" />
+                                <span className="w-1.5 h-full bg-[#8ecaff]" />
+                            </div>
+                            {isEditingTitle ? (
+                                <input
+                                    ref={titleInputRef}
+                                    type="text"
+                                    value={customTitle}
+                                    onChange={(e) => setCustomTitle(e.target.value)}
+                                    onBlur={handleTitleCommit}
+                                    onKeyDown={handleTitleKeyDown}
+                                    aria-label="Edit header title"
+                                    className={`w-full max-w-md text-center bg-transparent border-b border-[#f4a8c4] focus:outline-none font-bold text-[#e6f3ff] ${isCappuccinoMode ? "font-['Dancing_Script'] text-3xl sm:text-4xl normal-case tracking-normal" : "text-lg sm:text-xl font-mono uppercase tracking-[0.14em]"}`}
+                                />
+                            ) : (
+                                <h1
+                                    className={`font-bold text-[#e6f3ff] select-none cursor-pointer hover:text-[#8ecaff] transition-colors ${isCappuccinoMode ? "font-['Dancing_Script'] text-3xl sm:text-4xl normal-case tracking-normal" : "text-lg sm:text-xl font-mono uppercase tracking-[0.14em]"}`}
+                                    onClick={handleTitleClick}
+                                    title="Click to edit title"
+                                >
+                                    {displayedTitle}
+                                </h1>
+                            )}
+                            <div className="absolute right-3 sm:right-4 font-mono text-[10px] tracking-[0.16em] text-[#f4a8c4] bg-[#09172e] border border-[#244a7d] px-2.5 py-0.5 uppercase tabular-nums select-none pointer-events-none hidden min-[400px]:block">
+                                {tempo} BPM // {beatsPerMeasure}/4
+                            </div>
+                        </div>
                     ) : (
                         <div className="relative text-center flex items-center justify-center px-4 py-2">
                             {isEditingTitle ? (
@@ -3320,7 +4150,7 @@ const App: React.FC = () => {
                             onDirectTempoChange={handleDirectTempoChange}
                             swing={swing}
                             onSwingChange={handleSwingChange}
-                            onDirectSwingChange={setSwing}
+                            onDirectSwingChange={handleDirectSwingChange}
                             masterVolume={masterVolume}
                             onMasterVolumeChange={handleMasterVolumeChange}
                             onDirectMasterVolumeChange={setMasterVolume}
@@ -3330,6 +4160,7 @@ const App: React.FC = () => {
                             onHueRotateChange={setHueRotate}
                             isColorAnimating={isColorAnimating}
                             onToggleColorAnimation={handleToggleColorAnimation}
+                            onResetColorKnob={handleResetColorKnob}
                             onDownload={handleDownload}
                             onPrepareDrag={handlePrepareDrag}
                             isRendering={isRendering}
@@ -3374,6 +4205,7 @@ const App: React.FC = () => {
                             hueRotate={hueRotate}
                             isPerformanceMode={isPerformanceMode}
                             showBeatNumbers={showBeatNumbers}
+                            padLabelMode={padLabelMode}
                             beatsPerMeasure={beatsPerMeasure}
                         />
                     </div>

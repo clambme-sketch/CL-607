@@ -34,6 +34,14 @@
           --note-color: #d1d5db; /* gray-300 */
           --staff-color: #4b5563; /* gray-600 */
       }
+      .theme-default .notation-visualizer {
+          --note-color: #f0f9ff;
+          --staff-color: #63bdff;
+      }
+      .theme-classic607 .notation-visualizer {
+          --note-color: #38bdf8;
+          --staff-color: #3b82f6;
+      }
       .theme-braun .notation-visualizer,
       .theme-bauhaus .notation-visualizer {
           --note-color: #1c1c1a;
@@ -69,7 +77,122 @@
          CULTURED HARDWARE THEME OVERRIDES & BESPOKE FADER MECHANICS
          ========================================================================== */
 
-      /* 0. MONOLITH DARK (Ultra-Efficient Minimalist Masterpiece Mode) */
+      /* 0A. DEFAULT — DARK BLUE GRADIENT & BABY PINK/BLUE MINIMAL MASTERPIECE */
+      .theme-default,
+      .theme-default button,
+      .theme-default input,
+      .theme-default label,
+      .theme-default h1,
+      .theme-default h2,
+      .theme-default h3,
+      .theme-default h4 {
+        font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      }
+      .theme-default .bg-gray-900\/50,
+      .theme-default .bg-gray-800\/50,
+      .theme-default .bg-gray-900 {
+        background: linear-gradient(180deg, #11294c 0%, #0a1b34 100%) !important;
+        border: 1px solid #214373 !important;
+        border-radius: 0px !important;
+        box-shadow: none !important;
+      }
+      .theme-default .text-gray-100,
+      .theme-default .text-white {
+        color: #eef7ff !important;
+      }
+      .theme-default .text-gray-300 {
+        color: #cce8ff !important;
+      }
+      .theme-default .text-gray-400 {
+        color: #a8dcff !important;
+      }
+      .theme-default .text-gray-500 {
+        color: #6b96c2 !important;
+      }
+      .theme-default select {
+        background-color: #061121 !important;
+        color: #eef7ff !important;
+        border: 1px solid #234778 !important;
+        border-radius: 0px !important;
+        font-family: 'IBM Plex Mono', monospace !important;
+      }
+      .theme-default input[type="range"] {
+        -webkit-appearance: none;
+        appearance: none;
+        background: #163054 !important;
+        height: 3px !important;
+        border-radius: 0px !important;
+        border: none !important;
+      }
+      .theme-default input[type="range"]::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 11px;
+        height: 18px;
+        border-radius: 0px;
+        background: #ffc4d6;
+        border: 1.5px solid #061121;
+        cursor: pointer;
+      }
+
+      /* 0B. CLASSIC 607 (Authentic Electric Blue Hardware Theme) */
+      .theme-classic607 {
+        font-family: 'Lexend', sans-serif;
+      }
+      .theme-classic607 .bg-gray-900\/50,
+      .theme-classic607 .bg-gray-800\/50,
+      .theme-classic607 .bg-gray-900 {
+        background: linear-gradient(180deg, #15396d 0%, #0e274e 100%) !important;
+        border: 1px solid rgba(96, 165, 250, 0.35) !important;
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4) !important;
+      }
+      .theme-classic607 .bg-gray-800 {
+        background-color: #12305c !important;
+      }
+      .theme-classic607 .border-gray-700,
+      .theme-classic607 .border-gray-800 {
+        border-color: rgba(96, 165, 250, 0.3) !important;
+      }
+      .theme-classic607 .text-gray-100,
+      .theme-classic607 .text-white {
+        color: #e6f1ff !important;
+      }
+      .theme-classic607 .text-gray-300 {
+        color: #bfdbfe !important;
+      }
+      .theme-classic607 .text-gray-400 {
+        color: #93c5fd !important;
+      }
+      .theme-classic607 .text-gray-500 {
+        color: #60a5fa !important;
+      }
+      .theme-classic607 select {
+        background-color: #0d2447 !important;
+        color: #e0f2fe !important;
+        border: 1px solid #3b82f6 !important;
+        border-radius: 6px !important;
+      }
+      .theme-classic607 input[type="range"] {
+        -webkit-appearance: none;
+        appearance: none;
+        background: #0d2345 !important;
+        height: 6px !important;
+        border-radius: 3px !important;
+        border: 1px solid rgba(96, 165, 250, 0.3) !important;
+      }
+      .theme-classic607 input[type="range"]::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 14px;
+        height: 18px;
+        border-radius: 3px;
+        background: #38bdf8;
+        border: 1.5px solid #0f274e;
+        box-shadow: 0 0 6px rgba(56, 189, 248, 0.6);
+        cursor: pointer;
+      }
+
+      /* 0C. MONOLITH DARK (Ultra-Efficient Minimalist Masterpiece Mode) */
       .theme-minimal {
         font-family: 'Plus Jakarta Sans', sans-serif;
       }
@@ -126,6 +249,7 @@
 
       /* 1. KRONBERG '68 (Dieter Rams / Braun Functionalism) */
       .theme-default,
+      .theme-classic607,
       .theme-braun,
       .theme-bauhaus,
       .theme-nagra,

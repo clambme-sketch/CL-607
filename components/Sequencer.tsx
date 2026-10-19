@@ -1,5 +1,5 @@
 import React, { useRef, useCallback, useMemo } from 'react';
-import { Grid, Instrument, VisualizerType, VisualizerStyle } from '../types';
+import { Grid, Instrument, VisualizerType, VisualizerStyle, PadLabelMode } from '../types';
 import { INSTRUMENTS, INSTRUMENT_LABELS } from '../constants';
 import { getThemeSurface, getButtonStyle } from '../utils';
 import SmallOscilloscope from './SmallOscilloscope';
@@ -26,7 +26,8 @@ interface SequencerProps {
     masterAnalyser: AnalyserNode | null;
     hueRotate: number;
     isPerformanceMode: boolean;
-    showBeatNumbers: boolean;
+    showBeatNumbers?: boolean;
+    padLabelMode?: PadLabelMode;
     beatsPerMeasure: number;
 }
 
@@ -34,7 +35,7 @@ const Sequencer: React.FC<SequencerProps> = ({
     grid, 
     isPlaying, 
     currentStep, 
-    volumes,
+    volumes, 
     instrumentAnalyserNodes,
     instrumentColors,
     isRecording,
@@ -47,7 +48,8 @@ const Sequencer: React.FC<SequencerProps> = ({
     masterAnalyser,
     hueRotate,
     isPerformanceMode,
-    showBeatNumbers,
+    showBeatNumbers = false,
+    padLabelMode,
     beatsPerMeasure,
 }) => {
     const isDraggingRef = useRef(false);
@@ -57,13 +59,85 @@ const Sequencer: React.FC<SequencerProps> = ({
     gridRef.current = grid;
     const surface = getThemeSurface(visualizerStyle);
 
-    const BEAT_LABELS = useMemo(() => {
+    const effectivePadLabelMode: PadLabelMode = padLabelMode ?? (showBeatNumbers ? 'subdivisions' : 'off');
+
+    const SUBDIVISION_LABELS = useMemo(() => {
+        if (effectivePadLabelMode !== 'subdivisions') return [];
         const labels: string[] = [];
         for (let i = 0; i < beatsPerMeasure; i++) {
             labels.push(String(i + 1), 'e', '&', 'a');
         }
         return labels;
-    }, [beatsPerMeasure]);
+    }, [beatsPerMeasure, effectivePadLabelMode]);
+
+    const SYLLABLE_LABELS_BY_ROW = useMemo(() => {
+        if (effectivePadLabelMode !== 'syllables') return [];
+        const numSteps = beatsPerMeasure * 4;
+
+        return INSTRUMENTS.map((_, instIdx) => {
+            const row = grid[instIdx] || [];
+            const syllables: (string | undefined)[] = Array(numSteps).fill(undefined);
+
+            // Precompute active offsets per beat so we can detect cross-beat Dotted Quarter Notes ('ta-i')
+            const beatOffsetsList: number[][] = [];
+            for (let beat = 0; beat < beatsPerMeasure; beat++) {
+                const beatStart = beat * 4;
+                const activeOffsets: number[] = [];
+                for (let offset = 0; offset < 4; offset++) {
+                    if (row[beatStart + offset]) {
+                        activeOffsets.push(offset);
+                    }
+                }
+                beatOffsetsList.push(activeOffsets);
+            }
+
+            for (let beat = 0; beat < beatsPerMeasure; beat++) {
+                const beatStart = beat * 4;
+                const activeOffsets = beatOffsetsList[beat];
+                const nextBeatOffsets = beat + 1 < beatsPerMeasure ? beatOffsetsList[beat + 1] : null;
+
+                if (activeOffsets.length === 0) continue;
+
+                // Cross-beat Dotted Quarter Note ('ta-i') when downbeat sustains into '&' of next beat
+                if (
+                    activeOffsets.length === 1 &&
+                    activeOffsets[0] === 0 &&
+                    nextBeatOffsets !== null &&
+                    nextBeatOffsets.length > 0 &&
+                    nextBeatOffsets[0] === 2
+                ) {
+                    syllables[beatStart] = 'ta-i';
+                    continue;
+                }
+
+                // Single hit on 'e' of the beat -> 16th note 'ki'
+                if (activeOffsets.length === 1 && activeOffsets[0] === 1) {
+                    syllables[beatStart + 1] = 'ki';
+                    continue;
+                }
+
+                for (let idx = 0; idx < activeOffsets.length; idx++) {
+                    const currentOffset = activeOffsets[idx];
+                    const nextOffset = idx + 1 < activeOffsets.length ? activeOffsets[idx + 1] : 4;
+                    const spanSteps = nextOffset - currentOffset;
+
+                    let syl: string;
+                    if (spanSteps === 4) {
+                        syl = 'ta';
+                    } else if (spanSteps === 3) {
+                        syl = 'ti-i';
+                    } else if (spanSteps === 2) {
+                        syl = 'ti';
+                    } else {
+                        syl = currentOffset % 2 === 0 ? 'ti' : 'ki';
+                    }
+                    syllables[beatStart + currentOffset] = syl;
+                }
+            }
+
+            return syllables;
+        });
+    }, [grid, beatsPerMeasure, effectivePadLabelMode]);
 
     const handlePointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
         const target = e.target as HTMLElement;
@@ -117,12 +191,27 @@ const Sequencer: React.FC<SequencerProps> = ({
 
     const hideTrackScopes = isMinimal || isPerformanceMode;
 
+    const COBALT_BADGE_GRADIENTS = [
+        'linear-gradient(180deg, #387fd6 0%, #194582 100%)',
+        'linear-gradient(180deg, #306fc4 0%, #163c73 100%)',
+        'linear-gradient(180deg, #2860b0 0%, #133365 100%)',
+        'linear-gradient(180deg, #21519c 0%, #102b57 100%)',
+        'linear-gradient(180deg, #1b4387 0%, #0d234a 100%)',
+        'linear-gradient(180deg, #153673 0%, #0a1c3d 100%)',
+        'linear-gradient(180deg, #102a5e 0%, #081632 100%)',
+    ];
+
     const instrumentLabelsColumn = useMemo(() => (
         <div className={`flex flex-col gap-1 sm:gap-2 ${hideTrackScopes ? (visualizerStyle === 'nagra' ? 'w-28 sm:w-32' : 'w-24 sm:w-28') : (visualizerStyle === 'nagra' ? 'w-20 sm:w-24' : 'w-16 sm:w-24')} flex-shrink-0`}>
             {INSTRUMENTS.map((instrument, instrumentIndex) => (
                 instrumentVisibility[instrumentIndex] && (
                     <div 
                         key={instrument}
+                        style={
+                            visualizerStyle === 'default'
+                                ? { background: COBALT_BADGE_GRADIENTS[instrumentIndex % COBALT_BADGE_GRADIENTS.length] }
+                                : undefined
+                        }
                         className={`relative font-bold text-xs flex items-center ${
                             hideTrackScopes && instrument === 'sample'
                                 ? visualizerStyle === 'nagra'
@@ -132,22 +221,22 @@ const Sequencer: React.FC<SequencerProps> = ({
                         } ${rowHeightClass} select-none ${surface.instrumentBadge}`}
                     >
                         {/* Left color indicator bar for hardware authenticity */}
-                        {visualizerStyle !== 'default' && (
+                        {visualizerStyle !== 'classic607' && (
                             <span
                                 aria-hidden="true"
-                                className={`absolute left-0 top-0 bottom-0 ${isMinimal ? 'w-[3px]' : visualizerStyle === 'nagra' ? 'left-2.5 top-2.5 bottom-2.5 w-1.5 rounded-full' : 'left-1 top-2 bottom-2 w-1'} ${visualizerStyle === 'koto' || visualizerStyle === 'braun' ? 'rounded-full' : ''}`}
+                                className={`absolute left-0 top-0 bottom-0 ${isMinimal || visualizerStyle === 'default' ? 'w-[3px]' : visualizerStyle === 'nagra' ? 'left-2.5 top-2.5 bottom-2.5 w-1.5 rounded-full' : 'left-1 top-2 bottom-2 w-1'} ${visualizerStyle === 'koto' || visualizerStyle === 'braun' ? 'rounded-full' : ''}`}
                                 style={{ backgroundColor: instrumentColors[instrumentIndex] }}
                             />
                         )}
-                        <span className={
+                        <span className={`relative z-10 ${
                             visualizerStyle === 'nagra'
                                 ? hideTrackScopes && instrument === 'sample'
                                     ? 'pl-0.5'
                                     : 'pl-3'
-                                : visualizerStyle !== 'default'
+                                : visualizerStyle !== 'classic607'
                                 ? 'pl-1.5'
                                 : ''
-                        }>
+                        }`}>
                             {INSTRUMENT_LABELS[instrument]}
                         </span>
                         {hideTrackScopes && instrument === 'sample' && (
@@ -155,7 +244,7 @@ const Sequencer: React.FC<SequencerProps> = ({
                                 <button
                                     type="button"
                                     onClick={onToggleRecording}
-                                    className={
+                                    className={`relative z-10 ${
                                         isMinimal
                                             ? `px-1.5 py-0.5 text-[10px] font-['IBM_Plex_Mono'] font-semibold border cursor-pointer ${
                                                 isRecording
@@ -169,7 +258,7 @@ const Sequencer: React.FC<SequencerProps> = ({
                                                 false,
                                                 `w-6 h-6 !p-0 flex-shrink-0 ${isRecording ? 'animate-pulse' : ''}`
                                             )
-                                    }
+                                    }`}
                                     aria-label={isRecording ? 'Stop Recording Sample' : 'Record Sample'}
                                 >
                                     {isMinimal ? (
@@ -329,15 +418,22 @@ const Sequencer: React.FC<SequencerProps> = ({
                                         <React.Fragment key={instrument}>
                                             {Array.from({ length: 4 }).map((__, stepInGroup) => {
                                                 const stepIndex = groupIndex * 4 + stepInGroup;
+                                                const isStepActive = Boolean(grid[instrumentIndex]?.[stepIndex]);
+                                                const stepLabel =
+                                                    effectivePadLabelMode === 'subdivisions'
+                                                        ? SUBDIVISION_LABELS[stepIndex]
+                                                        : effectivePadLabelMode === 'syllables' && isStepActive
+                                                        ? SYLLABLE_LABELS_BY_ROW[instrumentIndex]?.[stepIndex]
+                                                        : undefined;
                                                 return (
                                                     <StepButton
                                                         key={`${instrument}-${stepIndex}`}
-                                                        isActive={grid[instrumentIndex]?.[stepIndex]}
+                                                        isActive={isStepActive}
                                                         isPlayingStep={isPlaying && currentStep === stepIndex}
                                                         color={instrumentColors[instrumentIndex]}
                                                         instrumentIndex={instrumentIndex}
                                                         stepIndex={stepIndex}
-                                                        beatLabel={showBeatNumbers ? BEAT_LABELS[stepIndex] : undefined}
+                                                        beatLabel={stepLabel}
                                                         visualizerStyle={visualizerStyle}
                                                     />
                                                 );

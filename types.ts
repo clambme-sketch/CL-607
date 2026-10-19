@@ -1,12 +1,16 @@
 export type Instrument = 'kick' | 'snare' | 'hihat' | 'snap' | 'clave' | 'cowbell' | 'sample';
 
 export type VisualizerType = 'waveform' | 'lissajous' | 'spectrum';
-export type VisualizerStyle = 'default' | 'cyberpunk' | 'braun' | 'bauhaus' | 'nagra' | 'koto' | 'minimal';
+export type VisualizerStyle = 'default' | 'classic607' | 'cyberpunk' | 'braun' | 'bauhaus' | 'nagra' | 'koto' | 'minimal';
 export type StutterDivision = '1/4' | '1/8' | '1/8T' | '1/16' | '1/16T' | '1/32';
 export type BeatRepeatDivision = '2BEATS' | '1BEAT' | '1/2BEAT' | '1/4BEAT';
-export type DelayDivision = '1/32' | '1/16' | '1/8T' | '1/8' | '1/8D' | '1/4T' | '1/4' | '1/4D' | '1/2';
+export type DelayDivision = '1/32' | '1/16T' | '1/16' | '1/8T' | '1/8' | '1/8D' | '1/4T' | '1/4' | '1/4D' | '1/2';
+export type ReverbType = 'room' | 'plate' | 'hall';
 
 export type Grid = boolean[][];
+
+export type PadLabelMode = 'subdivisions' | 'syllables' | 'off';
+export type NotationTextMode = 'subdivisions' | 'syllables' | 'off';
 
 export type InstrumentParams = {
     pitch: number;

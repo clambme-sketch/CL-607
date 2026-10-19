@@ -4,70 +4,355 @@ import { SavedPattern, VisualizerStyle, LiveRecording } from '../types';
 import Tooltip from './Tooltip';
 import { getButtonStyle, getThemeSurface } from '../utils';
 
-// --- New Disco Ball Component ---
-const DiscoBall: React.FC<{ isPlaying: boolean }> = React.memo(({ isPlaying }) => {
+// --- Disco Ball Component (Minimal Cat-Matched Illustration in Default Mode, 3D Mirror Ball in Other Modes) ---
+const DiscoBall: React.FC<{ isPlaying: boolean; visualizerStyle?: VisualizerStyle }> = React.memo(({ isPlaying, visualizerStyle = 'default' }) => {
+    const isCobalt = visualizerStyle === 'default';
+
+    if (isCobalt) {
+        return (
+            <div
+                className={`
+                    w-14 h-20
+                    transform-gpu transition-transform duration-500 ease-out
+                    ${isPlaying ? 'translate-y-0' : '-translate-y-full'}
+                `}
+            >
+                <svg viewBox="0 0 64 84" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <defs>
+                        <clipPath id="cobalt-minimal-disco-clip">
+                            <circle cx="32" cy="50" r="19" />
+                        </clipPath>
+                        <style>
+                            {`
+                                .cobalt-disco-sway {
+                                    animation: cobaltDiscoSway 3.6s ease-in-out infinite;
+                                    transform-origin: 32px 0px;
+                                }
+                                @keyframes cobaltDiscoSway {
+                                    0%, 100% { transform: rotate(-5deg); }
+                                    50% { transform: rotate(5deg); }
+                                }
+                                .cobalt-tile-a {
+                                    animation: cobaltTileToggle 1.6s steps(2, end) infinite;
+                                }
+                                .cobalt-tile-b {
+                                    animation: cobaltTileToggle 1.6s steps(2, end) infinite 0.8s;
+                                }
+                                @keyframes cobaltTileToggle {
+                                    0%, 100% { opacity: 0.95; }
+                                    50% { opacity: 0.2; }
+                                }
+                                .cobalt-sparkle-1 {
+                                    animation: cobaltSparklePulse 1.4s ease-in-out infinite;
+                                    transform-origin: 10px 33px;
+                                }
+                                .cobalt-sparkle-2 {
+                                    animation: cobaltSparklePulse 1.6s ease-in-out infinite 0.4s;
+                                    transform-origin: 54px 37px;
+                                }
+                                .cobalt-sparkle-3 {
+                                    animation: cobaltSparklePulse 1.5s ease-in-out infinite 0.8s;
+                                    transform-origin: 13px 67px;
+                                }
+                                @keyframes cobaltSparklePulse {
+                                    0%, 100% { opacity: 0.25; transform: scale(0.7); }
+                                    50% { opacity: 1; transform: scale(1.1); }
+                                }
+                            `}
+                        </style>
+                    </defs>
+
+                    <g className={isPlaying ? 'cobalt-disco-sway' : ''}>
+                        {/* Minimal Rounded Suspension String & Ring (matching Cat stroke style) */}
+                        <line
+                            x1="32"
+                            y1="0"
+                            x2="32"
+                            y2="25"
+                            stroke="#d6eeff"
+                            strokeWidth="2.2"
+                            strokeLinecap="round"
+                        />
+                        <circle
+                            cx="32"
+                            cy="27.5"
+                            r="2.8"
+                            fill="#091930"
+                            stroke="#d6eeff"
+                            strokeWidth="2"
+                        />
+
+                        {/* Sculpted Minimal Baby Blue Sphere Body (matching Cat #a8dcff + #cceaff + #e3f4ff) */}
+                        <circle
+                            cx="32"
+                            cy="50"
+                            r="19"
+                            fill="#a8dcff"
+                            stroke="#e3f4ff"
+                            strokeWidth="2"
+                        />
+                        <ellipse
+                            cx="28"
+                            cy="45"
+                            rx="12"
+                            ry="11"
+                            fill="#cceaff"
+                            opacity="0.7"
+                        />
+
+                        {/* Minimal Facet Accents (Baby Pink & Baby Blue) */}
+                        <g clipPath="url(#cobalt-minimal-disco-clip)">
+                            <g className={isPlaying ? 'cobalt-tile-a' : ''}>
+                                <rect x="24" y="34" width="7" height="7" rx="1.5" fill="#ffc4d6" />
+                                <rect x="33" y="43" width="7" height="7" rx="1.5" fill="#d6eeff" />
+                                <rect x="16" y="43" width="7" height="7" rx="1.5" fill="#e8f6ff" />
+                                <rect x="24" y="52" width="7" height="7" rx="1.5" fill="#ffc4d6" opacity="0.9" />
+                            </g>
+                            <g className={isPlaying ? 'cobalt-tile-b' : ''}>
+                                <rect x="33" y="34" width="7" height="7" rx="1.5" fill="#e8f6ff" />
+                                <rect x="24" y="43" width="7" height="7" rx="1.5" fill="#ffc4d6" />
+                                <rect x="41" y="43" width="7" height="7" rx="1.5" fill="#ffc4d6" opacity="0.9" />
+                                <rect x="33" y="52" width="7" height="7" rx="1.5" fill="#d6eeff" />
+                            </g>
+
+                            {/* Minimal Midnight-Navy Seam Lines (matching Cat's #051e3e 2.4px rounded whiskers) */}
+                            <g stroke="#051e3e" strokeWidth="2.2" strokeLinecap="round">
+                                <path d="M14 42 Q 32 45 50 42" />
+                                <path d="M13 51 Q 32 54 51 51" />
+                                <path d="M15 60 Q 32 62 49 60" />
+                                <path d="M24 32 Q 21 50 24 68" />
+                                <path d="M32 31 V 69" />
+                                <path d="M40 32 Q 43 50 40 68" />
+                            </g>
+                        </g>
+
+                        {/* Re-stroke Outer Minimal Ring for Clean Silhouette */}
+                        <circle
+                            cx="32"
+                            cy="50"
+                            r="19"
+                            fill="none"
+                            stroke="#e3f4ff"
+                            strokeWidth="2"
+                        />
+
+                        {/* Minimal Hand-Drawn Plus / Star Sparkles in Baby Pink & Baby Blue */}
+                        {isPlaying && (
+                            <g strokeLinecap="round" strokeWidth="2.2">
+                                <g className="cobalt-sparkle-1" stroke="#ffc4d6">
+                                    <line x1="10" y1="29" x2="10" y2="37" />
+                                    <line x1="6" y1="33" x2="14" y2="33" />
+                                </g>
+                                <g className="cobalt-sparkle-2" stroke="#d6eeff">
+                                    <line x1="54" y1="33" x2="54" y2="41" />
+                                    <line x1="50" y1="37" x2="58" y2="37" />
+                                </g>
+                                <g className="cobalt-sparkle-3" stroke="#ffc4d6">
+                                    <line x1="13" y1="64" x2="13" y2="70" />
+                                    <line x1="10" y1="67" x2="16" y2="67" />
+                                </g>
+                            </g>
+                        )}
+                    </g>
+                </svg>
+            </div>
+        );
+    }
+
+    // Classic chrome/prism themes
+    const cordColor = '#94a3b8';
+    const capFill = '#334155';
+    const capStroke = '#cbd5e1';
+    const sphereBaseStart = '#f8fafc';
+    const sphereBaseMid = '#64748b';
+    const sphereBaseEnd = '#0f172a';
+    const gridStroke = '#1e293b';
+    const glintPrimary = '#ffffff';
+    const glintSecondary = '#f472b6';
+    const glintTertiary = '#38bdf8';
+    const glintQuaternary = '#fbbf24';
+
     return (
-        <div className={`
-            w-12 h-16
-            transform-gpu transition-transform duration-500 ease-out
-            ${isPlaying ? 'translate-y-0' : '-translate-y-full'}
-        `}>
-            <svg viewBox="0 0 50 60" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <div
+            className={`
+                w-14 h-20
+                transform-gpu transition-transform duration-500 ease-out
+                ${isPlaying ? 'translate-y-0' : '-translate-y-full'}
+            `}
+        >
+            <svg viewBox="0 0 64 84" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <defs>
-                    <pattern id="disco-tiles" patternUnits="userSpaceOnUse" width="5" height="5">
-                        <rect width="5" height="5" fill="#2d3748" />
-                        <rect x="0.5" y="0.5" width="4" height="4" fill="#4a5568" />
-                        <rect x="1" y="1" width="1.5" height="1.5" fill="white" fillOpacity="0.7" />
-                    </pattern>
-                    <radialGradient id="disco-shine" cx="0.3" cy="0.3" r="0.8">
-                        <stop stopColor="white" stopOpacity="0.5" />
-                        <stop offset="1" stopColor="#A0AEC0" stopOpacity="0.1" />
+                    <clipPath id="disco-sphere-clip">
+                        <circle cx="32" cy="50" r="21" />
+                    </clipPath>
+                    <radialGradient id="disco-sphere-base" cx="35%" cy="30%" r="70%">
+                        <stop offset="0%" stopColor={sphereBaseStart} />
+                        <stop offset="52%" stopColor={sphereBaseMid} />
+                        <stop offset="100%" stopColor={sphereBaseEnd} />
                     </radialGradient>
-                    <radialGradient id="specular-highlight" cx="0.25" cy="0.25" r="0.25" fx="0.25" fy="0.25">
-                        <stop stopColor="white" stopOpacity="0.9" />
-                        <stop offset="1" stopColor="white" stopOpacity="0" />
+                    <radialGradient id="disco-rim-shade" cx="50%" cy="50%" r="50%">
+                        <stop offset="65%" stopColor="#000000" stopOpacity="0" />
+                        <stop offset="100%" stopColor="#020c1b" stopOpacity="0.65" />
                     </radialGradient>
+                    <linearGradient id="disco-beam-left" x1="32" y1="50" x2="4" y2="24" gradientUnits="userSpaceOnUse">
+                        <stop offset="0%" stopColor={glintPrimary} stopOpacity="0.45" />
+                        <stop offset="100%" stopColor={glintTertiary} stopOpacity="0" />
+                    </linearGradient>
+                    <linearGradient id="disco-beam-right" x1="32" y1="50" x2="60" y2="28" gradientUnits="userSpaceOnUse">
+                        <stop offset="0%" stopColor={glintSecondary} stopOpacity="0.4" />
+                        <stop offset="100%" stopColor={glintSecondary} stopOpacity="0" />
+                    </linearGradient>
                     <style>
                         {`
-                            .disco-ball-sway {
-                                animation: sway 6s ease-in-out infinite;
-                                transform-origin: 25px 40px;
+                            .disco-rig-sway {
+                                animation: discoRigSway 4.8s ease-in-out infinite;
+                                transform-origin: 32px 0px;
                             }
-                            @keyframes sway {
-                                0%, 100% { transform: rotate(-10deg); }
-                                50% { transform: rotate(10deg); }
+                            @keyframes discoRigSway {
+                                0%, 100% { transform: rotate(-6deg); }
+                                50% { transform: rotate(6deg); }
                             }
-                            .sparkle-1 { animation: sparkle 1.5s ease-in-out infinite; transform-origin: 10px 25px; }
-                            .sparkle-2 { animation: sparkle 1.5s ease-in-out infinite 0.3s; transform-origin: 44px 36px; }
-                            .sparkle-3 { animation: sparkle 1.5s ease-in-out infinite 0.6s; transform-origin: 18px 51px; }
-                            .sparkle-4 { animation: sparkle 1.8s ease-in-out infinite 0.2s; transform-origin: 33px 23px; }
-                            .sparkle-5 { animation: sparkle 1.8s ease-in-out infinite 0.9s; transform-origin: 8px 55px; }
-                            @keyframes sparkle {
-                                0%, 100% { opacity: 0; transform: scale(0.5); }
-                                50% { opacity: 1; transform: scale(1); }
+                            .disco-facet-shift {
+                                animation: discoFacetShift 2.4s steps(2, end) infinite;
+                            }
+                            .disco-facet-shift-alt {
+                                animation: discoFacetShift 2.4s steps(2, end) infinite 1.2s;
+                            }
+                            @keyframes discoFacetShift {
+                                0%, 100% { opacity: 0.92; }
+                                50% { opacity: 0.25; }
+                            }
+                            .disco-star-1 { animation: discoStarPulse 1.4s ease-in-out infinite; transform-origin: 10px 30px; }
+                            .disco-star-2 { animation: discoStarPulse 1.7s ease-in-out infinite 0.35s; transform-origin: 55px 36px; }
+                            .disco-star-3 { animation: discoStarPulse 1.5s ease-in-out infinite 0.7s; transform-origin: 14px 68px; }
+                            .disco-star-4 { animation: discoStarPulse 1.8s ease-in-out infinite 0.2s; transform-origin: 52px 66px; }
+                            @keyframes discoStarPulse {
+                                0%, 100% { opacity: 0.15; transform: scale(0.45) rotate(0deg); }
+                                50% { opacity: 1; transform: scale(1.05) rotate(20deg); }
                             }
                         `}
                     </style>
                 </defs>
-                {/* String */}
-                <line x1="25" y1="0" x2="25" y2="15" stroke="#4A5568" strokeWidth="1" />
-                
-                {/* Sparkles (only animate when playing, GPU-composited) */}
-                {isPlaying && (
-                    <g>
-                        <path d="M5 25 L10 20 L15 25 L10 30 Z" fill="#FBBF24" className="sparkle-1"/>
-                        <path d="M40 35 L45 32 L48 37 L43 40 Z" fill="#A78BFA" className="sparkle-2"/>
-                        <path d="M15 50 L20 48 L22 53 L17 55 Z" fill="#60A5FA" className="sparkle-3"/>
-                        <path d="M30 22 L34 20 L36 25 L32 27 Z" fill="#F472B6" className="sparkle-4" />
-                        <path d="M8 52 L12 55 L9 59 L5 56 Z" fill="#34D399" className="sparkle-5" />
-                    </g>
-                )}
 
-                {/* Ball */}
-                <g className={isPlaying ? 'disco-ball-sway' : ''}>
-                    <circle cx="25" cy="40" r="20" fill="url(#disco-tiles)" />
-                    <circle cx="25" cy="40" r="20" fill="url(#disco-shine)" />
-                    <circle cx="25" cy="40" r="20" fill="url(#specular-highlight)" opacity="1" />
+                <g className={isPlaying ? 'disco-rig-sway' : ''}>
+                    {/* Projected Light Beams when Playing */}
+                    {isPlaying && (
+                        <g>
+                            <polygon points="32,50 2,20 10,13" fill="url(#disco-beam-left)" />
+                            <polygon points="32,50 62,24 55,16" fill="url(#disco-beam-right)" />
+                        </g>
+                    )}
+
+                    {/* Ceiling Mount Plate & Suspension Rod */}
+                    <path d="M26 0 H38 L36 3.5 H28 Z" fill={capFill} stroke={capStroke} strokeWidth="1" />
+                    <line x1="32" y1="3.5" x2="32" y2="23" stroke={cordColor} strokeWidth="1.6" />
+
+                    {/* Swivel Hook Ring & Top Dome Cap */}
+                    <circle cx="32" cy="25.5" r="2.6" fill="none" stroke={capStroke} strokeWidth="1.5" />
+                    <path
+                        d="M25 29.5 C25 27.2, 39 27.2, 39 29.5 L40.5 31.5 H23.5 Z"
+                        fill={capFill}
+                        stroke={capStroke}
+                        strokeWidth="1.2"
+                        strokeLinejoin="round"
+                    />
+
+                    {/* Main Mirror Sphere */}
+                    <g clipPath="url(#disco-sphere-clip)">
+                        {/* 3D Spherical Base Gradient */}
+                        <circle cx="32" cy="50" r="21" fill="url(#disco-sphere-base)" />
+
+                        {/* Shimmering Mirror Facet Tiles Group A */}
+                        <g className={isPlaying ? 'disco-facet-shift' : ''}>
+                            <rect x="22" y="34" width="5" height="4.5" fill={glintPrimary} fillOpacity="0.9" />
+                            <rect x="32" y="34" width="5" height="4.5" fill={glintTertiary} fillOpacity="0.75" />
+                            <rect x="17" y="39" width="5" height="5" fill={glintTertiary} fillOpacity="0.8" />
+                            <rect x="27" y="39" width="5" height="5" fill={glintPrimary} fillOpacity="0.95" />
+                            <rect x="42" y="39" width="5" height="5" fill={glintSecondary} fillOpacity="0.75" />
+                            <rect x="22" y="44.5" width="5" height="5" fill={glintSecondary} fillOpacity="0.85" />
+                            <rect x="32" y="44.5" width="5.5" height="5" fill={glintPrimary} fillOpacity="0.85" />
+                            <rect x="16" y="50" width="5.5" height="5" fill={glintPrimary} fillOpacity="0.7" />
+                            <rect x="27" y="50" width="5" height="5" fill={glintTertiary} fillOpacity="0.85" />
+                            <rect x="37.5" y="50" width="5" height="5" fill={glintQuaternary} fillOpacity="0.8" />
+                            <rect x="22" y="55.5" width="5" height="5" fill={glintPrimary} fillOpacity="0.85" />
+                            <rect x="32" y="55.5" width="5.5" height="5" fill={glintSecondary} fillOpacity="0.7" />
+                            <rect x="27" y="61" width="5" height="4.5" fill={glintTertiary} fillOpacity="0.75" />
+                        </g>
+
+                        {/* Shimmering Mirror Facet Tiles Group B (Alternating) */}
+                        <g className={isPlaying ? 'disco-facet-shift-alt' : ''}>
+                            <rect x="27" y="34" width="5" height="4.5" fill={glintSecondary} fillOpacity="0.75" />
+                            <rect x="22" y="39" width="5" height="5" fill={glintPrimary} fillOpacity="0.9" />
+                            <rect x="37.5" y="39" width="4.5" height="5" fill={glintPrimary} fillOpacity="0.8" />
+                            <rect x="16.5" y="44.5" width="5.5" height="5" fill={glintTertiary} fillOpacity="0.85" />
+                            <rect x="27" y="44.5" width="5" height="5" fill={glintQuaternary} fillOpacity="0.9" />
+                            <rect x="43" y="44.5" width="5" height="5" fill={glintPrimary} fillOpacity="0.7" />
+                            <rect x="22" y="50" width="5" height="5" fill={glintPrimary} fillOpacity="0.9" />
+                            <rect x="32" y="50" width="5.5" height="5" fill={glintSecondary} fillOpacity="0.8" />
+                            <rect x="42.5" y="50" width="5" height="5" fill={glintTertiary} fillOpacity="0.75" />
+                            <rect x="17" y="55.5" width="5" height="5" fill={glintSecondary} fillOpacity="0.75" />
+                            <rect x="27" y="55.5" width="5" height="5" fill={glintPrimary} fillOpacity="0.85" />
+                            <rect x="37.5" y="55.5" width="5" height="5" fill={glintTertiary} fillOpacity="0.8" />
+                            <rect x="32" y="61" width="5" height="4.5" fill={glintPrimary} fillOpacity="0.8" />
+                        </g>
+
+                        {/*Latitude & Meridian Facet Seam Grid */}
+                        <g stroke={gridStroke} strokeWidth="0.85" strokeOpacity="0.75">
+                            {/* Horizontal Latitude Bands */}
+                            <line x1="11" y1="34" x2="53" y2="34" />
+                            <line x1="11" y1="39" x2="53" y2="39" />
+                            <line x1="11" y1="44.5" x2="53" y2="44.5" />
+                            <line x1="11" y1="50" x2="53" y2="50" />
+                            <line x1="11" y1="55.5" x2="53" y2="55.5" />
+                            <line x1="11" y1="61" x2="53" y2="61" />
+                            <line x1="11" y1="66" x2="53" y2="66" />
+                            {/* Curved Meridian Seams for 3D Spherical Curvature */}
+                            <path d="M32 29 V71" />
+                            <path d="M27 29 C25.5 43, 25.5 57, 27 71" />
+                            <path d="M37 29 C38.5 43, 38.5 57, 37 71" />
+                            <path d="M22 30 C18.5 43, 18.5 57, 22 70" />
+                            <path d="M42 30 C45.5 43, 45.5 57, 42 70" />
+                            <path d="M17 33 C12.5 44, 12.5 56, 17 67" />
+                            <path d="M47 33 C51.5 44, 51.5 56, 47 67" />
+                        </g>
+
+                        {/* Spherical Rim Vignette & Top-Left Specular Glint */}
+                        <circle cx="32" cy="50" r="21" fill="url(#disco-rim-shade)" />
+                        <ellipse cx="24" cy="40" rx="5.5" ry="3.2" transform="rotate(-28 24 40)" fill="#ffffff" fillOpacity="0.65" />
+                    </g>
+
+                    {/* Outer Crisp Sphere Bezel */}
+                    <circle cx="32" cy="50" r="21" stroke={capStroke} strokeWidth="1.4" />
+
+                    {/* 4-Point Star Flares (Active when Playing) */}
+                    {isPlaying && (
+                        <g>
+                            {/* Top-Left White/Sky Star */}
+                            <path
+                                d="M10 23 L11.4 28.6 L17 30 L11.4 31.4 L10 37 L8.6 31.4 L3 30 L8.6 28.6 Z"
+                                fill={glintPrimary}
+                                className="disco-star-1"
+                            />
+                            {/* Top-Right Pink Star */}
+                            <path
+                                d="M55 30 L56.2 34.8 L61 36 L56.2 37.2 L55 42 L53.8 37.2 L49 36 L53.8 34.8 Z"
+                                fill={glintSecondary}
+                                className="disco-star-2"
+                            />
+                            {/* Bottom-Left Sky Star */}
+                            <path
+                                d="M14 62 L15.1 66.9 L20 68 L15.1 69.1 L14 74 L12.9 69.1 L8 68 L12.9 66.9 Z"
+                                fill={glintTertiary}
+                                className="disco-star-3"
+                            />
+                            {/* Bottom-Right Ice Star */}
+                            <path
+                                d="M52 61 L53 64.8 L57 66 L53 67.2 L52 71 L51 67.2 L47 66 L51 64.8 Z"
+                                fill={glintQuaternary}
+                                className="disco-star-4"
+                            />
+                        </g>
+                    )}
                 </g>
             </svg>
         </div>
@@ -79,7 +364,128 @@ const DiscoBall: React.FC<{ isPlaying: boolean }> = React.memo(({ isPlaying }) =
 interface DancingCatProps {
     isPlaying: boolean;
     tempo: number;
+    visualizerStyle?: VisualizerStyle;
 }
+
+const BlueCobaltCatFrame1: React.FC = () => (
+    <svg width="96" height="96" viewBox="0 0 96 96" fill="none" xmlns="http://www.w3.org/2000/svg">
+        {/* Waving Left Arm & Paw with 4 Baby Pink Toe-Beans */}
+        <path
+            d="M36 74 C 19 72, 16 54, 21 38"
+            stroke="#a8dcff"
+            strokeWidth="12"
+            strokeLinecap="round"
+            fill="none"
+        />
+        <path
+            d="M36 74 C 19 72, 16 54, 21 38"
+            stroke="#d6eeff"
+            strokeWidth="8"
+            strokeLinecap="round"
+            fill="none"
+            opacity="0.7"
+        />
+        {/* Paw Pad & 4 Baby Pink Toe Beans */}
+        <g transform="translate(21, 35) rotate(-12)">
+            <ellipse cx="0" cy="3" rx="4.2" ry="3.4" fill="#ffc4d6" />
+            <circle cx="-5.5" cy="-2.5" r="2.1" fill="#ffc4d6" />
+            <circle cx="-2" cy="-5" r="2.1" fill="#ffc4d6" />
+            <circle cx="2.2" cy="-5" r="2.1" fill="#ffc4d6" />
+            <circle cx="5.6" cy="-2.2" r="2.1" fill="#ffc4d6" />
+        </g>
+
+        {/* Sculpted Minimal Baby Blue Body */}
+        <path
+            d="M35 84 C 33 66, 39 56, 52 56 C 65 56, 70 66, 68 84 C 60 87, 43 87, 35 84 Z"
+            fill="#a8dcff"
+            stroke="#e3f4ff"
+            strokeWidth="2"
+        />
+        <ellipse cx="52" cy="71" rx="10" ry="9" fill="#cceaff" opacity="0.7" />
+
+        {/* Cat Head & Pointed Ears */}
+        <g transform="translate(53, 44)">
+            {/* Left & Right Pointed Ears */}
+            <path d="M-17 -8 L-21 -27 L-4 -17 Z" fill="#a8dcff" stroke="#e3f4ff" strokeWidth="2" strokeLinejoin="round" />
+            <path d="M-15 -10 L-18 -22 L-7 -15 Z" fill="#ffc4d6" opacity="0.85" />
+            <path d="M17 -8 L21 -27 L4 -17 Z" fill="#a8dcff" stroke="#e3f4ff" strokeWidth="2" strokeLinejoin="round" />
+            <path d="M15 -10 L18 -22 L7 -15 Z" fill="#ffc4d6" opacity="0.85" />
+
+            {/* Head Silhouette */}
+            <ellipse cx="0" cy="0" rx="19" ry="16" fill="#b4e2ff" stroke="#e3f4ff" strokeWidth="2" />
+            <ellipse cx="0" cy="2" rx="13" ry="11" fill="#d6eeff" opacity="0.65" />
+
+            {/* Minimalist Midnight-Navy Whiskers (matching Procreate brush strokes) */}
+            <g stroke="#051e3e" strokeWidth="2.4" strokeLinecap="round">
+                <path d="M-13 -1 L-24 -5" />
+                <path d="M-14 3 L-25 3" />
+                <path d="M-13 7 L-23 11" />
+                <path d="M13 -1 L24 -5" />
+                <path d="M14 3 L25 3" />
+                <path d="M13 7 L23 11" />
+            </g>
+        </g>
+    </svg>
+);
+
+const BlueCobaltCatFrame2: React.FC = () => (
+    <svg width="96" height="96" viewBox="0 0 96 96" fill="none" xmlns="http://www.w3.org/2000/svg">
+        {/* Waving Left Arm & Paw with 4 Baby Pink Toe-Beans (bouncing up) */}
+        <path
+            d="M36 74 C 17 68, 13 48, 17 32"
+            stroke="#a8dcff"
+            strokeWidth="12"
+            strokeLinecap="round"
+            fill="none"
+        />
+        <path
+            d="M36 74 C 17 68, 13 48, 17 32"
+            stroke="#d6eeff"
+            strokeWidth="8"
+            strokeLinecap="round"
+            fill="none"
+            opacity="0.7"
+        />
+        {/* Paw Pad & 4 Baby Pink Toe Beans */}
+        <g transform="translate(17, 29) rotate(-22)">
+            <ellipse cx="0" cy="3" rx="4.2" ry="3.4" fill="#ffd1e0" />
+            <circle cx="-5.5" cy="-2.5" r="2.1" fill="#ffd1e0" />
+            <circle cx="-2" cy="-5" r="2.1" fill="#ffd1e0" />
+            <circle cx="2.2" cy="-5" r="2.1" fill="#ffd1e0" />
+            <circle cx="5.6" cy="-2.2" r="2.1" fill="#ffd1e0" />
+        </g>
+
+        {/* Sculpted Minimal Baby Blue Body */}
+        <path
+            d="M35 85 C 33 68, 39 58, 52 58 C 65 58, 70 68, 68 85 C 60 88, 43 88, 35 85 Z"
+            fill="#a8dcff"
+            stroke="#e3f4ff"
+            strokeWidth="2"
+        />
+        <ellipse cx="52" cy="73" rx="10" ry="9" fill="#cceaff" opacity="0.7" />
+
+        {/* Cat Head & Pointed Ears (tilted to the beat) */}
+        <g transform="translate(54, 46) rotate(5)">
+            <path d="M-17 -8 L-21 -27 L-4 -17 Z" fill="#a8dcff" stroke="#e3f4ff" strokeWidth="2" strokeLinejoin="round" />
+            <path d="M-15 -10 L-18 -22 L-7 -15 Z" fill="#ffc4d6" opacity="0.85" />
+            <path d="M17 -8 L21 -27 L4 -17 Z" fill="#a8dcff" stroke="#e3f4ff" strokeWidth="2" strokeLinejoin="round" />
+            <path d="M15 -10 L18 -22 L7 -15 Z" fill="#ffc4d6" opacity="0.85" />
+
+            <ellipse cx="0" cy="0" rx="19" ry="16" fill="#b4e2ff" stroke="#e3f4ff" strokeWidth="2" />
+            <ellipse cx="0" cy="2" rx="13" ry="11" fill="#d6eeff" opacity="0.65" />
+
+            {/* Minimalist Midnight-Navy Whiskers */}
+            <g stroke="#051e3e" strokeWidth="2.4" strokeLinecap="round">
+                <path d="M-13 -1 L-24 -6" />
+                <path d="M-14 3 L-25 2" />
+                <path d="M-13 7 L-23 10" />
+                <path d="M13 -1 L24 -4" />
+                <path d="M14 3 L25 4" />
+                <path d="M13 7 L23 12" />
+            </g>
+        </g>
+    </svg>
+);
 
 const BrownTabbyCatFrame1: React.FC = () => (
     <svg width="96" height="96" viewBox="0 0 96 96" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -237,10 +643,17 @@ const catFrames = [
     <BrownTabbyCatFrame2 key="2" />,
 ];
 
-const DancingCat: React.FC<DancingCatProps> = React.memo(({ isPlaying, tempo }) => {
+const blueCatFrames = [
+    <BlueCobaltCatFrame1 key="b1" />,
+    <BlueCobaltCatFrame2 key="b2" />,
+];
+
+const DancingCat: React.FC<DancingCatProps> = React.memo(({ isPlaying, tempo, visualizerStyle = 'default' }) => {
     const [currentFrame, setCurrentFrame] = useState(0);
     const tempoRef = useRef(tempo);
     tempoRef.current = tempo;
+    const isCobaltDefault = visualizerStyle === 'default';
+    const activeFrames = isCobaltDefault ? blueCatFrames : catFrames;
 
     useEffect(() => {
         if (!isPlaying) {
@@ -250,7 +663,7 @@ const DancingCat: React.FC<DancingCatProps> = React.memo(({ isPlaying, tempo }) 
 
         let timeoutId: number;
         const tick = () => {
-            setCurrentFrame(prevFrame => (prevFrame + 1) % catFrames.length);
+            setCurrentFrame(prevFrame => (prevFrame + 1) % activeFrames.length);
             const nextIntervalMs = (60 / Math.max(30, tempoRef.current) / 2) * 1000;
             timeoutId = window.setTimeout(tick, nextIntervalMs);
         };
@@ -261,21 +674,21 @@ const DancingCat: React.FC<DancingCatProps> = React.memo(({ isPlaying, tempo }) 
         return () => {
             clearTimeout(timeoutId);
         };
-    }, [isPlaying]);
+    }, [isPlaying, activeFrames.length]);
 
     const containerClasses = `
         relative w-32 h-24
         transform-gpu transition-[transform,opacity] duration-500 ease-in-out
-        ${isPlaying ? 'opacity-100' : 'opacity-0 -translate-y-4'}
+        ${isPlaying ? 'opacity-100' : 'opacity-0 -translate-y-4 pointer-events-none'}
     `;
 
     return (
         <div className={containerClasses} aria-hidden="true">
-            <div className="absolute left-0 bottom-0">
-                {catFrames[currentFrame]}
+            <div className="absolute left-0 bottom-0 pointer-events-none">
+                {activeFrames[currentFrame]}
             </div>
-            <div className="absolute right-0 top-0">
-                 <DiscoBall isPlaying={isPlaying} />
+            <div className="absolute right-0 top-0 pointer-events-none">
+                 <DiscoBall isPlaying={isPlaying} visualizerStyle={visualizerStyle} />
             </div>
         </div>
     );
@@ -354,7 +767,7 @@ const coffeeFrames = [
     <CoffeeCupFrame2 key="2" />,
 ];
 
-const DancingCoffeeCup: React.FC<DancingCatProps> = React.memo(({ isPlaying, tempo }) => {
+const DancingCoffeeCup: React.FC<DancingCatProps> = React.memo(({ isPlaying, tempo, visualizerStyle = 'default' }) => {
     const [currentFrame, setCurrentFrame] = useState(0);
     const tempoRef = useRef(tempo);
     tempoRef.current = tempo;
@@ -388,11 +801,11 @@ const DancingCoffeeCup: React.FC<DancingCatProps> = React.memo(({ isPlaying, tem
 
     return (
         <div className={containerClasses} aria-hidden="true">
-            <div className="absolute left-0 bottom-0">
+            <div className="absolute left-0 bottom-0 pointer-events-none">
                 {coffeeFrames[currentFrame]}
             </div>
-            <div className="absolute right-0 top-0">
-                 <DiscoBall isPlaying={isPlaying} />
+            <div className="absolute right-0 top-0 pointer-events-none">
+                 <DiscoBall isPlaying={isPlaying} visualizerStyle={visualizerStyle} />
             </div>
         </div>
     );
@@ -477,6 +890,8 @@ const EditableValue: React.FC<EditableValueProps> = React.memo(({
                         ? 'bg-[#120e14] text-[#f2ece1] border border-[#d4af37] rounded'
                         : visualizerStyle === 'cyberpunk'
                         ? 'bg-[#08080c] text-[#00ff9f] border border-[#00ff9f]'
+                        : visualizerStyle === 'default'
+                        ? 'bg-[#041c3b] text-[#f0f9ff] border-2 border-[#a8dcff] rounded-md'
                         : 'bg-gray-800 text-gray-100 border border-blue-500 rounded'
                 }`}
             />
@@ -513,6 +928,8 @@ const EditableValue: React.FC<EditableValueProps> = React.memo(({
                     ? 'text-gray-100 hover:text-[#d4af37] hover:bg-[#1d161f] hover:border-[#d4af37]/40'
                     : visualizerStyle === 'cyberpunk'
                     ? 'text-gray-100 hover:text-[#00ff9f] hover:bg-[#00ff9f]/10 hover:border-[#00ff9f]/50'
+                    : visualizerStyle === 'default'
+                    ? 'text-[#edf7ff] font-mono hover:text-[#ffc4d6] hover:bg-[#0b1f3b] hover:border-[#a8dcff]/70 rounded-none'
                     : 'text-gray-100 hover:text-blue-400 hover:bg-gray-700/60 hover:border-gray-600'
             }`}
         >
@@ -539,7 +956,8 @@ interface ControlsProps {
     onHueRotateChange: (value: number) => void;
     isColorAnimating: boolean;
     onToggleColorAnimation: () => void;
-    onDownload: (customFilename?: string, measures?: number, includeTail?: boolean) => void;
+    onResetColorKnob?: () => void;
+    onDownload: (customFilename?: string, measures?: number, includeTail?: boolean, exportStems?: boolean) => void;
     onPrepareDrag?: (measures?: number, includeTail?: boolean) => void;
     onCopy?: () => void;
     isRendering: boolean;
@@ -663,11 +1081,11 @@ const PatternSlotButton: React.FC<PatternSlotButtonProps> = React.memo(({ slotIn
             aria-pressed={isActive}
         >
             {/* Subtle hardware status pip when pattern slot has notes */}
-            {hasContent && visualizerStyle !== 'default' && (
+            {hasContent && (
                 <span
                     aria-hidden="true"
                     className={`absolute top-1 right-1 w-1.5 h-1.5 ${
-                        visualizerStyle === 'bauhaus' || visualizerStyle === 'cyberpunk' || visualizerStyle === 'minimal' ? 'rounded-none' : 'rounded-full'
+                        visualizerStyle === 'bauhaus' || visualizerStyle === 'cyberpunk' || visualizerStyle === 'minimal' || visualizerStyle === 'default' ? 'rounded-none' : 'rounded-full'
                     } ${
                         isActive
                             ? 'bg-current opacity-80'
@@ -681,6 +1099,10 @@ const PatternSlotButton: React.FC<PatternSlotButtonProps> = React.memo(({ slotIn
                             ? 'bg-[#ff5e4d] shadow-[0_0_6px_#ff5e4d]'
                             : visualizerStyle === 'koto'
                             ? 'bg-[#d4af37]'
+                            : visualizerStyle === 'default'
+                            ? 'bg-[#ffc4d6]'
+                            : visualizerStyle === 'classic607'
+                            ? 'bg-[#38bdf8] shadow-[0_0_6px_#38bdf8]'
                             : 'bg-[#00ff9f]'
                     }`}
                 />
@@ -709,6 +1131,7 @@ const Controls: React.FC<ControlsProps> = ({
     onHueRotateChange,
     isColorAnimating,
     onToggleColorAnimation,
+    onResetColorKnob,
     onDownload,
     onPrepareDrag,
     isRendering,
@@ -737,11 +1160,15 @@ const Controls: React.FC<ControlsProps> = ({
 }) => {
     const isDraggingKnob = useRef(false);
     const knobDragStart = useRef({ y: 0, hue: 0, time: 0 });
+    const knobTapRef = useRef<{ count: number; lastTime: number }>({ count: 0, lastTime: 0 });
 
     const [clearProgress, setClearProgress] = useState(0);
     const [isPoofing, setIsPoofing] = useState(false);
+    const [isConfirmingClear, setIsConfirmingClear] = useState(false);
     const clearTimerRef = useRef<number | null>(null);
     const clearRequestRef = useRef<number | null>(null);
+    const clearConfirmTimeoutRef = useRef<number | null>(null);
+    const clearButtonRef = useRef<HTMLButtonElement | null>(null);
 
     const [isInteractingWithSlider, setIsInteractingWithSlider] = useState(false);
     const [editingField, setEditingField] = useState<'volume' | 'tempo' | 'swing' | null>(null);
@@ -757,13 +1184,15 @@ const Controls: React.FC<ControlsProps> = ({
     const recordingsMenuRef = useRef<HTMLDivElement | null>(null);
     const prevRecordingsCountRef = useRef<number>(liveRecordings.length);
 
-    // --- Beat Export Naming & Length State (Save & Drag-and-Drop) ---
+    // --- Beat Export Naming & Length State (Save & Advanced Options) ---
     const defaultExportName = `drums_bpm${tempo}`;
     const [exportPromptMode, setExportPromptMode] = useState<'save' | 'drag' | null>(null);
     const [exportName, setExportName] = useState<string>(defaultExportName);
     const [isCustomExportName, setIsCustomExportName] = useState<boolean>(false);
     const [localExportMeasures, setLocalExportMeasures] = useState<number>(1);
     const [localIncludeTail, setLocalIncludeTail] = useState<boolean>(false);
+    const [exportStems, setExportStems] = useState<boolean>(false);
+    const [isAdvancedExportOpen, setIsAdvancedExportOpen] = useState<boolean>(false);
     const exportInputRef = useRef<HTMLInputElement | null>(null);
 
     const activeExportMeasures = externalExportMeasures ?? localExportMeasures;
@@ -1007,11 +1436,37 @@ const Controls: React.FC<ControlsProps> = ({
             const timer = setTimeout(() => {
                 onClearPattern();
                 setIsPoofing(false);
+                setIsConfirmingClear(false);
             }, 300); // Animation duration
             return () => clearTimeout(timer);
         }
     }, [isPoofing, onClearPattern]);
 
+    useEffect(() => {
+        setIsConfirmingClear(false);
+        if (clearConfirmTimeoutRef.current) {
+            clearTimeout(clearConfirmTimeoutRef.current);
+            clearConfirmTimeoutRef.current = null;
+        }
+    }, [currentPatternIndex, activePattern, isCurrentPatternEmpty]);
+
+    useEffect(() => {
+        if (!isConfirmingClear) return;
+        const handleOutsidePointerDown = (e: PointerEvent) => {
+            if (clearButtonRef.current && clearButtonRef.current.contains(e.target as Node)) return;
+            setIsConfirmingClear(false);
+        };
+        window.addEventListener('pointerdown', handleOutsidePointerDown);
+        return () => window.removeEventListener('pointerdown', handleOutsidePointerDown);
+    }, [isConfirmingClear]);
+
+    useEffect(() => {
+        return () => {
+            if (clearConfirmTimeoutRef.current) clearTimeout(clearConfirmTimeoutRef.current);
+            if (clearTimerRef.current) clearTimeout(clearTimerRef.current);
+            if (clearRequestRef.current) cancelAnimationFrame(clearRequestRef.current);
+        };
+    }, []);
 
     const handleClearStart = useCallback(() => {
         if (clearTimerRef.current) clearTimeout(clearTimerRef.current);
@@ -1020,6 +1475,11 @@ const Controls: React.FC<ControlsProps> = ({
         const startTime = Date.now();
 
         clearTimerRef.current = window.setTimeout(() => {
+            if (clearConfirmTimeoutRef.current) {
+                clearTimeout(clearConfirmTimeoutRef.current);
+                clearConfirmTimeoutRef.current = null;
+            }
+            setIsConfirmingClear(false);
             setIsPoofing(true);
             setClearProgress(0);
         }, HOLD_DURATION);
@@ -1033,7 +1493,6 @@ const Controls: React.FC<ControlsProps> = ({
             }
         };
         clearRequestRef.current = requestAnimationFrame(updateProgress);
-
     }, []);
 
     const handleClearEnd = useCallback(() => {
@@ -1047,6 +1506,27 @@ const Controls: React.FC<ControlsProps> = ({
         }
         setClearProgress(0);
     }, []);
+
+    const handleClearClick = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
+        e.stopPropagation();
+        if (isPoofing) return;
+
+        if (!isConfirmingClear) {
+            setIsConfirmingClear(true);
+            if (clearConfirmTimeoutRef.current) clearTimeout(clearConfirmTimeoutRef.current);
+            clearConfirmTimeoutRef.current = window.setTimeout(() => {
+                setIsConfirmingClear(false);
+            }, 4000);
+        } else {
+            if (clearConfirmTimeoutRef.current) {
+                clearTimeout(clearConfirmTimeoutRef.current);
+                clearConfirmTimeoutRef.current = null;
+            }
+            handleClearEnd();
+            setIsConfirmingClear(false);
+            setIsPoofing(true);
+        }
+    }, [isConfirmingClear, isPoofing, handleClearEnd]);
 
     const handleKnobInteractionStart = useCallback((startY: number) => {
         isDraggingKnob.current = true;
@@ -1066,12 +1546,31 @@ const Controls: React.FC<ControlsProps> = ({
         const timeElapsed = Date.now() - knobDragStart.current.time;
         const distanceMoved = Math.abs(knobDragStart.current.y - endY);
 
-        if (isDraggingKnob.current && timeElapsed < 250 && distanceMoved < 10) {
-            onToggleColorAnimation();
+        if (isDraggingKnob.current && timeElapsed < 300 && distanceMoved < 12) {
+            const now = Date.now();
+            const isSequentialTap = now - knobTapRef.current.lastTime < 500;
+            const nextTapCount = isSequentialTap ? knobTapRef.current.count + 1 : 1;
+
+            if (nextTapCount >= 4) {
+                knobTapRef.current = { count: 0, lastTime: 0 };
+                if (onResetColorKnob) {
+                    onResetColorKnob();
+                } else {
+                    if (isColorAnimating) {
+                        onToggleColorAnimation();
+                    }
+                    onHueRotateChange(0);
+                }
+            } else {
+                knobTapRef.current = { count: nextTapCount, lastTime: now };
+                onToggleColorAnimation();
+            }
+        } else if (distanceMoved >= 12) {
+            knobTapRef.current = { count: 0, lastTime: 0 };
         }
 
         isDraggingKnob.current = false;
-    }, [onToggleColorAnimation]);
+    }, [onToggleColorAnimation, onResetColorKnob, isColorAnimating, onHueRotateChange]);
     
     // Mouse Events
     const handleMouseDown = useCallback((e: React.MouseEvent) => {
@@ -1188,6 +1687,8 @@ const Controls: React.FC<ControlsProps> = ({
                                             ? 'bg-[#d9325e] text-white border border-white'
                                             : visualizerStyle === 'koto'
                                             ? 'bg-[#d4af37] text-[#120d14]'
+                                            : visualizerStyle === 'default'
+                                            ? 'bg-[#f4a8c4] text-[#061121] border border-[#061121] rounded-none'
                                             : 'bg-blue-500 text-white'
                                     }`}
                                 >
@@ -1214,6 +1715,8 @@ const Controls: React.FC<ControlsProps> = ({
                                 ? 'bg-[#140f16] border-2 border-[#d4af37] rounded-xl text-[#f2ece1] shadow-[0_18px_44px_rgba(0,0,0,0.9)]'
                                 : visualizerStyle === 'minimal'
                                 ? 'bg-[#09090b] border-2 border-[#f4f4f5] rounded-none text-[#f4f4f5] shadow-[0_12px_30px_rgba(0,0,0,0.9)]'
+                                : visualizerStyle === 'default'
+                                ? 'bg-gradient-to-b from-[#0c213d] to-[#071428] border border-[#8ecaff] rounded-none text-[#e6f3ff] shadow-[5px_5px_0px_#030914]'
                                 : 'bg-[#111827] border-2 border-[#374151] rounded-xl text-[#f9fafb] shadow-[0_20px_50px_rgba(0,0,0,0.85)]'
                         }`}
                         role="dialog"
@@ -1279,6 +1782,8 @@ const Controls: React.FC<ControlsProps> = ({
                                                     ? 'bg-[#1f1722] border border-[#d4af37]/40 rounded-lg'
                                                     : visualizerStyle === 'minimal'
                                                     ? 'bg-[#141418] border border-[#2e2e36] rounded-none'
+                                                    : visualizerStyle === 'default'
+                                                    ? 'bg-[#08172e] border border-[#1e3f6e] rounded-none'
                                                     : 'bg-[#1f2937] border border-[#374151] rounded-lg'
                                             }`}
                                         >
@@ -1418,7 +1923,7 @@ const Controls: React.FC<ControlsProps> = ({
                     </div>
                 )}
 
-                {/* Solid, Opaque Beat Naming & Export Popover (for Drag & Drop and Save) */}
+                {/* Streamlined Save Beat Popover with Naming + Save & Collapsible Advanced Options */}
                 {exportPromptMode && (
                     <div
                         className={`absolute left-0 top-full mt-2 z-50 w-72 sm:w-80 p-3.5 flex flex-col gap-3 ${
@@ -1434,33 +1939,32 @@ const Controls: React.FC<ControlsProps> = ({
                                 ? 'bg-[#140f16] border-2 border-[#d4af37] rounded-xl text-[#f2ece1] shadow-[0_18px_44px_rgba(0,0,0,0.9)]'
                                 : visualizerStyle === 'minimal'
                                 ? 'bg-[#09090b] border-2 border-[#f4f4f5] rounded-none text-[#f4f4f5] shadow-[0_12px_30px_rgba(0,0,0,0.9)]'
+                                : visualizerStyle === 'default'
+                                ? 'bg-gradient-to-b from-[#0c213d] to-[#071428] border border-[#a8dcff] rounded-none text-[#edf7ff] shadow-[5px_5px_0px_#030914]'
                                 : 'bg-[#111827] border-2 border-[#374151] rounded-xl text-[#f9fafb] shadow-[0_20px_50px_rgba(0,0,0,0.85)]'
                         }`}
                         role="dialog"
-                        aria-label={exportPromptMode === 'save' ? 'Name and save beat' : 'Name and drag beat'}
+                        aria-label="Save beat"
                     >
                         <div className="flex items-center justify-between pb-2 border-b border-current/20">
                             <div className="flex items-center gap-2">
-                                {exportPromptMode === 'save' ? (
-                                    <DownloadIcon className="w-3.5 h-3.5" />
-                                ) : (
-                                    <DragIcon className="w-3.5 h-3.5" />
-                                )}
+                                <DownloadIcon className="w-3.5 h-3.5" />
                                 <h4 className="text-xs font-extrabold uppercase tracking-wider text-gray-100">
-                                    {exportPromptMode === 'save' ? 'Save Beat (.wav)' : 'Drag & Drop Beat (.wav)'}
+                                    Save Beat
                                 </h4>
                             </div>
                             <button
                                 type="button"
                                 onClick={() => setExportPromptMode(null)}
                                 className={getButtonStyle(visualizerStyle, 'secondary', false, false, 'w-6 h-6 !px-0 text-xs')}
-                                aria-label="Close naming dialog"
+                                aria-label="Close save dialog"
                             >
                                 ✕
                             </button>
                         </div>
 
-                        <div className="flex flex-col gap-1.5">
+                        {/* Naming Option + Immediate Save Action */}
+                        <div className="flex flex-col gap-2">
                             <div className="flex items-center justify-between">
                                 <label htmlFor="beat-export-filename" className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
                                     File Name
@@ -1474,285 +1978,243 @@ const Controls: React.FC<ControlsProps> = ({
                                         }}
                                         className="text-[10px] font-bold underline opacity-80 hover:opacity-100 cursor-pointer bg-transparent border-0 text-inherit"
                                     >
-                                        Reset to {defaultExportName}
+                                        Reset
                                     </button>
                                 )}
                             </div>
-                            <div
-                                className={`flex items-center px-2.5 py-1.5 ${
-                                    visualizerStyle === 'cyberpunk'
-                                        ? 'bg-[#10101a] border border-[#00ff9f] rounded-none'
-                                        : visualizerStyle === 'braun'
-                                        ? 'bg-[#e6e3da] border border-[#a8a498] rounded-md'
-                                        : visualizerStyle === 'bauhaus'
-                                        ? 'bg-[#ebe4d5] border-2 border-[#141413] rounded-none'
-                                        : visualizerStyle === 'nagra'
-                                        ? 'bg-[#fff8f3] border border-[#f4b6a0] rounded-xl'
-                                        : visualizerStyle === 'koto'
-                                        ? 'bg-[#1f1722] border border-[#d4af37]/60 rounded-lg'
-                                        : visualizerStyle === 'minimal'
-                                        ? 'bg-[#141418] border border-[#52525b] rounded-none'
-                                        : 'bg-[#1f2937] border border-[#4b5563] rounded-lg'
-                                }`}
-                            >
-                                <input
-                                    id="beat-export-filename"
-                                    ref={exportInputRef}
-                                    type="text"
-                                    value={exportName}
-                                    placeholder={defaultExportName}
-                                    onChange={(e) => {
-                                        const val = e.target.value;
-                                        setExportName(val);
-                                        setIsCustomExportName(val.trim() !== '' && val.trim() !== defaultExportName);
-                                    }}
-                                    onKeyDown={(e) => {
-                                        if (e.key === 'Enter') {
-                                            e.preventDefault();
-                                            if (exportPromptMode === 'save') {
+                            <div className="flex items-stretch gap-1.5">
+                                <div
+                                    className={`flex-1 min-w-0 flex items-center px-2.5 py-1.5 ${
+                                        visualizerStyle === 'cyberpunk'
+                                            ? 'bg-[#10101a] border border-[#00ff9f] rounded-none'
+                                            : visualizerStyle === 'braun'
+                                            ? 'bg-[#e6e3da] border border-[#a8a498] rounded-md'
+                                            : visualizerStyle === 'bauhaus'
+                                            ? 'bg-[#ebe4d5] border-2 border-[#141413] rounded-none'
+                                            : visualizerStyle === 'nagra'
+                                            ? 'bg-[#fff8f3] border border-[#f4b6a0] rounded-xl'
+                                            : visualizerStyle === 'koto'
+                                            ? 'bg-[#1f1722] border border-[#d4af37]/60 rounded-lg'
+                                            : visualizerStyle === 'minimal'
+                                            ? 'bg-[#141418] border border-[#52525b] rounded-none'
+                                            : visualizerStyle === 'default'
+                                            ? 'bg-[#061121] border border-[#234778] rounded-none'
+                                            : 'bg-[#1f2937] border border-[#4b5563] rounded-lg'
+                                    }`}
+                                >
+                                    <input
+                                        id="beat-export-filename"
+                                        ref={exportInputRef}
+                                        type="text"
+                                        value={exportName}
+                                        placeholder={defaultExportName}
+                                        onChange={(e) => {
+                                            const val = e.target.value;
+                                            setExportName(val);
+                                            setIsCustomExportName(val.trim() !== '' && val.trim() !== defaultExportName);
+                                        }}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter') {
+                                                e.preventDefault();
                                                 const finalName = exportName.trim() || defaultExportName;
-                                                onDownload(finalName, activeExportMeasures, activeIncludeTail);
-                                                setExportPromptMode(null);
-                                            } else {
+                                                onDownload(finalName, activeExportMeasures, activeIncludeTail, exportStems);
                                                 setExportPromptMode(null);
                                             }
-                                        }
-                                    }}
-                                    className="flex-1 min-w-0 bg-transparent border-0 text-xs font-mono font-bold text-gray-100 focus:outline-none"
-                                />
-                                <span className="ml-1.5 text-[11px] font-mono font-bold text-gray-400 select-none">
-                                    .wav
-                                </span>
-                            </div>
-                        </div>
-
-                        {/* Export Measures Selector */}
-                        <div className="flex flex-col gap-1.5 pt-1 border-t border-current/15">
-                            <div className="flex items-center justify-between">
-                                <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
-                                    Measures
-                                </span>
-                                <span className="text-[10px] font-mono tabular-nums text-gray-300">
-                                    {activeExportMeasures} {activeExportMeasures === 1 ? 'bar' : 'bars'} · {exportBarDurationSec.toFixed(1)}s{activeIncludeTail ? ' + tail' : ''}
-                                </span>
-                            </div>
-                            <div className="flex items-center gap-1">
-                                {[1, 2, 4, 8].map((count) => (
-                                    <button
-                                        key={count}
-                                        type="button"
-                                        onClick={() => handleChangeExportMeasures(count)}
-                                        className={getButtonStyle(
-                                            visualizerStyle,
-                                            activeExportMeasures === count ? 'primary' : 'secondary',
-                                            activeExportMeasures === count,
-                                            false,
-                                            'flex-1 h-7 text-xs tabular-nums'
-                                        )}
-                                    >
-                                        {count}
-                                    </button>
-                                ))}
-                                <div className="flex items-center gap-0.5 ml-1">
-                                    <button
-                                        type="button"
-                                        onClick={() => handleChangeExportMeasures(activeExportMeasures - 1)}
-                                        disabled={activeExportMeasures <= 1}
-                                        title="Decrease measures"
-                                        aria-label="Decrease measures"
-                                        className={getButtonStyle(
-                                            visualizerStyle,
-                                            'secondary',
-                                            false,
-                                            activeExportMeasures <= 1,
-                                            'w-6 h-7 !px-0 text-xs'
-                                        )}
-                                    >
-                                        −
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => handleChangeExportMeasures(activeExportMeasures + 1)}
-                                        disabled={activeExportMeasures >= 16}
-                                        title="Increase measures"
-                                        aria-label="Increase measures"
-                                        className={getButtonStyle(
-                                            visualizerStyle,
-                                            'secondary',
-                                            false,
-                                            activeExportMeasures >= 16,
-                                            'w-6 h-7 !px-0 text-xs'
-                                        )}
-                                    >
-                                        +
-                                    </button>
+                                        }}
+                                        className="flex-1 min-w-0 bg-transparent border-0 text-xs font-mono font-bold text-gray-100 focus:outline-none"
+                                    />
+                                    <span className="ml-1 text-[10px] font-mono font-bold text-gray-400 select-none">
+                                        {exportStems ? '.zip' : '.wav'}
+                                    </span>
                                 </div>
-                            </div>
-                        </div>
-
-                        {/* Let Tails Ring Out Checkbox */}
-                        <label
-                            htmlFor="export-include-tail"
-                            className={`flex items-start gap-2.5 p-2 cursor-pointer select-none transition-colors ${
-                                visualizerStyle === 'cyberpunk'
-                                    ? 'bg-[#10101a] border border-[#00ff9f]/60 rounded-none'
-                                    : visualizerStyle === 'braun'
-                                    ? 'bg-[#e6e3da] border border-[#c4c0b4] rounded-md'
-                                    : visualizerStyle === 'bauhaus'
-                                    ? 'bg-[#ebe4d5] border-2 border-[#141413] rounded-none'
-                                    : visualizerStyle === 'nagra'
-                                    ? 'bg-[#fff8f3] border border-[#f4b6a0] rounded-xl'
-                                    : visualizerStyle === 'koto'
-                                    ? 'bg-[#1f1722] border border-[#d4af37]/40 rounded-lg'
-                                    : visualizerStyle === 'minimal'
-                                    ? 'bg-[#141418] border border-[#3f3f46] rounded-none'
-                                    : 'bg-[#1f2937]/90 border border-[#374151] rounded-lg hover:border-gray-500'
-                            }`}
-                        >
-                            <input
-                                id="export-include-tail"
-                                type="checkbox"
-                                checked={activeIncludeTail}
-                                onChange={handleToggleIncludeTail}
-                                className="mt-0.5 w-3.5 h-3.5 rounded accent-blue-500 cursor-pointer flex-shrink-0"
-                            />
-                            <div className="flex flex-col leading-tight">
-                                <span className="text-[11px] font-bold text-gray-100">
-                                    Let Tails Ring Out
-                                </span>
-                                <span className="text-[10px] text-gray-400 mt-0.5 leading-snug">
-                                    Extends clip so reverb, delay &amp; final notes decay naturally without cutting off.
-                                </span>
-                            </div>
-                        </label>
-
-                        {exportPromptMode === 'save' ? (
-                            <div className="flex items-center justify-end gap-2 pt-1">
-                                <button
-                                    type="button"
-                                    onClick={() => setExportPromptMode(null)}
-                                    className={getButtonStyle(visualizerStyle, 'secondary', false, false, 'h-8 px-3 text-xs')}
-                                >
-                                    CANCEL
-                                </button>
                                 <button
                                     type="button"
                                     disabled={isRendering || isPreparingDrag}
                                     onClick={() => {
                                         const finalName = exportName.trim() || defaultExportName;
-                                        onDownload(finalName, activeExportMeasures, activeIncludeTail);
+                                        onDownload(finalName, activeExportMeasures, activeIncludeTail, exportStems);
                                         setExportPromptMode(null);
                                     }}
-                                    className={getButtonStyle(visualizerStyle, 'primary', false, isRendering || isPreparingDrag, 'h-8 px-3.5 text-xs')}
+                                    className={getButtonStyle(visualizerStyle, 'primary', false, isRendering || isPreparingDrag, 'h-9 px-3.5 text-xs flex-shrink-0')}
                                 >
-                                    {isRendering ? 'RENDERING...' : (
+                                    {isRendering ? 'SAVING...' : (
                                         <>
-                                            <DownloadIcon className="w-3.5 h-3.5 mr-1.5" />
-                                            SAVE .WAV
+                                            <DownloadIcon className="w-3.5 h-3.5 mr-1" />
+                                            <span>SAVE</span>
                                         </>
                                     )}
                                 </button>
                             </div>
-                        ) : (
-                            <div className="flex flex-col gap-2 pt-1">
-                                <button
-                                    type="button"
-                                    draggable={!!dragBlobUrl && !isPreparingDrag}
-                                    disabled={isPreparingDrag || isRendering}
-                                    onClick={() => {
-                                        if (!dragBlobUrl && !isPreparingDrag && onPrepareDrag) {
-                                            onPrepareDrag(activeExportMeasures, activeIncludeTail);
-                                        }
-                                    }}
-                                    onDragStart={(e) => {
-                                        if (dragBlobUrl) {
-                                            const safeFile = getSanitizedExportFilename();
-                                            e.dataTransfer.setData('DownloadURL', `audio/wav:${safeFile}:${dragBlobUrl}`);
-                                        }
-                                    }}
-                                    className={getButtonStyle(
-                                        visualizerStyle,
-                                        dragBlobUrl ? 'success' : 'primary',
-                                        false,
-                                        isPreparingDrag || isRendering,
-                                        `w-full h-9 text-xs ${dragBlobUrl ? 'cursor-grab active:cursor-grabbing' : ''}`
-                                    )}
-                                >
-                                    {isPreparingDrag ? (
-                                        <span className="animate-pulse">RENDERING AUDIO...</span>
-                                    ) : dragBlobUrl ? (
-                                        <>
-                                            <DragIcon className="w-4 h-4 mr-1.5 flex-shrink-0" />
-                                            <span className="truncate">DRAG {getSanitizedExportFilename()}</span>
-                                        </>
-                                    ) : (
-                                        <span>PREPARE DRAG &amp; DROP</span>
-                                    )}
-                                </button>
-                                <div className="flex items-center justify-between gap-2">
-                                    {dragBlobUrl && onClearDragUrl ? (
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                onClearDragUrl();
-                                                setExportPromptMode(null);
-                                            }}
-                                            className={getButtonStyle(visualizerStyle, 'secondary', false, false, 'h-7 px-2.5 text-[10px]')}
-                                        >
-                                            RESET
-                                        </button>
-                                    ) : <span />}
-                                    <button
-                                        type="button"
-                                        onClick={() => setExportPromptMode(null)}
-                                        className={getButtonStyle(visualizerStyle, 'secondary', false, false, 'h-7 px-3 text-[10px]')}
+                        </div>
+
+                        {/* Advanced Options Toggle Button */}
+                        <div className="pt-1 border-t border-current/15 flex flex-col gap-2.5">
+                            <button
+                                type="button"
+                                onClick={() => setIsAdvancedExportOpen(prev => !prev)}
+                                className={getButtonStyle(
+                                    visualizerStyle,
+                                    'secondary',
+                                    isAdvancedExportOpen,
+                                    false,
+                                    'w-full h-7 px-2.5 text-[10px] flex items-center justify-between'
+                                )}
+                                aria-expanded={isAdvancedExportOpen}
+                            >
+                                <span>ADVANCED OPTIONS</span>
+                                <span className="text-[10px] leading-none">
+                                    {isAdvancedExportOpen ? '▴' : '▾'}
+                                </span>
+                            </button>
+
+                            {isAdvancedExportOpen && (
+                                <div className="flex flex-col gap-2.5 pt-0.5">
+                                    {/* Export Measures Selector */}
+                                    <div className="flex flex-col gap-1.5">
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
+                                                Measures
+                                            </span>
+                                            <span className="text-[10px] font-mono tabular-nums text-gray-300">
+                                                {activeExportMeasures} {activeExportMeasures === 1 ? 'bar' : 'bars'} · {exportBarDurationSec.toFixed(1)}s{activeIncludeTail ? ' + tail' : ''}
+                                            </span>
+                                        </div>
+                                        <div className="flex items-center gap-1">
+                                            {[1, 2, 4, 8].map((count) => (
+                                                <button
+                                                    key={count}
+                                                    type="button"
+                                                    onClick={() => handleChangeExportMeasures(count)}
+                                                    className={getButtonStyle(
+                                                        visualizerStyle,
+                                                        activeExportMeasures === count ? 'primary' : 'secondary',
+                                                        activeExportMeasures === count,
+                                                        false,
+                                                        'flex-1 h-7 text-xs tabular-nums'
+                                                    )}
+                                                >
+                                                    {count}
+                                                </button>
+                                            ))}
+                                            <div className="flex items-center gap-0.5 ml-1">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleChangeExportMeasures(activeExportMeasures - 1)}
+                                                    disabled={activeExportMeasures <= 1}
+                                                    title="Decrease measures"
+                                                    aria-label="Decrease measures"
+                                                    className={getButtonStyle(
+                                                        visualizerStyle,
+                                                        'secondary',
+                                                        false,
+                                                        activeExportMeasures <= 1,
+                                                        'w-6 h-7 !px-0 text-xs'
+                                                    )}
+                                                >
+                                                    −
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleChangeExportMeasures(activeExportMeasures + 1)}
+                                                    disabled={activeExportMeasures >= 16}
+                                                    title="Increase measures"
+                                                    aria-label="Increase measures"
+                                                    className={getButtonStyle(
+                                                        visualizerStyle,
+                                                        'secondary',
+                                                        false,
+                                                        activeExportMeasures >= 16,
+                                                        'w-6 h-7 !px-0 text-xs'
+                                                    )}
+                                                >
+                                                    +
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Let Tails Ring Out Checkbox */}
+                                    <label
+                                        htmlFor="export-include-tail"
+                                        className={`flex items-start gap-2.5 p-2 cursor-pointer select-none transition-colors ${
+                                            visualizerStyle === 'cyberpunk'
+                                                ? 'bg-[#10101a] border border-[#00ff9f]/60 rounded-none'
+                                                : visualizerStyle === 'braun'
+                                                ? 'bg-[#e6e3da] border border-[#c4c0b4] rounded-md'
+                                                : visualizerStyle === 'bauhaus'
+                                                ? 'bg-[#ebe4d5] border-2 border-[#141413] rounded-none'
+                                                : visualizerStyle === 'nagra'
+                                                ? 'bg-[#fff8f3] border border-[#f4b6a0] rounded-xl'
+                                                : visualizerStyle === 'koto'
+                                                ? 'bg-[#1f1722] border border-[#d4af37]/40 rounded-lg'
+                                                : visualizerStyle === 'minimal'
+                                                ? 'bg-[#141418] border border-[#3f3f46] rounded-none'
+                                                : visualizerStyle === 'default'
+                                                ? 'bg-[#08172e] border border-[#1e3f6e] rounded-none'
+                                                : 'bg-[#1f2937]/90 border border-[#374151] rounded-lg hover:border-gray-500'
+                                        }`}
                                     >
-                                        DONE
-                                    </button>
+                                        <input
+                                            id="export-include-tail"
+                                            type="checkbox"
+                                            checked={activeIncludeTail}
+                                            onChange={handleToggleIncludeTail}
+                                            className="mt-0.5 w-3.5 h-3.5 rounded accent-blue-500 cursor-pointer flex-shrink-0"
+                                        />
+                                        <div className="flex flex-col leading-tight">
+                                            <span className="text-[11px] font-bold text-gray-100">
+                                                Let Tails Ring Out
+                                            </span>
+                                            <span className="text-[10px] text-gray-400 mt-0.5 leading-snug">
+                                                Extends clip so reverb, delay &amp; final notes decay naturally.
+                                            </span>
+                                        </div>
+                                    </label>
+
+                                    {/* Export Stems Individually in a Folder */}
+                                    <label
+                                        htmlFor="export-stems-individually"
+                                        className={`flex items-start gap-2.5 p-2 cursor-pointer select-none transition-colors ${
+                                            visualizerStyle === 'cyberpunk'
+                                                ? 'bg-[#10101a] border border-[#00ff9f]/60 rounded-none'
+                                                : visualizerStyle === 'braun'
+                                                ? 'bg-[#e6e3da] border border-[#c4c0b4] rounded-md'
+                                                : visualizerStyle === 'bauhaus'
+                                                ? 'bg-[#ebe4d5] border-2 border-[#141413] rounded-none'
+                                                : visualizerStyle === 'nagra'
+                                                ? 'bg-[#fff8f3] border border-[#f4b6a0] rounded-xl'
+                                                : visualizerStyle === 'koto'
+                                                ? 'bg-[#1f1722] border border-[#d4af37]/40 rounded-lg'
+                                                : visualizerStyle === 'minimal'
+                                                ? 'bg-[#141418] border border-[#3f3f46] rounded-none'
+                                                : visualizerStyle === 'default'
+                                                ? 'bg-[#08172e] border border-[#1e3f6e] rounded-none'
+                                                : 'bg-[#1f2937]/90 border border-[#374151] rounded-lg hover:border-gray-500'
+                                        }`}
+                                    >
+                                        <input
+                                            id="export-stems-individually"
+                                            type="checkbox"
+                                            checked={exportStems}
+                                            onChange={() => setExportStems(prev => !prev)}
+                                            className="mt-0.5 w-3.5 h-3.5 rounded accent-blue-500 cursor-pointer flex-shrink-0"
+                                        />
+                                        <div className="flex flex-col leading-tight">
+                                            <span className="text-[11px] font-bold text-gray-100">
+                                                Export Stems Individually
+                                            </span>
+                                            <span className="text-[10px] text-gray-400 mt-0.5 leading-snug">
+                                                Downloads a folder with separate .wav files for each instrument.
+                                            </span>
+                                        </div>
+                                    </label>
                                 </div>
-                            </div>
-                        )}
+                            )}
+                        </div>
                     </div>
                 )}
 
-                <Tooltip text={dragBlobUrl ? `Drag "${getSanitizedExportFilename()}" into your DAW or folder, or click to rename/reset.` : "Name & prepare beat for drag-and-drop export"}>
-                    <button
-                        onClick={() => {
-                            setIsRecordingsListOpen(false);
-                            if (!isCustomExportName) {
-                                setExportName(`drums_bpm${tempo}`);
-                            }
-                            setExportPromptMode(prev => prev === 'drag' ? null : 'drag');
-                            if (!dragBlobUrl && !isPreparingDrag && onPrepareDrag) {
-                                onPrepareDrag(activeExportMeasures, activeIncludeTail);
-                            }
-                        }}
-                        draggable={!!dragBlobUrl}
-                        onDragStart={(e) => {
-                            if (dragBlobUrl) {
-                                const safeFile = getSanitizedExportFilename();
-                                e.dataTransfer.setData('DownloadURL', `audio/wav:${safeFile}:${dragBlobUrl}`);
-                            }
-                        }}
-                        disabled={isPreparingDrag || isRendering}
-                        className={getButtonStyle(visualizerStyle, dragBlobUrl ? 'success' : 'secondary', exportPromptMode === 'drag', isPreparingDrag || isRendering, `w-28 h-10 ${dragBlobUrl ? 'cursor-grab active:cursor-grabbing' : ''}`)}
-                        aria-label={dragBlobUrl ? `Drag ${getSanitizedExportFilename()} to export` : isPreparingDrag ? 'Preparing export' : 'Prepare export'}
-                    >
-                        {isPreparingDrag 
-                            ? <span className="text-xs tracking-wider animate-pulse">RENDERING</span>
-                            : dragBlobUrl
-                                ? <>
-                                    <DragIcon className="w-4 h-4" />
-                                    <span className="ml-1.5 text-xs tracking-wider">DRAG ME</span>
-                                  </>
-                                : <>
-                                    <DragIcon className="w-4 h-4" />
-                                    <span className="ml-1.5 text-xs tracking-wider">DRAG & DROP</span>
-                                  </>
-                        }
-                    </button>
-                </Tooltip>
-                <Tooltip text={`Name and download beat as .wav (default: drums_bpm${tempo}.wav)`}>
+                <Tooltip text={`Name and save beat (default: drums_bpm${tempo}.wav)`}>
                     <button
                         onClick={() => {
                             setIsRecordingsListOpen(false);
@@ -1763,10 +2225,10 @@ const Controls: React.FC<ControlsProps> = ({
                         }}
                         disabled={isRendering || isPreparingDrag}
                         className={getButtonStyle(visualizerStyle, 'secondary', exportPromptMode === 'save', isRendering || isPreparingDrag, 'w-28 h-10')}
-                        aria-label={isRendering ? 'Rendering your beat' : 'Download your beat'}
+                        aria-label={isRendering ? 'Rendering your beat' : 'Save your beat'}
                     >
                         {isRendering 
-                            ? <span className="text-xs tracking-wider animate-pulse">RENDERING</span>
+                            ? <span className="text-xs tracking-wider animate-pulse">SAVING...</span>
                             : <>
                                 <DownloadIcon className="w-4 h-4" />
                                 <span className="ml-1.5 text-xs tracking-wider">SAVE</span>
@@ -1827,19 +2289,28 @@ const Controls: React.FC<ControlsProps> = ({
                     ))}
                 </div>
                 {(!isCurrentPatternEmpty || isPoofing) && (
-                     <Tooltip text="Hold to erase all notes in current pattern">
+                     <Tooltip text={isConfirmingClear ? "Click again to confirm clearing pattern" : "Click twice to erase all notes in current pattern"}>
                          <button
+                            ref={clearButtonRef}
+                            type="button"
+                            onClick={handleClearClick}
                             onMouseDown={handleClearStart}
                             onMouseUp={handleClearEnd}
                             onMouseLeave={handleClearEnd}
-                            onTouchStart={(e) => { e.preventDefault(); handleClearStart(); }}
+                            onTouchStart={handleClearStart}
                             onTouchEnd={handleClearEnd}
-                            className={`${getButtonStyle(visualizerStyle, 'danger', false, false, 'mt-2 px-3 h-8 text-xs overflow-hidden')} ${isPoofing ? 'animate-poof' : ''}`}
+                            className={`${getButtonStyle(
+                                visualizerStyle,
+                                'danger',
+                                isConfirmingClear,
+                                false,
+                                `mt-2 px-3 h-8 text-xs overflow-hidden ${isConfirmingClear ? 'animate-pulse ring-1 ring-red-400' : ''}`
+                            )} ${isPoofing ? 'animate-poof' : ''}`}
                             style={{ transform: `scale(${1 - clearProgress * 0.15})` }}
-                            aria-label="Hold to clear current pattern"
+                            aria-label={isConfirmingClear ? "Click to confirm clear pattern" : "Click to clear pattern"}
                         >
-                            <span className="relative z-10">
-                                HOLD TO CLEAR CURRENT PATTERN
+                            <span className="relative z-10 pointer-events-none">
+                                {isConfirmingClear ? 'CLICK TO CONFIRM' : 'CLICK TO CLEAR PATTERN'}
                             </span>
                         </button>
                     </Tooltip>
@@ -1937,74 +2408,90 @@ const Controls: React.FC<ControlsProps> = ({
                 </div>
 
                 {visualizerStyle !== 'minimal' && (
-                    <Tooltip text="Drag to change color scheme. Click to toggle animation.">
-                        <div className="flex flex-col items-center gap-2">
-                            <label htmlFor="color-knob" className="font-bold text-gray-100 text-sm">
-                                6 7
-                            </label>
+                    <div className="flex flex-col items-center gap-2">
+                        <label htmlFor="color-knob" className="font-bold text-gray-100 text-sm">
+                            6 7
+                        </label>
+                        <div
+                            id="color-knob"
+                            role="slider"
+                            aria-valuemin={0}
+                            aria-valuemax={360}
+                            aria-valuenow={Math.round(hueRotate)}
+                            aria-label="Color Hue"
+                            tabIndex={0}
+                            onMouseDown={handleMouseDown}
+                            onTouchStart={handleTouchStart}
+                            onTouchMove={handleTouchMove}
+                            onTouchEnd={handleTouchEnd}
+                            className={`relative w-16 h-16 rounded-full cursor-grab active:cursor-grabbing flex items-center justify-center select-none transition-transform active:scale-[0.98] ${
+                                visualizerStyle === 'braun'
+                                    ? 'bg-gradient-to-b from-[#faf8f5] to-[#dcd9d0] border border-[#a8a498] shadow-[0_3px_6px_rgba(0,0,0,0.18),inset_0_1px_0_#fff]'
+                                    : visualizerStyle === 'bauhaus'
+                                    ? 'bg-[#f2b705] border-2 border-[#141413] shadow-[3px_3px_0px_#141413]'
+                                    : visualizerStyle === 'nagra'
+                                    ? 'bg-gradient-to-b from-[#fff8eb] via-[#ffc4a3] to-[#f77b65] border-2 border-white shadow-[0_6px_16px_rgba(217,50,94,0.3),inset_0_2px_4px_#ffffff]'
+                                    : visualizerStyle === 'koto'
+                                    ? 'bg-gradient-to-b from-[#241b26] to-[#110c13] border border-[#d4af37]/60 shadow-[0_4px_12px_rgba(0,0,0,0.7),inset_0_1px_2px_rgba(212,175,55,0.3)]'
+                                    : visualizerStyle === 'cyberpunk'
+                                    ? 'bg-[#0a0a0f] border-2 border-[#00ff9f] shadow-[3px_3px_0px_#ff003c]'
+                                    : visualizerStyle === 'default'
+                                    ? 'bg-gradient-to-b from-[#132f57] to-[#08162b] border border-[#a8dcff] shadow-[3px_3px_0px_#030914]'
+                                    : 'bg-gray-700 shadow-inner ring-1 ring-gray-600'
+                            } ${isColorAnimating ? 'animate-pulse ring-2 ring-pink-500 ring-offset-2' : ''}`}
+                        >
+                            {/* Indicator Line */}
                             <div
-                                id="color-knob"
-                                role="slider"
-                                aria-valuemin={0}
-                                aria-valuemax={360}
-                                aria-valuenow={Math.round(hueRotate)}
-                                aria-label="Color Hue"
-                                tabIndex={0}
-                                onMouseDown={handleMouseDown}
-                                onTouchStart={handleTouchStart}
-                                onTouchMove={handleTouchMove}
-                                onTouchEnd={handleTouchEnd}
-                                className={`relative w-16 h-16 rounded-full cursor-grab active:cursor-grabbing flex items-center justify-center select-none transition-transform active:scale-[0.98] ${
-                                    visualizerStyle === 'braun'
-                                        ? 'bg-gradient-to-b from-[#faf8f5] to-[#dcd9d0] border border-[#a8a498] shadow-[0_3px_6px_rgba(0,0,0,0.18),inset_0_1px_0_#fff]'
-                                        : visualizerStyle === 'bauhaus'
-                                        ? 'bg-[#f2b705] border-2 border-[#141413] shadow-[3px_3px_0px_#141413]'
-                                        : visualizerStyle === 'nagra'
-                                        ? 'bg-gradient-to-b from-[#fff8eb] via-[#ffc4a3] to-[#f77b65] border-2 border-white shadow-[0_6px_16px_rgba(217,50,94,0.3),inset_0_2px_4px_#ffffff]'
-                                        : visualizerStyle === 'koto'
-                                        ? 'bg-gradient-to-b from-[#241b26] to-[#110c13] border border-[#d4af37]/60 shadow-[0_4px_12px_rgba(0,0,0,0.7),inset_0_1px_2px_rgba(212,175,55,0.3)]'
-                                        : visualizerStyle === 'cyberpunk'
-                                        ? 'bg-[#0a0a0f] border-2 border-[#00ff9f] shadow-[3px_3px_0px_#ff003c]'
-                                        : 'bg-gray-700 shadow-inner ring-1 ring-gray-600'
-                                } ${isColorAnimating ? 'animate-pulse ring-2 ring-pink-500 ring-offset-2' : ''}`}
+                                className="absolute w-full h-full"
+                                style={{ transform: `rotate(${hueRotate}deg)` }}
                             >
-                                {/* Indicator Line */}
                                 <div
-                                    className="absolute w-full h-full"
-                                    style={{ transform: `rotate(${hueRotate}deg)` }}
-                                >
-                                    <div
-                                        className={`absolute top-1 left-1/2 -translate-x-1/2 w-1.5 h-3.5 ${
-                                            visualizerStyle === 'braun'
-                                                ? 'bg-[#ea5b0c] rounded-full'
-                                                : visualizerStyle === 'bauhaus'
-                                                ? 'bg-[#d62828] border border-[#141413]'
-                                                : visualizerStyle === 'nagra'
-                                                ? 'bg-[#d9325e] rounded-full shadow-[0_0_6px_#ff5e4d]'
-                                                : visualizerStyle === 'koto'
-                                                ? 'bg-[#d4af37] rounded-full shadow-[0_0_5px_#d4af37]'
-                                                : visualizerStyle === 'cyberpunk'
-                                                ? 'bg-[#fcee0a]'
-                                                : 'bg-pink-400 rounded-full'
-                                        }`}
-                                    />
-                                </div>
-                                <span className="text-2xl z-10 pointer-events-none">😎</span>
+                                    className={`absolute top-1 left-1/2 -translate-x-1/2 w-1.5 h-3.5 ${
+                                        visualizerStyle === 'braun'
+                                            ? 'bg-[#ea5b0c] rounded-full'
+                                            : visualizerStyle === 'bauhaus'
+                                            ? 'bg-[#d62828] border border-[#141413]'
+                                            : visualizerStyle === 'nagra'
+                                            ? 'bg-[#d9325e] rounded-full shadow-[0_0_6px_#ff5e4d]'
+                                            : visualizerStyle === 'koto'
+                                            ? 'bg-[#d4af37] rounded-full shadow-[0_0_5px_#d4af37]'
+                                            : visualizerStyle === 'cyberpunk'
+                                            ? 'bg-[#fcee0a]'
+                                            : visualizerStyle === 'default'
+                                            ? 'bg-[#ffc4d6]'
+                                            : 'bg-pink-400 rounded-full'
+                                    }`}
+                                />
                             </div>
+                            <span className="text-2xl z-10 pointer-events-none">😎</span>
                         </div>
-                    </Tooltip>
+                    </div>
                 )}
             </div>
 
             {(visualizerStyle !== 'minimal' || isCappuccinoMode) && (
                 <div
-                    onClick={() => isPlaying && onCatClick()}
-                    className={isPlaying ? 'cursor-pointer' : ''}
+                    role="button"
+                    tabIndex={isPlaying ? 0 : -1}
+                    aria-label="Trigger airhorn"
+                    onPointerDown={(e) => {
+                        if (!isPlaying) return;
+                        e.preventDefault();
+                        onCatClick();
+                    }}
+                    onKeyDown={(e) => {
+                        if (!isPlaying) return;
+                        if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            onCatClick();
+                        }
+                    }}
+                    className={`select-none touch-manipulation transition-transform duration-75 ${isPlaying ? 'cursor-pointer active:scale-95' : ''}`}
                 >
                     {isCappuccinoMode ? (
-                        <DancingCoffeeCup isPlaying={isPlaying} tempo={tempo} />
+                        <DancingCoffeeCup isPlaying={isPlaying} tempo={tempo} visualizerStyle={visualizerStyle} />
                     ) : (
-                        <DancingCat isPlaying={isPlaying} tempo={tempo} />
+                        <DancingCat isPlaying={isPlaying} tempo={tempo} visualizerStyle={visualizerStyle} />
                     )}
                 </div>
             )}

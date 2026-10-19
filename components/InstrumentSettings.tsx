@@ -4,6 +4,8 @@ import { INSTRUMENTS, INSTRUMENT_LABELS, MIN_FILTER_FREQ, MAX_FILTER_FREQ } from
 import KickDrumDesigner from './BassDrumDesigner';
 import Tooltip from './Tooltip';
 
+const DEFAULT_VOLUMES = [0.3, 0.59, 1, 0.42, 0.29, 0.31, 0.7];
+
 interface InstrumentSettingsProps {
     isActive: boolean;
     params: AllInstrumentParams;
@@ -13,6 +15,8 @@ interface InstrumentSettingsProps {
     onVisibilityChange: (index: number) => void;
     kickDesignerParams: KickDesignerParams;
     onKickDesignerParamChange: (param: keyof KickDesignerParams, value: number) => void;
+    volumes: number[];
+    onVolumeChange: (index: number, value: number) => void;
     visualizerStyle?: VisualizerStyle;
 }
 
@@ -78,7 +82,19 @@ const INSTRUMENT_PARAM_CONFIG: Record<Instrument, ParamConfig[]> = {
     ],
 };
 
-const InstrumentSettings: React.FC<InstrumentSettingsProps> = ({ isActive, params, instrumentColors, onParamChange, instrumentVisibility, onVisibilityChange, kickDesignerParams, onKickDesignerParamChange, visualizerStyle = 'default' }) => {
+const InstrumentSettings: React.FC<InstrumentSettingsProps> = ({
+    isActive,
+    params,
+    instrumentColors,
+    onParamChange,
+    instrumentVisibility,
+    onVisibilityChange,
+    kickDesignerParams,
+    onKickDesignerParamChange,
+    volumes,
+    onVolumeChange,
+    visualizerStyle = 'default',
+}) => {
     const [isInteracting, setIsInteracting] = useState(false);
     const isMinimal = visualizerStyle === 'minimal';
 
@@ -97,7 +113,7 @@ const InstrumentSettings: React.FC<InstrumentSettingsProps> = ({ isActive, param
         onMouseDown: handleSliderInteractionStart,
         onTouchStart: handleSliderInteractionStart,
     };
-    
+
     if (!isActive) {
         return null;
     }
@@ -106,12 +122,46 @@ const InstrumentSettings: React.FC<InstrumentSettingsProps> = ({ isActive, param
         ? 'bg-[#0e0e11] border border-[#27272a] p-4 flex flex-col gap-3'
         : 'bg-gray-900/50 rounded-lg p-4 flex flex-col gap-3';
 
+    const renderVolumeControl = (instrument: Instrument, index: number, color: string) => {
+        const currentVolume = volumes[index] ?? DEFAULT_VOLUMES[index] ?? 0.8;
+
+        return (
+            <div className="grid grid-cols-4 items-center gap-2">
+                <label htmlFor={`${instrument}-volume`} className="text-xs text-gray-400 col-span-1">
+                    Volume
+                </label>
+                <Tooltip
+                    text={`Adjust ${INSTRUMENT_LABELS[instrument]} volume (synced with sequencer track slider).`}
+                    isInteracting={isInteracting}
+                    wrapperClassName="col-span-2"
+                >
+                    <input
+                        type="range"
+                        id={`${instrument}-volume`}
+                        min={0}
+                        max={1}
+                        step={0.01}
+                        value={currentVolume}
+                        onChange={(e) => onVolumeChange(index, parseFloat(e.target.value))}
+                        {...sliderInteractionProps}
+                        className="w-full h-1.5 bg-gray-600 rounded-lg appearance-none cursor-pointer"
+                        style={{ accentColor: color }}
+                        aria-label={`${INSTRUMENT_LABELS[instrument]} volume`}
+                    />
+                </Tooltip>
+                <span className="font-mono text-xs text-gray-500 text-right tabular-nums col-span-1">
+                    {Math.round(currentVolume * 100)}%
+                </span>
+            </div>
+        );
+    };
+
     return (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             <div className={`${cardClass} md:col-span-2 lg:col-span-3`}>
                 <div className={`flex items-center justify-between gap-3 ${isMinimal ? 'border-b border-[#1f1f23] pb-2.5' : ''}`}>
                     <div className="flex items-center gap-2">
-                        {isMinimal && (
+                        {(isMinimal || visualizerStyle === 'default') && (
                             <span
                                 aria-hidden="true"
                                 className="w-1.5 h-3.5 flex-shrink-0"
@@ -140,6 +190,9 @@ const InstrumentSettings: React.FC<InstrumentSettingsProps> = ({ isActive, param
                     isActive={isActive}
                     params={kickDesignerParams}
                     onParamChange={onKickDesignerParamChange}
+                    volume={volumes[0] ?? DEFAULT_VOLUMES[0]}
+                    onVolumeChange={(val) => onVolumeChange(0, val)}
+                    color={instrumentColors[0]}
                 />
             </div>
 
@@ -154,7 +207,7 @@ const InstrumentSettings: React.FC<InstrumentSettingsProps> = ({ isActive, param
                     <div key={instrument} className={cardClass}>
                         <div className={`flex items-center justify-between gap-3 ${isMinimal ? 'border-b border-[#1f1f23] pb-2.5' : ''}`}>
                             <div className="flex items-center gap-2">
-                                {isMinimal && (
+                                {(isMinimal || visualizerStyle === 'default') && (
                                     <span
                                         aria-hidden="true"
                                         className="w-1.5 h-3.5 flex-shrink-0"
@@ -180,6 +233,7 @@ const InstrumentSettings: React.FC<InstrumentSettingsProps> = ({ isActive, param
                             </Tooltip>
                         </div>
                         <div className="flex flex-col gap-3">
+                            {renderVolumeControl(instrument, index, color)}
                             {config.map(paramConfig => {
                                 let value;
                                 if (paramConfig.isLog) {

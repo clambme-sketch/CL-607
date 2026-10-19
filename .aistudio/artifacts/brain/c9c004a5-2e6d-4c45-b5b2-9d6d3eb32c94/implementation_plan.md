@@ -1,49 +1,62 @@
-# Unified Sample Recorder & Sequencer Recording Workflow
+# Sample Recorder Aesthetic & Theme-Aligned Waveform Upgrade
 
-This plan unifies the Sequencer's `SAMPLE` row record button and the `Sample Recorder` tab into a single, synchronized recording and editing pipeline so that starting or stopping a recording from either location shares the exact same state, waveform buffer, non-destructive trim/edit history, and instrument parameters.
+This plan delivers a refined, studio-grade visual overhaul for the Sample Recorder component and its interactive waveform oscilloscope, ensuring cohesive spacing, crisp iconography, high-contrast waveform rendering, and native visual alignment across every hardware theme (Sunset, Virtual, Domino, Braun, Koto, Minimal, and Default).
 
 ## User Review & Critical Decisions
 
 > [!IMPORTANT]
-> The following design choices were confirmed during clarification and govern this implementation:
+> The following design decisions were confirmed during clarification and govern this implementation:
 
-- **Confirmed Decision 1 — Click-to-Toggle Recording (No Countdown)**: Clicking the record button next to the `SAMPLE` row in the sequencer grid immediately starts recording on the first click and stops recording on the second click, matching the `REC / STOP` button inside the Sample Recorder tab. The 3-second countdown is removed.
-- **Confirmed Decision 2 — Automatic Waveform & Edit Synchronization**: Recording from either the sequencer grid button or the Sample Recorder tab feeds the same shared sample buffer and waveform state. Any recording captured from the grid button immediately populates the interactive waveform visualizer in the Sample Recorder tab, and any trimming, normalization, reversal, fade-in, or drag-and-drop audio loading updates the active sequencer sample automatically.
-- **Confirmed Decision 3 — Synchronized Dual Parameter Sliders**: The `Pitch`, `Decay`, `High Pass`, and `Low Pass` sliders remain available in both the `Sample Recorder` tab and the `Instrument Settings` tab, reading from and updating the same single source of truth so moving a slider in one view immediately reflects in the other.
+- **Confirmed Decision 1 — Theme-Adapted High-Contrast Waveform Scope with Time Ruler**: The waveform display uses high-contrast, theme-calibrated scope backdrops with dual-layer peak rendering (translucent gradient fill + luminous peak outline), a calibrated top time/subdivision ruler, high-visibility `IN` and `OUT` bracket handles, and theme-matched HUD telemetry badges.
+- **Confirmed Decision 2 — Clustered Icon + Label Editing Toolbar**: Waveform editing controls (`Crop`, `Full Range`, `Normalize`, `Reverse`, `Fade In`, `Fade Out`, `Revert`, `Clear`) are organized into three distinct functional clusters (**Trim**, **Process**, and **Reset**) with custom SVG iconography paired with concise single-line labels.
+- **Confirmed Decision 3 — Dedicated Parameter Cards for Tone & Envelope Shaping**: `Pitch`, `Decay`, `High Pass`, and `Low Pass` are housed in individual theme-styled parameter cards featuring clear label/value headers, tabular numeric readouts (including semitone offset and frequency units), custom-styled range tracks, and a unified section header with `Reset Params` and `Bake to Waveform` actions.
 
 ---
 
 ## 1. Overview & Core Concept
 
-- **What It Does**: Eliminates the split-brain behavior between the quick-record button on the sequencer row and the full editor in the Sample Recorder tab. Previously, the grid button used a hold-to-record countdown and wiped out the Sample Recorder tab's waveform whenever the tab wasn't actively polling, while the Sample Recorder tab maintained separate local state for recording and sample parameters.
-- **Target Audience / Persona**: Beatmakers and live performers capturing microphone samples on the fly while sequencing patterns, who want instant one-click recording from the main deck alongside full waveform trimming and destructive/non-destructive audio shaping in the Sample Recorder tab.
-- **Key Value**: Reliable, predictable sample capture and editing where every control reflects the true state of the audio engine without lost takes or desynchronized sliders.
+- **What It Does**: Elevates the Sample Recorder from a generic dark utility box into a cohesive, tactile studio sampler module that adapts its surface materials, borders, typography, iconography, and oscilloscope trace contrast to the active visual theme.
+- **Target Audience / Persona**: Producers and beatmakers using the drum machine across diverse visual themes (such as the warm pastel clouds of **Sunset**, the neon brutalism of **Virtual**, or the bold constructivist geometry of **Domino**) who need immediate visual clarity when trimming waveforms and shaping sample parameters.
+- **Key Value**: Eliminates low-contrast text/divider clashes on light and warm themes, provides a higher-DPI oscilloscope with a calibrated time ruler for surgical sample trimming, and groups editing tools into scannable icon-driven clusters.
 
 ---
 
 ## 2. User Experience & Visual Design
 
 - **Key User Flows**:
-  1. **One-Click Capture from Either Control**: The user clicks the record button in the `SAMPLE` row of the sequencer (or the `REC` button in the Sample Recorder tab). Both buttons immediately transition to their active recording state (pulsing red indicator / `STOP` icon) and begin streaming live microphone audio into the shared waveform visualizer.
-  2. **Stopping & Auto-Cap**: Clicking either button again (or reaching the 10-second maximum recording safety cap) stops the microphone stream, commits the captured Float32 PCM audio to both the waveform editor and the audio engine's `sample` buffer, and resets trim handles to the full take (`0` to `1`).
-  3. **Seamless Waveform Editing**: Opening the Sample Recorder tab after recording from the grid shows the captured waveform ready for trimming, normalizing, reversing, fading in, reverting to the original take, or baking effects destructively (`APPLY EFFECTS TO SAMPLE`).
-  4. **Synchronized Parameter Tweaking**: Adjusting `Pitch`, `Decay`, `High Pass`, or `Low Pass` in either the Sample Recorder tab or the Instrument Settings panel updates the same live parameter values (`tabular-nums` readouts) in real time.
-- **Visual Identity & Theme**:
-  - Preserves all active hardware deck aesthetics (`default`, `braun`, `bauhaus`, `nagra`, `koto`, `cyberpunk`), including Cappuccino and Invert Colors modes.
-  - Updates the `SAMPLE` row record button tooltip and aria-label from `"Hold to record from your microphone"` to `"Click to start/stop recording sample"`, with a clear red record dot when idle and a pulsing stop square while recording.
+  1. **Capture & Load**: The top transport bar groups **REC MIC** (with live elapsed timer), **PREVIEW** (with animated playhead sweep), and **LOAD FILE** on the left, balanced by unboxed tabular telemetry on the right (`active duration · total duration · sample rate`) and transient status notifications.
+  2. **High-Contrast Waveform Trimming**: Users inspect their sample on a high-DPI canvas featuring a top time ruler (with dynamically scaled millisecond/second tick marks), a zero-crossing axis, dimmed out-of-bounds masks, and tactile `IN` / `OUT` bracket handles that support both edge-resizing and region-slip dragging.
+  3. **Clustered Waveform Editing**: Directly beneath the scope, three logically separated button groups—**Trim** (`Crop`, `Full`), **Process** (`Normalize`, `Reverse`, `Fade In`, `Fade Out`), and **Reset** (`Revert`, `Clear`)—allow one-click non-destructive or buffer-level edits with crisp vector icons describing each action's envelope or direction.
+  4. **Tone & Envelope Parameter Cards**: Four structured parameter cards (`Pitch`, `Decay`, `High Pass`, `Low Pass`) display real-time `tabular-nums` values (`1.00x · +0.0 st`, `1.00s / SUSTAIN`, `20 Hz`, `20.0 kHz`), theme-coordinated visual progress bars, double-click-to-reset affordances, and a header action bar to reset parameters or bake effects into the waveform.
+
+- **Visual Identity & Theme Alignment**:
+  - **Sunset (`nagra`)**: Soft warm cloud card surfaces (`#fff8f3` to `#fde2d6`) with deep plum typography (`#3b1547`), warm rose dividers, and a deep twilight plum oscilloscope (`#1b092e`) with glowing coral-gold waveform traces (`#ff9e6d` / `#ffe885`) so neither light nor dark text is ever washed out.
+  - **Virtual (`cyberpunk`)**: Obsidian cyber-deck surfaces (`#08080c`) with crisp `#00ff9f` neon borders, `#fcee0a` readouts, and a high-contrast phosphor-green & cyber-yellow oscilloscope with hard-edged geometric trim handles.
+  - **Domino / Bauhaus (`bauhaus`)**: Constructivist parchment cards (`#f7f2e7`) with `2px solid #141413` architectural borders, hard offset shadows, bold geometric typography, and a high-contrast studio black oscilloscope (`#141413`) with primary yellow (`#f2b705`) and crimson (`#d62828`) trim markers.
+  - **Braun (`braun`)**: Dieter Rams anodized aluminum surfaces (`#ebe8df`) with recessed instrument bays (`#dedad0`), warm charcoal legends (`#1c1c1a`), and a matte anthracite CRT scope (`#181816`) with signature Braun orange (`#ea5b0c`) waveform traces.
+  - **Koto (`koto`)**: Urushi lacquer surfaces (`#140f16`) with 24k maki-e gold hairline borders (`rgba(212, 175, 55, 0.3)`), warm ivory text, and a gilded waveform trace (`#e6c665`).
+  - **Minimal (`minimal`) & Default (`default`)**: Precision monochrome (`#0c0c0e` / `#f4f4f5` with `#ff3b1d` accents) and modern slate studio dark (`#0f172a` / `#38bdf8` cyan trace) with zero visual clutter.
+
+- **Spatial & Typographic Hierarchy**:
+  - Container outer padding (`20px`) exceeds internal section spacing (`16px`), and button clusters maintain consistent `6px` intra-group gaps with `12px` inter-group dividers.
+  - All numeric readouts, time ruler ticks, and trim telemetry use `font-mono tabular-nums` to prevent layout jitter while scrubbing sliders or dragging trim handles.
 
 ---
 
 ## 3. Key Product Decisions & Trade-Offs
 
-- **Decision 1: Lifting Sample Recording & Waveform State to the Top-Level Controller**
-  - *Chosen Approach*: Manage `isRecording`, `fullAudioData`, `originalAudioData`, `trimRange`, and the 10-second auto-stop timer in the central application state (alongside a single unified `toggleRecording` handler) rather than isolating them inside the Sample Recorder tab component.
-  - *Why*: Guarantees that recording from the sequencer grid button captures the raw Float32 audio into the waveform editor even when the Sample Recorder accordion is collapsed, and prevents the tab's `useEffect` from overwriting the audio engine buffer with empty data.
-  - *Alternatives Considered*: Keeping state inside the Sample Recorder tab and exposing imperative refs—rejected because unmounted/collapsed states or re-renders can still cause race conditions with the audio engine buffer.
+- **Decision 1: Theme-Aware Surface Tokens Instead of Hardcoded Dark Utility Classes**
+  - *Chosen Approach*: Replace hardcoded `border-white/10`, `text-gray-300`, `bg-gray-900/50`, and `bg-gray-700` classes in the Sample Recorder with a dedicated theme token map covering light themes (`nagra`, `bauhaus`, `braun`) and dark themes (`default`, `cyberpunk`, `koto`, `minimal`).
+  - *Why*: Global CSS overrides only target specific utility classes; explicit theme tokens guarantee WCAG AA contrast for section headers, subtle dividers, parameter cards, and telemetry across all seven themes.
+  - *Alternatives Considered*: Adding more `!important` overrides in global CSS—passed over because component-level semantic theme tokens are cleaner, more predictable, and allow fine-grained styling for parameter cards and dividers.
 
-- **Decision 2: Single Source of Truth for Sample Parameters**
-  - *Chosen Approach*: Pass the live `sample` parameter slice (`pitch`, `decay`, `highPass`, `lowPass`) from the central `instrumentParams` state directly into the Sample Recorder tab instead of duplicating `useState` hooks locally.
-  - *Why*: Ensures pattern switching, preset loading, Instrument Settings adjustments, and destructive offline rendering (`APPLY EFFECTS TO SAMPLE`) stay 100% synchronized across the entire UI.
+- **Decision 2: High-DPI Canvas Rendering with Integrated Time Ruler**
+  - *Chosen Approach*: Scale the waveform canvas by `window.devicePixelRatio` via `ResizeObserver` and render a dedicated top time ruler strip with dynamic tick intervals alongside dual-pass waveform rendering (vertical min/max energy bars + glowing peak contour).
+  - *Why*: Eliminates blurry canvas upscaling on Retina/high-DPI screens and gives users an immediate visual sense of sample length and trim boundaries in milliseconds/seconds.
+
+- **Decision 3: Clustered Icon + Label Action Bar**
+  - *Chosen Approach*: Group the 8 waveform actions into 3 visual clusters (**Trim**: `Crop`, `Full Range`; **Process**: `Normalize`, `Reverse`, `Fade In`, `Fade Out`; **Reset**: `Revert`, `Clear`) separated by subtle vertical hairlines, each with a custom 14px vector icon.
+  - *Why*: Scanning 8 uniform text buttons in a single row creates cognitive friction; grouping by function with clear visual metaphors (scissors for crop, arrows for expand/reverse, ramp curves for fades) speeds up live beatmaking workflows.
 
 ---
 
@@ -52,38 +65,44 @@ This plan unifies the Sequencer's `SAMPLE` row record button and the `Sample Rec
 - **Architecture & Component Diagram**:
 
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                     Central App State & Audio Engine                    │
-│  • Shared Recording State: isRecording, toggleRecording, 10s safety cap │
-│  • Shared Sample Buffers: fullAudioData, originalAudioData, trimRange   │
-│  • Shared Sample Params: instrumentParams.sample (pitch, decay, HP, LP) │
-└───────────────────┬─────────────────────────────────┬───────────────────┘
-                    │                                 │
-                    ▼                                 ▼
-┌───────────────────────────────────────┐ ┌───────────────────────────────┐
-│        Sequencer (SAMPLE Row)         │ │      Sample Recorder Tab      │
-│  • Click-to-toggle REC/STOP button    │ │  • Synced REC/STOP button     │
-│  • Reflects shared isRecording state  │ │  • Live/Recorded Waveform     │
-│  • Triggers shared toggleRecording()  │ │  • Trim, Normalize, Reverse,  │
-│                                       │ │    Fade In, Revert, Bake FX   │
-└───────────────────────────────────────┘ └───────────────┬───────────────┘
-                                                          │
-                                                          ▼
-                                          ┌───────────────────────────────┐
-                                          │    Instrument Settings Tab    │
-                                          │  • Two-way synced sliders for │
-                                          │    Pitch, Decay, HP, LP       │
-                                          └───────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────────┐
+│                        Sample Recorder Studio Module                       │
+│  • Theme Token Resolver (Sunset, Virtual, Domino, Braun, Koto, Minimal)    │
+├────────────────────────────────────────────────────────────────────────────┤
+│  1. Transport & Telemetry Header                                           │
+│  ┌────────────────────────────────────┐  ┌──────────────────────────────┐  │
+│  │ [● REC MIC] [▶ PREVIEW] [↑ LOAD]   │  │ Active · Total · kHz / Toast │  │
+│  └────────────────────────────────────┘  └──────────────────────────────┘  │
+├────────────────────────────────────────────────────────────────────────────┤
+│  2. High-DPI Waveform Oscilloscope & Trim Editor                           │
+│  ┌──────────────────────────────────────────────────────────────────────┐  │
+│  │ 0.0s        0.5s        1.0s        1.5s        2.0s   (Time Ruler)  │  │
+│  │ ░░░░░▐══════════════════════════════════════════════▌░░░░░░░░░░░░░░░ │  │
+│  │ ░░░░░▐───███▄──▅█▛──▄█▙───████───▅██▛───▄█▟─────────▌░░░░░░░░░░░░░░░ │  │
+│  │ ░░░░░▐══════════════════════════════════════════════▌░░░░░░░░░░░░░░░ │  │
+│  │ [IN 0.18s · OUT 1.64s]                         [LEN 1.46s / 2.40s]   │  │
+│  └──────────────────────────────────────────────────────────────────────┘  │
+├────────────────────────────────────────────────────────────────────────────┤
+│  3. Clustered Waveform Edit Toolbar (Icon + Concise Label)                 │
+│  ┌─────────────────────┐  ┌──────────────────────────────────┐  ┌────────┐ │
+│  │ [✂ Crop] [↔ Full]   │  │ [⤒ Norm] [⇄ Rev] [◢ In] [◣ Out] │  │[↺][🗑] │ │
+│  └─────────────────────┘  └──────────────────────────────────┘  └────────┘ │
+├────────────────────────────────────────────────────────────────────────────┤
+│  4. Tone & Envelope Shaping Rack                                           │
+│  Header: TONE & ENVELOPE SHAPING          [↺ Reset Params] [⚡ Bake FX]    │
+│  ┌────────────────┐ ┌────────────────┐ ┌────────────────┐ ┌──────────────┐ │
+│  │ PITCH   +0.0st │ │ DECAY    1.00s │ │ HIGH PASS 20Hz │ │ LOW PASS 20k │ │
+│  │ ══════●═══════ │ │ ══════●═══════ │ │ ●═════════════ │ │ ═══════════● │ │
+│  └────────────────┘ └────────────────┘ └────────────────┘ └──────────────┘ │
+└────────────────────────────────────────────────────────────────────────────┘
 ```
 
 - **Data Model & State**:
-  - `isRecording` (`boolean`): Shared recording status reflected by both the Sequencer `SAMPLE` row button and the Sample Recorder tab button.
-  - `fullAudioData` (`Float32Array`): Current working PCM audio data displayed in the waveform visualizer and sliced by `trimRange` to feed the audio engine's `sample` buffer.
-  - `originalAudioData` (`Float32Array`): Untouched copy of the most recent microphone recording or dropped audio file, enabling one-click `REVERT`.
-  - `trimRange` (`{ start: number; end: number }`): Normalized `[0, 1]` start and end markers applied non-destructively to `fullAudioData`.
-  - `instrumentParams.sample` (`InstrumentParams`): Shared `{ pitch, decay, highPass, lowPass }` object read and mutated by both the Sample Recorder tab and Instrument Settings tab.
+  - Preserves 100% compatibility with the shared top-level sample state (`fullAudioData`, `originalAudioData`, `trimRange`, `isRecording`, `sampleParams`) and audio engine hooks.
+  - Adds responsive canvas dimension tracking (`ResizeObserver` + `devicePixelRatio`) inside the waveform visualizer so lines, ruler ticks, and trim brackets render with razor-sharp subpixel clarity at any viewport width.
 
 - **Interactive Component & State Mapping**:
-  - **Sequencer Record Button**: Replaces `onMouseDown`/`onMouseUp`/`onTouchStart`/`onTouchEnd` hold handlers and countdown state with a single `onClick={onToggleRecording}` handler.
-  - **Live Recording Polling & Finalization**: While `isRecording` is true, a 250ms polling interval updates `fullAudioData` from `getRecordedAudioData()` so the waveform visualizer animates in real time. When `toggleRecording` stops recording (or the 10s timer fires), it captures the final `getRecordedAudioData()` array before calling `stopRecording()` on the audio engine, stores it in both `fullAudioData` and `originalAudioData`, resets `trimRange` to `{ start: 0, end: 1 }`, and syncs the audio engine buffer.
-  - **Destructive Bake (`APPLY EFFECTS TO SAMPLE`)**: Renders the trimmed buffer through an `OfflineAudioContext` using the shared `instrumentParams.sample` values, updates `fullAudioData` with the rendered buffer, and resets `instrumentParams.sample` (`pitch: 1`, `decay: 1`, `highPass: 20`, `lowPass: 20000`) via `handleInstrumentParamChange` so neither tab double-applies the baked settings.
+  - **Transport Cluster**: `REC MIC` toggles live capture with a real-time `0.1s` timer; `PREVIEW` triggers sample playback and drives a `requestAnimationFrame` playhead sweep across the active trim window; `LOAD FILE` opens the native file picker (complementing drag-and-drop onto the module).
+  - **High-Contrast Scope & Trim Handles**: Pointer down/move/up and touch handlers detect hit zones for the left `IN` bracket, right `OUT` bracket, or middle active region (slip-dragging the window while preserving duration), with live hover cursor feedback (`ew-resize` on handles, `grab`/`grabbing` inside the trimmed window).
+  - **Clustered Edit Toolbar**: Each button is disabled automatically when no sample is loaded (or when `Crop` / `Full Range` is already at `[0, 1]`), executes its buffer transformation, resets trim markers where appropriate, and dispatches a concise confirmation message in the header telemetry slot.
+  - **Tone & Envelope Parameter Cards**: Four self-contained cards display the parameter title, primary unit readout, secondary contextual badge (e.g., semitones for Pitch, `SUSTAIN` indicator at max Decay), and theme-styled range input with double-click reset to default.

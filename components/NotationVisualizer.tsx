@@ -1,12 +1,13 @@
-import React, { useMemo } from 'react';
-import { Grid } from '../types';
+import React, { useMemo, useState } from 'react';
+import { Grid, NotationTextMode } from '../types';
 import { INSTRUMENTS, INSTRUMENT_LABELS } from '../constants';
+import { safeGetItem, safeSetItem } from '../utils';
 
 // --- VISUAL CONSTANTS ---
 const VIEWBOX_WIDTH = 1060;
 const TOP_PADDING = 28;
-const BOTTOM_PADDING = 12;
-const STAFF_HEIGHT = 58;
+const BOTTOM_PADDING = 16;
+const STAFF_HEIGHT = 64;
 const VIEWBOX_HEIGHT = TOP_PADDING + STAFF_HEIGHT * INSTRUMENTS.length + BOTTOM_PADDING;
 
 const START_X = 96;
@@ -27,7 +28,7 @@ const BEAM_THICKNESS = 3.6;
 const BEAM_SPACING = 5.6;
 
 // --- Rhythmic Parsing Types ---
-type NoteDuration = '16n' | '8n' | '8nd' | 'qn';
+type NoteDuration = '16n' | '8n' | '8nd' | 'qn' | 'qnd';
 type RestDuration = '16r' | '8r' | '8rd' | 'qr' | 'wr';
 
 interface NoteElement {
@@ -35,6 +36,7 @@ interface NoteElement {
     step: number;
     color: string;
     duration: NoteDuration;
+    syllable: string;
 }
 
 interface RestElement {
@@ -58,9 +60,53 @@ interface BeamGroup {
 }
 
 /**
+ * Returns the written rhythm syllable (Kodály system) for a given note duration and beat subdivision offset:
+ * - Quarter note ('qn') -> 'ta'
+ * - Dotted quarter note ('qnd') -> 'ta-i'
+ * - Eighth note ('8n') -> 'ti'
+ * - Dotted eighth note ('8nd') -> 'ti-i'
+ * - Sixteenth note ('16n') -> 'ti' (on beat/upbeat offsets 0, 2) or 'ki' (on 'e'/'a' offsets 1, 3), forming 'ti-ki-ti-ki'
+ */
+const getRhythmSyllable = (duration: NoteDuration, stepOffsetInBeat: number): string => {
+    switch (duration) {
+        case 'qn':
+            return 'ta';
+        case 'qnd':
+            return 'ta-i';
+        case '8n':
+            return 'ti';
+        case '8nd':
+            return 'ti-i';
+        case '16n':
+            return stepOffsetInBeat % 2 === 0 ? 'ti' : 'ki';
+        default:
+            return 'ta';
+    }
+};
+
+/**
+ * Returns the standard 1e&a subdivision counting label for a given step index:
+ * - On-beat (offset 0) -> Beat number ('1', '2', '3', '4', ...)
+ * - Offset 1 -> 'e'
+ * - Offset 2 -> '&'
+ * - Offset 3 -> 'a'
+ */
+const getStepSubdivisionText = (step: number): string => {
+    const beatIndex = Math.floor(step / 4) + 1;
+    const offset = step % 4;
+    switch (offset) {
+        case 0: return String(beatIndex);
+        case 1: return 'e';
+        case 2: return '&';
+        case 3: return 'a';
+        default: return '';
+    }
+};
+
+/**
  * Converts a boolean step grid for one instrument into standard engraved percussion notation.
- * Evaluates each 4-step (16th-note) beat cell so every rhythm combination (all 16 per beat)
- * produces authentic notation with proper note durations, rests, dots, and beam groupings.
+ * Evaluates each 4-step (16th-note) beat cell (and cross-beat dotted quarter patterns) so every
+ * rhythm combination produces authentic notation with proper note durations, rests, dots, beams, and syllables.
  */
 const parseGridToNotation = (
     grid: boolean[],
@@ -83,15 +129,27 @@ const parseGridToNotation = (
     const beams: BeamGroup[] = [];
     const beamedSteps = new Set<number>();
 
+    // Precompute active offsets per beat so we can detect cross-beat Dotted Quarter Notes (ta-i ti)
+    const beatOffsetsList: number[][] = [];
     for (let beat = 0; beat < beatsPerMeasure; beat++) {
         const beatStart = beat * 4;
         const activeOffsets: number[] = [];
-
         for (let offset = 0; offset < 4; offset++) {
             if (grid[beatStart + offset]) {
                 activeOffsets.push(offset);
             }
         }
+        beatOffsetsList.push(activeOffsets);
+    }
+
+    let carryDottedQuarterIntoBeat = false;
+
+    for (let beat = 0; beat < beatsPerMeasure; beat++) {
+        const beatStart = beat * 4;
+        const activeOffsets = beatOffsetsList[beat];
+        const nextBeatOffsets = beat + 1 < beatsPerMeasure ? beatOffsetsList[beat + 1] : null;
+        const isCarriedFromPrevDottedQuarter = carryDottedQuarterIntoBeat;
+        carryDottedQuarterIntoBeat = false;
 
         // 1. Full beat of silence -> Quarter Rest
         if (activeOffsets.length === 0) {
@@ -99,23 +157,50 @@ const parseGridToNotation = (
             continue;
         }
 
+        // Check if this beat is a single downbeat hit that sustains into the "&" (offset 2) of the next beat -> Dotted Quarter Note ('qnd' = 'ta-i')
+        if (
+            activeOffsets.length === 1 &&
+            activeOffsets[0] === 0 &&
+            nextBeatOffsets !== null &&
+            nextBeatOffsets.length > 0 &&
+            nextBeatOffsets[0] === 2
+        ) {
+            notation.push({
+                type: 'note',
+                step: beatStart,
+                color,
+                duration: 'qnd',
+                syllable: getRhythmSyllable('qnd', 0),
+            });
+            carryDottedQuarterIntoBeat = true;
+            continue;
+        }
+
         // Special case: single hit on the "e" of the beat ([false, true, false, false])
         // Engraved as: 16th rest (downbeat), 16th note ("e"), 8th rest ("&")
         if (activeOffsets.length === 1 && activeOffsets[0] === 1) {
             notation.push({ type: 'rest', step: beatStart, duration: '16r' });
-            notation.push({ type: 'note', step: beatStart + 1, color, duration: '16n' });
+            notation.push({
+                type: 'note',
+                step: beatStart + 1,
+                color,
+                duration: '16n',
+                syllable: getRhythmSyllable('16n', 1),
+            });
             notation.push({ type: 'rest', step: beatStart + 2, duration: '8r' });
             continue;
         }
 
-        // 2. Leading silence before the first hit in this beat
+        // 2. Leading silence before the first hit in this beat (suppressed if sustained from a previous Dotted Quarter Note)
         const firstOffset = activeOffsets[0];
-        if (firstOffset === 1) {
-            notation.push({ type: 'rest', step: beatStart, duration: '16r' });
-        } else if (firstOffset === 2) {
-            notation.push({ type: 'rest', step: beatStart, duration: '8r' });
-        } else if (firstOffset === 3) {
-            notation.push({ type: 'rest', step: beatStart, duration: '8rd' });
+        if (!isCarriedFromPrevDottedQuarter) {
+            if (firstOffset === 1) {
+                notation.push({ type: 'rest', step: beatStart, duration: '16r' });
+            } else if (firstOffset === 2) {
+                notation.push({ type: 'rest', step: beatStart, duration: '8r' });
+            } else if (firstOffset === 3) {
+                notation.push({ type: 'rest', step: beatStart, duration: '8rd' });
+            }
         }
 
         // 3. Emit notes within the beat (each sustains until the next hit in the beat or beat end)
@@ -141,6 +226,7 @@ const parseGridToNotation = (
                 step: beatStart + currentOffset,
                 color,
                 duration,
+                syllable: getRhythmSyllable(duration, currentOffset),
             };
             notation.push(noteEl);
             beatNotes.push(noteEl);
@@ -241,11 +327,18 @@ const Note: React.FC<{
     color: string;
     duration: NoteDuration;
     flagged: boolean;
-}> = ({ x, y, color, duration, flagged }) => {
-    const isDotted = duration === '8nd';
-    const baseDuration = isDotted ? '8n' : duration;
+    labelText?: string;
+    showLabel?: boolean;
+    syllable?: string;
+    showSyllable?: boolean;
+}> = ({ x, y, color, duration, flagged, labelText, showLabel, syllable, showSyllable }) => {
+    const isDotted = duration === '8nd' || duration === 'qnd';
+    const baseDuration = duration === '8nd' ? '8n' : duration === 'qnd' ? 'qn' : duration;
     const stemX = x + STEM_X_OFFSET;
     const stemTopY = y - STEM_HEIGHT;
+
+    const displayLabel = labelText ?? syllable;
+    const isVisible = showLabel !== undefined ? showLabel : Boolean(showSyllable);
 
     return (
         <g>
@@ -309,6 +402,22 @@ const Note: React.FC<{
                            C 2.8,12.8 1.2,12.0 0,11.6 Z"
                     />
                 </g>
+            )}
+
+            {/* Written Rhythm Text (1e&a or Syllable) Underneath Note */}
+            {isVisible && displayLabel && (
+                <text
+                    x={x}
+                    y={y + 17}
+                    fill={NOTE_COLOR}
+                    opacity="0.92"
+                    fontSize="10.5"
+                    fontWeight="700"
+                    textAnchor="middle"
+                    letterSpacing="0.02em"
+                >
+                    {displayLabel}
+                </text>
             )}
         </g>
     );
@@ -515,6 +624,10 @@ interface NotationVisualizerProps {
     grid: Grid;
     instrumentColors: string[];
     beatsPerMeasure: number;
+    notationTextMode?: NotationTextMode;
+    onNotationTextModeChange?: (mode: NotationTextMode) => void;
+    showRhythmSyllables?: boolean;
+    onToggleRhythmSyllables?: () => void;
 }
 
 const NotationVisualizer: React.FC<NotationVisualizerProps> = ({
@@ -522,7 +635,37 @@ const NotationVisualizer: React.FC<NotationVisualizerProps> = ({
     grid,
     instrumentColors,
     beatsPerMeasure,
+    notationTextMode: controlledTextMode,
+    onNotationTextModeChange,
+    showRhythmSyllables: controlledShowSyllables,
+    onToggleRhythmSyllables,
 }) => {
+    const [internalTextMode, setInternalTextMode] = useState<NotationTextMode>(() => {
+        const saved = safeGetItem('cl607-notationTextMode');
+        if (saved === 'subdivisions' || saved === 'syllables' || saved === 'off') {
+            return saved;
+        }
+        return 'syllables';
+    });
+
+    const currentTextMode: NotationTextMode = controlledTextMode !== undefined
+        ? controlledTextMode
+        : controlledShowSyllables !== undefined
+        ? (controlledShowSyllables ? 'syllables' : 'off')
+        : internalTextMode;
+
+    const handleSetTextMode = (mode: NotationTextMode) => {
+        if (onNotationTextModeChange) {
+            onNotationTextModeChange(mode);
+        } else {
+            setInternalTextMode(mode);
+            safeSetItem('cl607-notationTextMode', mode);
+        }
+        if (onToggleRhythmSyllables && (mode === 'syllables' || mode === 'off')) {
+            onToggleRhythmSyllables();
+        }
+    };
+
     const numSteps = beatsPerMeasure * 4;
     const stepWidth = NOTES_WIDTH / numSteps;
 
@@ -544,7 +687,65 @@ const NotationVisualizer: React.FC<NotationVisualizerProps> = ({
     }
 
     return (
-        <div className="notation-visualizer bg-gray-900/50 rounded-lg w-full overflow-hidden p-2 sm:p-3">
+        <div className="notation-visualizer bg-gray-900/50 rounded-lg w-full overflow-hidden p-2 sm:p-3 flex flex-col gap-2">
+            {/* Notation Rhythm Text Selector Bar (1e&a / ta ti ti / off) */}
+            <div className="flex flex-wrap items-center justify-between gap-2 px-1 pb-1.5 border-b border-gray-700/40">
+                <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold uppercase tracking-wider text-gray-300">
+                        Notation Text:
+                    </span>
+                    <div className="inline-flex rounded-md bg-gray-800/80 p-0.5 border border-gray-700/60" role="group" aria-label="Notation rhythm text display">
+                        <button
+                            type="button"
+                            onClick={() => handleSetTextMode('subdivisions')}
+                            aria-pressed={currentTextMode === 'subdivisions'}
+                            className={`px-2.5 py-1 text-[11px] font-mono font-bold rounded transition-colors cursor-pointer ${
+                                currentTextMode === 'subdivisions'
+                                    ? 'bg-blue-600 text-white shadow-sm'
+                                    : 'text-gray-400 hover:text-gray-200'
+                            }`}
+                        >
+                            1 e &amp; a
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => handleSetTextMode('syllables')}
+                            aria-pressed={currentTextMode === 'syllables'}
+                            className={`px-2.5 py-1 text-[11px] font-mono font-bold rounded transition-colors cursor-pointer ${
+                                currentTextMode === 'syllables'
+                                    ? 'bg-blue-600 text-white shadow-sm'
+                                    : 'text-gray-400 hover:text-gray-200'
+                            }`}
+                        >
+                            ta ti ti
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => handleSetTextMode('off')}
+                            aria-pressed={currentTextMode === 'off'}
+                            className={`px-2.5 py-1 text-[11px] font-mono font-bold rounded transition-colors cursor-pointer ${
+                                currentTextMode === 'off'
+                                    ? 'bg-gray-700 text-gray-200 shadow-sm'
+                                    : 'text-gray-400 hover:text-gray-200'
+                            }`}
+                        >
+                            Off
+                        </button>
+                    </div>
+                </div>
+
+                {currentTextMode === 'syllables' && (
+                    <span className="hidden sm:inline-block text-[11px] font-mono text-gray-400">
+                        quarter = ta · eighth = ti · dotted quarter = ta-i · sixteenth = ti-ki
+                    </span>
+                )}
+                {currentTextMode === 'subdivisions' && (
+                    <span className="hidden sm:inline-block text-[11px] font-mono text-gray-400">
+                        subdivisions = 1 e &amp; a · 2 e &amp; a · 3 e &amp; a · 4 e &amp; a
+                    </span>
+                )}
+            </div>
+
             <svg
                 viewBox={`0 0 ${VIEWBOX_WIDTH} ${VIEWBOX_HEIGHT}`}
                 className="w-full h-auto select-none"
@@ -601,7 +802,7 @@ const NotationVisualizer: React.FC<NotationVisualizerProps> = ({
                 />
 
                 {INSTRUMENTS.map((instrument, instrumentIndex) => {
-                    const staffY = TOP_PADDING + STAFF_HEIGHT * instrumentIndex + STAFF_HEIGHT / 2 + 4;
+                    const staffY = TOP_PADDING + STAFF_HEIGHT * instrumentIndex + STAFF_HEIGHT / 2 + 2;
                     const { notation, beams, beamedSteps } = processedNotation[instrumentIndex];
                     const instColor = instrumentColors[instrumentIndex];
 
@@ -709,9 +910,14 @@ const NotationVisualizer: React.FC<NotationVisualizerProps> = ({
                                 }
 
                                 const x = getStepX(el.step);
-                                const isDotted = el.duration === '8nd';
-                                const baseDuration = isDotted ? '8n' : el.duration;
+                                const baseDuration = el.duration === '8nd' ? '8n' : el.duration === 'qnd' ? 'qn' : el.duration;
                                 const isFlagged = baseDuration !== 'qn' && !beamedSteps.has(el.step);
+
+                                const noteLabel = currentTextMode === 'syllables'
+                                    ? el.syllable
+                                    : currentTextMode === 'subdivisions'
+                                    ? getStepSubdivisionText(el.step)
+                                    : undefined;
 
                                 return (
                                     <Note
@@ -721,6 +927,8 @@ const NotationVisualizer: React.FC<NotationVisualizerProps> = ({
                                         color={el.color}
                                         duration={el.duration}
                                         flagged={isFlagged}
+                                        labelText={noteLabel}
+                                        showLabel={currentTextMode !== 'off'}
                                     />
                                 );
                             })}

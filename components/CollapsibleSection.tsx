@@ -1,10 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { VisualizerStyle } from '../types';
-import { getThemeSurface } from '../utils';
+import { getThemeSurface, getButtonStyle } from '../utils';
 
 interface CollapsibleSectionProps {
     title: string;
-    children: (isOpen: boolean) => React.ReactNode;
+    children: React.ReactNode | ((isOpen: boolean) => React.ReactNode);
     defaultOpen?: boolean;
     closedTitle?: string;
     dragHandleProps?: React.HTMLAttributes<HTMLButtonElement>;
@@ -12,6 +12,10 @@ interface CollapsibleSectionProps {
     onSectionPointerDown?: (e: React.PointerEvent<HTMLButtonElement>, index: number) => void;
     isDragging?: boolean;
     visualizerStyle?: VisualizerStyle;
+    elevated?: boolean;
+    onReset?: () => void;
+    resetLabel?: string;
+    hasChanges?: boolean;
 }
 
 const ChevronIcon: React.FC<{ open: boolean; visualizerStyle: VisualizerStyle }> = ({ open, visualizerStyle }) => {
@@ -24,6 +28,8 @@ const ChevronIcon: React.FC<{ open: boolean; visualizerStyle: VisualizerStyle }>
             ? 'text-[#d9325e]'
             : visualizerStyle === 'koto'
             ? 'text-[#d4af37]'
+            : visualizerStyle === 'default'
+            ? 'text-[#a8dcff]'
             : 'text-gray-400';
 
     return (
@@ -80,6 +86,87 @@ const SunsetCloudEmblem: React.FC<{ isOpen: boolean }> = ({ isOpen }) => (
     </span>
 );
 
+const ResetConfirmButton: React.FC<{
+    onReset: () => void;
+    label?: string;
+    visualizerStyle?: VisualizerStyle;
+}> = ({ onReset, label = 'RESET', visualizerStyle = 'default' }) => {
+    const [isConfirming, setIsConfirming] = useState(false);
+    const [isSuccess, setIsSuccess] = useState(false);
+    const timeoutRef = useRef<number | null>(null);
+
+    useEffect(() => {
+        return () => {
+            if (timeoutRef.current) {
+                clearTimeout(timeoutRef.current);
+            }
+        };
+    }, []);
+
+    // Auto-cancel confirmation if user clicks outside
+    useEffect(() => {
+        if (!isConfirming) return;
+        const handleOutsideClick = (e: MouseEvent | PointerEvent) => {
+            const target = e.target as HTMLElement | null;
+            if (target && target.closest('.reset-confirm-btn')) return;
+            setIsConfirming(false);
+        };
+        window.addEventListener('pointerdown', handleOutsideClick);
+        return () => window.removeEventListener('pointerdown', handleOutsideClick);
+    }, [isConfirming]);
+
+    const handleClick = (e: React.MouseEvent<HTMLButtonElement>) => {
+        e.stopPropagation();
+        e.preventDefault();
+
+        if (!isConfirming) {
+            setIsConfirming(true);
+            if (timeoutRef.current) clearTimeout(timeoutRef.current);
+            timeoutRef.current = window.setTimeout(() => {
+                setIsConfirming(false);
+            }, 4000);
+        } else {
+            if (timeoutRef.current) clearTimeout(timeoutRef.current);
+            setIsConfirming(false);
+            setIsSuccess(true);
+            onReset();
+            timeoutRef.current = window.setTimeout(() => {
+                setIsSuccess(false);
+            }, 1000);
+        }
+    };
+
+    const handlePointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
+        e.stopPropagation();
+    };
+
+    const currentLabel = isSuccess ? 'RESET!' : isConfirming ? 'CLICK TO CONFIRM' : label;
+    const buttonVariant = isConfirming ? 'danger' : isSuccess ? 'primary' : 'secondary';
+
+    return (
+        <button
+            type="button"
+            onPointerDown={handlePointerDown}
+            onClick={handleClick}
+            className={`${getButtonStyle(
+                visualizerStyle as VisualizerStyle,
+                buttonVariant,
+                isConfirming || isSuccess,
+                false,
+                `reset-confirm-btn hold-to-reset-btn relative overflow-hidden h-6 px-2.5 sm:px-3 text-[9px] sm:text-[10px] font-mono tracking-wider uppercase select-none cursor-pointer focus:outline-none flex items-center justify-center font-bold transition-all ${
+                    isConfirming ? 'animate-pulse ring-1 ring-red-400' : ''
+                }`
+            )}`}
+            title={isConfirming ? 'Click again to confirm reset' : 'Click to reset this section'}
+            aria-label={currentLabel}
+        >
+            <span className="relative z-10 pointer-events-none font-bold">
+                {currentLabel}
+            </span>
+        </button>
+    );
+};
+
 const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
     title,
     children,
@@ -90,6 +177,10 @@ const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
     onSectionPointerDown,
     isDragging = false,
     visualizerStyle = 'default' as VisualizerStyle,
+    elevated = false,
+    onReset,
+    resetLabel = 'RESET',
+    hasChanges = false,
 }) => {
     const [isOpen, setIsOpen] = useState(defaultOpen);
     const hasDragSupport = Boolean(dragHandleProps || onSectionPointerDown !== undefined);
@@ -124,9 +215,10 @@ const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
     const isSunset = visualizerStyle === 'nagra';
     
     const wrapperClasses = `
-        relative draggable-section ${isSunset ? 'overflow-visible mt-2' : 'overflow-hidden'}
+        relative draggable-section ${isSunset || isOpen ? 'overflow-visible' : 'overflow-hidden'} ${isSunset ? 'mt-2' : ''}
         ${surface.sectionCard}
-        ${isDragging ? 'opacity-75 z-50' : 'z-10'}
+        ${isDragging || elevated ? 'z-50' : isOpen ? 'z-20 hover:z-30 focus-within:z-40' : 'z-10'}
+        ${isDragging ? 'opacity-75' : ''}
     `;
 
     return (
@@ -147,22 +239,38 @@ const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
                 <div aria-hidden="true" className="h-1 w-full bg-gradient-to-r from-[#fcee0a] via-[#00ff9f] to-[#ff003c]" />
             )}
 
-            <button
-                {...dragHandleProps}
-                onPointerDown={combinedPointerDown}
-                className={`relative z-10 w-full flex items-center justify-between ${isMinimal ? 'px-4 py-3 hover:bg-[#141418]' : 'p-4'} ${isSunset ? 'px-7 py-4 rounded-t-[38px]' : ''} text-left focus:outline-none ${isMinimal ? '' : 'transition-transform active:scale-[0.99]'} ${
+            <div
+                {...(dragHandleProps as any)}
+                onPointerDown={(e) => {
+                    if ((e.target as HTMLElement).closest('.reset-confirm-btn') || (e.target as HTMLElement).closest('.hold-to-reset-btn')) {
+                        return;
+                    }
+                    combinedPointerDown(e as unknown as React.PointerEvent<HTMLButtonElement>);
+                }}
+                onKeyDown={(e) => {
+                    if ((e.target as HTMLElement).closest('.reset-confirm-btn') || (e.target as HTMLElement).closest('.hold-to-reset-btn')) return;
+                    if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        handleToggle();
+                    }
+                }}
+                role="button"
+                tabIndex={0}
+                className={`relative z-10 w-full flex items-center justify-between ${isMinimal || visualizerStyle === 'default' ? 'px-4 py-3' : 'p-4'} ${isMinimal ? 'hover:bg-[#141418]' : visualizerStyle === 'default' ? 'hover:bg-[#102747]/60' : ''} ${isSunset ? 'px-7 py-4 rounded-t-[38px]' : ''} text-left focus:outline-none cursor-pointer select-none ${isMinimal ? '' : 'transition-transform active:scale-[0.99]'} ${
                     visualizerStyle === 'bauhaus' && isOpen ? 'border-b-2 border-[#141413] bg-[#ebe4d5]/60' : ''
                 } ${visualizerStyle === 'braun' && isOpen ? 'border-b border-[#d5d1c5]' : ''} ${
                     isSunset && isOpen ? 'border-b border-[#f7bba6]/65 bg-gradient-to-b from-white/60 to-[#ffe6d9]/35' : ''
                 } ${
                     isMinimal && isOpen ? 'border-b border-[#222226] bg-[#111114]' : ''
                 } ${
+                    visualizerStyle === 'default' && isOpen ? 'border-b border-[#1b3963] bg-[#08162b]/80' : ''
+                } ${
                     hasDragSupport ? 'cursor-grab active:cursor-grabbing' : ''
                 }`}
                 aria-expanded={isOpen}
                 aria-controls={`collapsible-content-${title.replace(/\s+/g, '-')}`}
             >
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2.5 sm:gap-3 flex-wrap min-w-0">
                     {visualizerStyle === 'braun' && (
                         <span
                             aria-hidden="true"
@@ -173,6 +281,12 @@ const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
                         <span
                             aria-hidden="true"
                             className={`w-3.5 h-3.5 border-2 border-[#141413] transition-colors ${isOpen ? 'bg-[#d62828]' : 'bg-[#f2b705]'}`}
+                        />
+                    )}
+                    {visualizerStyle === 'default' && (
+                        <span
+                            aria-hidden="true"
+                            className={`w-2.5 h-2.5 border transition-colors ${isOpen ? 'bg-[#ffc4d6] border-[#ffe0ea]' : 'bg-[#a8dcff] border-[#d6eeff]'}`}
                         />
                     )}
                     {isSunset && <SunsetCloudEmblem isOpen={isOpen} />}
@@ -195,12 +309,19 @@ const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
                             className={`w-1.5 h-1.5 ${isOpen ? 'bg-[#f4f4f5]' : 'bg-[#52525b]'}`}
                         />
                     )}
-                    <h3 className={`text-sm font-bold uppercase ${surface.sectionHeaderText}`}>
+                    <h3 className={`text-sm font-bold uppercase tracking-wider ${surface.sectionHeaderText}`}>
                         {displayTitle}
                     </h3>
+                    {isOpen && onReset && hasChanges && (
+                        <ResetConfirmButton
+                            onReset={onReset}
+                            label={resetLabel}
+                            visualizerStyle={visualizerStyle}
+                        />
+                    )}
                 </div>
 
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3 flex-shrink-0">
                     {/* Dieter Rams machined ventilation louvers */}
                     {visualizerStyle === 'braun' && (
                         <div aria-hidden="true" className="hidden sm:flex items-center gap-1 mr-1">
@@ -226,13 +347,13 @@ const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
                         <ChevronIcon open={isOpen} visualizerStyle={visualizerStyle} />
                     )}
                 </div>
-            </button>
+            </div>
             {isOpen && (
                 <div
                     id={`collapsible-content-${title.replace(/\s+/g, '-')}`}
                     className={isMinimal ? 'p-5' : 'p-6 pt-3'}
                 >
-                    {children(isOpen)}
+                    {typeof children === 'function' ? children(isOpen) : children}
                 </div>
             )}
         </div>

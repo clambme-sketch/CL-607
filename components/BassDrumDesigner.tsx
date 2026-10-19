@@ -6,6 +6,9 @@ interface KickDrumDesignerProps {
     isActive: boolean;
     params: KickDesignerParams;
     onParamChange: (param: keyof KickDesignerParams, value: number) => void;
+    volume?: number;
+    onVolumeChange?: (value: number) => void;
+    color?: string;
 }
 
 // --- PARAMETER CONFIG ---
@@ -43,7 +46,14 @@ const KICK_DESIGNER_CONFIG: ParamConfig[] = [
 
 // --- MAIN COMPONENT ---
 
-const KickDrumDesigner: React.FC<KickDrumDesignerProps> = ({ isActive, params, onParamChange }) => {
+const KickDrumDesigner: React.FC<KickDrumDesignerProps> = ({
+    isActive,
+    params,
+    onParamChange,
+    volume = 0.3,
+    onVolumeChange,
+    color,
+}) => {
     const [isInteracting, setIsInteracting] = useState(false);
 
     const handleSliderInteractionStart = useCallback(() => {
@@ -84,17 +94,46 @@ const KickDrumDesigner: React.FC<KickDrumDesignerProps> = ({ isActive, params, o
                         onChange={(e) => onParamChange(paramConfig.name, parseFloat(e.target.value))}
                         {...sliderInteractionProps}
                         className="w-full h-1.5 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-purple-400"
+                        style={color ? { accentColor: color } : undefined}
                     />
                 </Tooltip>
-                <span className="text-xs text-gray-500 text-right tabular-nums col-span-1">
+                <span className="font-mono text-xs text-gray-500 text-right tabular-nums col-span-1">
                     {paramConfig.displayTransform ? paramConfig.displayTransform(value) : value.toFixed(2)}
                 </span>
             </div>
          );
-    }
+    };
 
     return (
         <div className="w-full max-w-4xl grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4">
+            {onVolumeChange && (
+                <div className="grid grid-cols-4 items-center gap-2">
+                    <label htmlFor="kick-volume" className="text-xs text-gray-400 col-span-1">
+                        Volume
+                    </label>
+                    <Tooltip
+                        text="Adjust Kick volume (synced with sequencer track slider)."
+                        isInteracting={isInteracting}
+                        wrapperClassName="col-span-2"
+                    >
+                        <input
+                            type="range"
+                            id="kick-volume"
+                            min={0}
+                            max={1}
+                            step={0.01}
+                            value={volume}
+                            onChange={(e) => onVolumeChange(parseFloat(e.target.value))}
+                            {...sliderInteractionProps}
+                            className="w-full h-1.5 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-purple-400"
+                            style={color ? { accentColor: color } : undefined}
+                        />
+                    </Tooltip>
+                    <span className="font-mono text-xs text-gray-500 text-right tabular-nums col-span-1">
+                        {Math.round(volume * 100)}%
+                    </span>
+                </div>
+            )}
             {KICK_DESIGNER_CONFIG.map(p => renderParamSlider(p))}
         </div>
     );

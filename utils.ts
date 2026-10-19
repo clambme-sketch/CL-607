@@ -5,7 +5,6 @@ export type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'success' | 'ou
 export interface VisualStyleOption {
     id: VisualizerStyle;
     label: string;
-    origin: string;
     swatches: [string, string, string];
 }
 
@@ -13,37 +12,36 @@ export const VISUAL_STYLE_OPTIONS: VisualStyleOption[] = [
     {
         id: 'default',
         label: 'Default',
-        origin: 'STD-607',
-        swatches: ['#1f2937', '#2563eb', '#eab308'],
+        swatches: ['#0a1e38', '#a8dcff', '#ffc4d6'],
+    },
+    {
+        id: 'classic607',
+        label: 'Classic 607',
+        swatches: ['#0f2347', '#2563eb', '#38bdf8'],
     },
     {
         id: 'cyberpunk',
         label: 'Virtual',
-        origin: 'TYO-1988',
         swatches: ['#0a0a0c', '#fcee0a', '#00ff9f'],
     },
     {
         id: 'braun',
         label: 'Domino',
-        origin: 'BRD-1968',
         swatches: ['#e6e3da', '#ea5b0c', '#262624'],
     },
     {
         id: 'bauhaus',
         label: 'Color Block',
-        origin: 'GER-1926',
         swatches: ['#f2ece1', '#184e9c', '#d62828'],
     },
     {
         id: 'nagra',
         label: 'Sunset',
-        origin: 'SKY-CLOUD',
         swatches: ['#3b1547', '#ff5e4d', '#fff0e5'],
     },
     {
         id: 'koto',
         label: 'Gold Trim',
-        origin: 'JPN-CRAFT',
         swatches: ['#161118', '#c83e2b', '#d4af37'],
     },
 ];
@@ -285,19 +283,83 @@ export const getButtonStyle = (
         if (isDisabled) {
             styleClasses = `border border-[#18181b] bg-[#09090b] text-[#3f3f46] !transition-none rounded-none font-['IBM_Plex_Mono'] tracking-[0.12em]`;
         }
+    } else if (visualizerStyle === 'default') {
+        // Default (Dark Blue Gradient + Baby Pink & Baby Blue Minimal Color-Block Masterpiece)
+        const isDanger = variant === 'danger';
+        const isSuccess = variant === 'success';
+        const isPrimary = variant === 'primary';
+
+        const bgStyle = isActive
+            ? 'bg-[#ffc4d6]'
+            : isDanger
+            ? 'bg-gradient-to-b from-[#1a162b] to-[#0e0c1a]'
+            : isSuccess
+            ? 'bg-gradient-to-b from-[#173d6e] to-[#0d274a]'
+            : isPrimary
+            ? 'bg-[#a8dcff]'
+            : 'bg-gradient-to-b from-[#112a4e] to-[#091830]';
+        const textColor = isActive
+            ? 'text-[#061121]'
+            : isPrimary
+            ? 'text-[#061121]'
+            : isDanger
+            ? 'text-[#ffc4d6]'
+            : isSuccess
+            ? 'text-[#cceaff]'
+            : 'text-[#dff0ff]';
+        const borderColor = isActive
+            ? 'border-[#ffe0ea]'
+            : isDanger
+            ? 'border-[#ffc4d6]/70'
+            : isSuccess
+            ? 'border-[#a8dcff]/80'
+            : isPrimary
+            ? 'border-[#d4eeff]'
+            : 'border-[#1e3f6e]';
+        const hoverStyle = isActive
+            ? 'hover:bg-[#ffd4e2]'
+            : isDanger
+            ? 'hover:from-[#ffc4d6] hover:to-[#ffb0c8] hover:text-[#061121] hover:border-[#ffe0ea]'
+            : isSuccess
+            ? 'hover:from-[#1f4d87] hover:to-[#12335e] hover:border-[#cceaff]'
+            : isPrimary
+            ? 'hover:bg-[#bce5ff] hover:border-white'
+            : 'hover:from-[#163663] hover:to-[#0c2140] hover:border-[#a8dcff]/80 hover:text-white';
+
+        styleClasses = `border ${borderColor} ${bgStyle} ${textColor} ${hoverStyle} active:translate-y-[1px] focus:ring-1 focus:ring-offset-0 focus:ring-[#a8dcff] rounded-none font-['IBM_Plex_Mono'] font-medium tracking-[0.12em]`;
+
+        if (isDisabled) {
+            styleClasses = `border border-[#132847] bg-[#071324] text-[#3b5b82] rounded-none font-['IBM_Plex_Mono'] tracking-[0.12em]`;
+        }
     } else {
-        // Default style
-        const bgColor = variant === 'danger' ? 'bg-red-600' : variant === 'success' ? 'bg-green-600' : variant === 'primary' ? 'bg-blue-600' : 'bg-gray-700';
-        const hoverBg = variant === 'danger' ? 'hover:bg-red-700' : variant === 'success' ? 'hover:bg-green-700' : variant === 'primary' ? 'hover:bg-blue-700' : 'hover:bg-gray-600';
-        const ringColor = variant === 'danger' ? 'focus:ring-red-500' : variant === 'success' ? 'focus:ring-green-500' : variant === 'primary' ? 'focus:ring-blue-500' : 'focus:ring-gray-500';
+        // Classic 607 style (Classic Electric Blue Drum Machine)
+        const isDanger = variant === 'danger';
+        const isSuccess = variant === 'success';
+        const isPrimary = variant === 'primary';
+
+        const bgColor = isDanger
+            ? 'bg-red-600'
+            : isSuccess
+            ? 'bg-emerald-600'
+            : isPrimary
+            ? 'bg-blue-600'
+            : 'bg-[#183157] border border-blue-400/30';
+        const hoverBg = isDanger
+            ? 'hover:bg-red-500'
+            : isSuccess
+            ? 'hover:bg-emerald-500'
+            : isPrimary
+            ? 'hover:bg-blue-500'
+            : 'hover:bg-[#204070] hover:border-blue-400/60';
+        const ringColor = isDanger ? 'focus:ring-red-500' : isSuccess ? 'focus:ring-emerald-400' : 'focus:ring-blue-400';
         
-        styleClasses = `${bgColor} text-white ${hoverBg} active:scale-[0.98] focus:ring-offset-gray-800 ${ringColor} rounded-lg tracking-wider`;
+        styleClasses = `${bgColor} text-white ${hoverBg} active:scale-[0.98] shadow-md focus:ring-offset-gray-900 ${ringColor} rounded-lg tracking-wider`;
         
         if (isActive) {
-            styleClasses = `bg-yellow-500 text-gray-900 ring-2 ring-offset-2 ring-offset-gray-800 ring-yellow-400 rounded-lg tracking-wider`;
+            styleClasses = `bg-blue-600 text-white border-2 border-blue-300 shadow-[0_0_12px_rgba(59,130,246,0.7)] ring-2 ring-offset-2 ring-offset-[#0b172a] ring-cyan-300 rounded-lg tracking-wider font-extrabold`;
         }
         if (isDisabled) {
-            styleClasses = `bg-gray-700 text-gray-400 disabled:bg-gray-500 rounded-lg tracking-wider`;
+            styleClasses = `bg-[#0f2038] text-blue-300/40 border border-blue-900/30 rounded-lg tracking-wider`;
         }
     }
     
@@ -372,16 +434,28 @@ export const getThemeSurface = (visualizerStyle: VisualizerStyle) => {
                 stepNumLit: "font-['Cormorant_Garamond'] font-bold text-sm text-[#d4af37]",
                 stepNumDim: "font-['Plus_Jakarta_Sans'] text-[#7d6e65]",
             };
+        case 'default':
+            return {
+                mainDeck: 'bg-gradient-to-b from-[#132d54] to-[#0b1d38] rounded-none border border-[#244a7d] shadow-[6px_6px_0px_#050f20]',
+                sectionCard: 'bg-gradient-to-b from-[#11294c] to-[#0a1b34] rounded-none border border-[#214373] shadow-[4px_4px_0px_#050f20]',
+                sectionHeaderText: "font-['IBM_Plex_Mono'] font-medium text-[#e4f2ff] tracking-[0.18em] text-xs",
+                instrumentBadge: "rounded-none bg-gradient-to-b from-[#15335e] to-[#0c203e] border border-[#244a7d] text-[#d6ecff] font-['IBM_Plex_Mono'] font-medium tracking-[0.14em]",
+                faderBay: 'rounded-none bg-[#0b1d38] border border-[#1f3f6e]',
+                scopeBezel: 'rounded-none bg-[#09172e] border border-[#1f3f6e]',
+                stepNumLit: "font-['IBM_Plex_Mono'] font-semibold text-[#ffc4d6]",
+                stepNumDim: "font-['IBM_Plex_Mono'] text-[#638ec2]",
+            };
+        case 'classic607':
         default:
             return {
-                mainDeck: 'bg-gradient-to-b from-gray-800 to-gray-900 rounded-xl shadow-lg ring-1 ring-white/10',
-                sectionCard: 'bg-gradient-to-b from-gray-800 to-gray-900 rounded-xl shadow-lg ring-1 ring-white/10',
-                sectionHeaderText: 'text-gray-100 tracking-wider',
-                instrumentBadge: 'rounded-md bg-gray-700 text-gray-300',
-                faderBay: 'rounded-md bg-gray-700',
-                scopeBezel: 'rounded-md bg-gray-900',
-                stepNumLit: 'text-gray-400',
-                stepNumDim: 'text-gray-600',
+                mainDeck: 'bg-gradient-to-b from-[#1a3f78] via-[#133262] to-[#0d2348] rounded-xl shadow-[0_12px_32px_rgba(0,0,0,0.6),inset_0_1px_0_rgba(96,165,250,0.45)] border-2 border-blue-400/40',
+                sectionCard: 'bg-gradient-to-b from-[#163a6e] to-[#0f2850] rounded-xl shadow-lg border border-blue-400/35',
+                sectionHeaderText: 'text-blue-100 font-bold tracking-wider',
+                instrumentBadge: 'rounded-md bg-gradient-to-r from-[#1e4887] to-[#143566] text-blue-50 border border-blue-400/45 shadow-sm',
+                faderBay: 'rounded-md bg-[#0b1d3d] border border-blue-500/35 shadow-inner',
+                scopeBezel: 'rounded-md bg-[#081730] border border-blue-500/40 shadow-inner',
+                stepNumLit: 'text-cyan-300 font-bold',
+                stepNumDim: 'text-blue-300/60',
             };
     }
 };

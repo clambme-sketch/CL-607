@@ -3,13 +3,20 @@ import { MIN_FILTER_FREQ, MAX_FILTER_FREQ, INSTRUMENTS, INSTRUMENT_LABELS } from
 import SmallOscilloscope from './SmallOscilloscope';
 import FrequencyVisualizer from './FrequencyVisualizer';
 import GainReductionMeter from './GainReductionMeter';
-import { Instrument, VisualizerStyle, DelayDivision } from '../types';
+import { Instrument, VisualizerStyle, DelayDivision, ReverbType } from '../types';
 import { EffectName } from '../App';
 import Tooltip from './Tooltip';
 import { getButtonStyle } from '../utils';
 
+export const REVERB_TYPE_OPTIONS: { id: ReverbType; label: string; tooltip: string }[] = [
+    { id: 'room', label: 'ROOM', tooltip: 'Tight, punchy studio drum room with natural early reflections' },
+    { id: 'plate', label: 'PLATE', tooltip: 'Classic studio plate with instant diffusion and bright sheen' },
+    { id: 'hall', label: 'HALL', tooltip: 'Lush, spacious concert hall with smooth blooming attack' },
+];
+
 export const DELAY_DIVISION_OPTIONS: { id: DelayDivision; label: string; beats: number; tooltip: string }[] = [
     { id: '1/32', label: '1/32', beats: 0.125, tooltip: '1/32 note echo (1/8 of a beat)' },
+    { id: '1/16T', label: '1/16T', beats: 1 / 6, tooltip: '1/16 note triplet echo (1/6 of a beat)' },
     { id: '1/16', label: '1/16', beats: 0.25, tooltip: '1/16 note echo (1/4 of a beat)' },
     { id: '1/8T', label: '1/8T', beats: 1 / 3, tooltip: '1/8 note triplet echo (1/3 of a beat)' },
     { id: '1/8', label: '1/8', beats: 0.5, tooltip: '1/8 note echo (1/2 of a beat)' },
@@ -34,9 +41,13 @@ interface EffectsProps {
     onHighPassChange: (value: number) => void;
     reverbMix: number;
     reverbDecay: number;
+    reverbType: ReverbType;
+    reverbTone: number;
     reverbSource: Instrument | 'all';
     onReverbMixChange: (value: number) => void;
     onReverbDecayChange: (value: number) => void;
+    onReverbTypeChange: (type: ReverbType) => void;
+    onReverbToneChange: (value: number) => void;
     onReverbSourceChange: (source: Instrument | 'all') => void;
     delayMix: number;
     delayTime: number;
@@ -104,6 +115,20 @@ const freqToSlider = (freq: number): number => {
     return (Math.log(freq) - min) / scale;
 };
 
+const REVERB_TONE_MIN = 500;
+const REVERB_TONE_MAX = 20000;
+const sliderToReverbTone = (value: number): number => {
+    const min = Math.log(REVERB_TONE_MIN);
+    const max = Math.log(REVERB_TONE_MAX);
+    return Math.exp(min + ((max - min) / 100) * value);
+};
+const reverbToneToSlider = (freq: number): number => {
+    const clamped = Math.max(REVERB_TONE_MIN, Math.min(REVERB_TONE_MAX, freq));
+    const min = Math.log(REVERB_TONE_MIN);
+    const max = Math.log(REVERB_TONE_MAX);
+    return ((Math.log(clamped) - min) / (max - min)) * 100;
+};
+
 const ToggleSwitch: React.FC<{ isEnabled: boolean; onToggle: () => void; accentColor: string; isMinimal?: boolean }> = ({ isEnabled, onToggle, accentColor, isMinimal }) => {
     if (isMinimal) {
         return (
@@ -151,9 +176,13 @@ const Effects: React.FC<EffectsProps> = ({
     onHighPassChange,
     reverbMix,
     reverbDecay,
+    reverbType,
+    reverbTone,
     reverbSource,
     onReverbMixChange,
     onReverbDecayChange,
+    onReverbTypeChange,
+    onReverbToneChange,
     onReverbSourceChange,
     delayMix,
     delayTime,
@@ -225,6 +254,7 @@ const Effects: React.FC<EffectsProps> = ({
     const handleHighPassSliderChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => onHighPassChange(sliderToFreq(Number(e.target.value))), [onHighPassChange]);
     const handleReverbMixChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => onReverbMixChange(Number(e.target.value)), [onReverbMixChange]);
     const handleReverbDecayChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => onReverbDecayChange(Number(e.target.value)), [onReverbDecayChange]);
+    const handleReverbToneChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => onReverbToneChange(sliderToReverbTone(Number(e.target.value))), [onReverbToneChange]);
     const handleReverbSourceChange = useCallback((e: React.ChangeEvent<HTMLSelectElement>) => onReverbSourceChange(e.target.value as Instrument | 'all'), [onReverbSourceChange]);
     const handleDelayMixChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => onDelayMixChange(Number(e.target.value)), [onDelayMixChange]);
     const handleDelayTimeChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -480,11 +510,44 @@ const Effects: React.FC<EffectsProps> = ({
                                 ))}
                             </select>
                         </div>
+                        <div className="flex flex-col gap-1.5 text-xs">
+                            <span className="text-gray-500 font-mono text-[10px] uppercase tracking-wider">SPACE</span>
+                            <div className="grid grid-cols-3 gap-1.5 w-full">
+                                {REVERB_TYPE_OPTIONS.map((opt) => {
+                                    const isSelected = reverbType === opt.id;
+                                    return (
+                                        <Tooltip key={opt.id} text={opt.tooltip}>
+                                            <button
+                                                type="button"
+                                                disabled={!effectsEnabled.reverb}
+                                                onClick={() => onReverbTypeChange(opt.id)}
+                                                className={getButtonStyle(
+                                                    visualizerStyle as VisualizerStyle,
+                                                    isSelected ? 'primary' : 'secondary',
+                                                    isSelected,
+                                                    !effectsEnabled.reverb,
+                                                    '!px-1.5 !py-1 !text-[10px] font-mono w-full'
+                                                )}
+                                            >
+                                                {opt.label}
+                                            </button>
+                                        </Tooltip>
+                                    );
+                                })}
+                            </div>
+                        </div>
                         <Tooltip text="The length of the reverb tail" isInteracting={isInteractingWithSlider}>
                             <div className="flex items-center gap-2 text-xs">
                                 <label htmlFor="reverb-decay" className="text-gray-500 w-12 flex-shrink-0">DECAY</label>
                                 <input type="range" id="reverb-decay" min={0} max={1} step="0.01" value={reverbDecay} onChange={handleReverbDecayChange} {...sliderInteractionProps} disabled={!effectsEnabled.reverb} className="w-full h-1.5 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-purple-500 disabled:accent-gray-500" />
                                 <span className="text-gray-500 w-10 text-right tabular-nums">{decayInSeconds}s</span>
+                            </div>
+                        </Tooltip>
+                        <Tooltip text="High-frequency damping filter to make the reverb warmer or brighter" isInteracting={isInteractingWithSlider}>
+                            <div className="flex items-center gap-2 text-xs">
+                                <label htmlFor="reverb-tone" className="text-gray-500 w-12 flex-shrink-0">TONE</label>
+                                <input type="range" id="reverb-tone" min={0} max={100} step="1" value={reverbToneToSlider(reverbTone)} onChange={handleReverbToneChange} {...sliderInteractionProps} disabled={!effectsEnabled.reverb} className="w-full h-1.5 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-purple-500 disabled:accent-gray-500" />
+                                <span className="text-gray-500 w-10 text-right tabular-nums">{reverbTone >= 1000 ? `${(reverbTone / 1000).toFixed(1)}k` : `${Math.round(reverbTone)}Hz`}</span>
                             </div>
                         </Tooltip>
                         <Tooltip text="Blends between the clean (dry) and reverberated (wet) signal" isInteracting={isInteractingWithSlider}>
@@ -524,7 +587,7 @@ const Effects: React.FC<EffectsProps> = ({
                                         disabled={!effectsEnabled.delay}
                                         onClick={() => onDelaySyncDivisionChange(null)}
                                         className={getButtonStyle(
-                                            visualizerStyle,
+                                            visualizerStyle as VisualizerStyle,
                                             delaySyncDivision === null ? 'success' : 'secondary',
                                             delaySyncDivision === null,
                                             !effectsEnabled.delay,
@@ -546,7 +609,7 @@ const Effects: React.FC<EffectsProps> = ({
                                                 disabled={!effectsEnabled.delay}
                                                 onClick={() => handleSelectDelayDivision(opt.id)}
                                                 className={getButtonStyle(
-                                                    visualizerStyle,
+                                                    visualizerStyle as VisualizerStyle,
                                                     isSelected ? 'success' : 'secondary',
                                                     isSelected,
                                                     !effectsEnabled.delay,
@@ -619,24 +682,6 @@ const Effects: React.FC<EffectsProps> = ({
                     </div>
                 </div>
             </div>
-            {!isSettingsDefault && (
-                <Tooltip text="Hold to reset all effect parameters to their defaults">
-                    <button
-                        onMouseDown={handleResetStart}
-                        onMouseUp={handleResetEnd}
-                        onMouseLeave={handleResetEnd}
-                        onTouchStart={(e) => { e.preventDefault(); handleResetStart(); }}
-                        onTouchEnd={handleResetEnd}
-                        className={`relative flex items-center justify-center mt-2 px-3 h-8 bg-gray-600/80 text-white font-bold rounded-md hover:bg-gray-500/80 transition-transform duration-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-blue-500 text-xs uppercase tracking-wider overflow-hidden select-none ${isPoofing ? 'animate-poof' : ''}`}
-                        style={{ transform: `scale(${1 - resetProgress * 0.15})` }}
-                        aria-label="Hold to reset effects to default"
-                    >
-                        <span className="relative z-10">
-                            HOLD TO RESET EFFECTS
-                        </span>
-                    </button>
-                </Tooltip>
-            )}
         </div>
     );
 };

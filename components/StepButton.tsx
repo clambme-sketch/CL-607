@@ -11,6 +11,83 @@ interface StepButtonProps {
     visualizerStyle?: VisualizerStyle;
 }
 
+const COBALT_INSTRUMENT_GRADIENTS = [
+    {
+        // 0: KICK (Brightest top tier)
+        off: 'linear-gradient(180deg, #387fd6 0%, #194582 100%)',
+        downbeat: 'linear-gradient(180deg, #4894ef 0%, #215499 100%)',
+    },
+    {
+        // 1: SNARE
+        off: 'linear-gradient(180deg, #306fc4 0%, #163c73 100%)',
+        downbeat: 'linear-gradient(180deg, #3f82d9 0%, #1d4a8a 100%)',
+    },
+    {
+        // 2: SNAP
+        off: 'linear-gradient(180deg, #2860b0 0%, #133365 100%)',
+        downbeat: 'linear-gradient(180deg, #3571c4 0%, #19407a 100%)',
+    },
+    {
+        // 3: HI-HAT
+        off: 'linear-gradient(180deg, #21519c 0%, #102b57 100%)',
+        downbeat: 'linear-gradient(180deg, #2c61b0 0%, #15376b 100%)',
+    },
+    {
+        // 4: CLAVE
+        off: 'linear-gradient(180deg, #1b4387 0%, #0d234a 100%)',
+        downbeat: 'linear-gradient(180deg, #24529c 0%, #122e5d 100%)',
+    },
+    {
+        // 5: COWBELL
+        off: 'linear-gradient(180deg, #153673 0%, #0a1c3d 100%)',
+        downbeat: 'linear-gradient(180deg, #1d4487 0%, #0f264f 100%)',
+    },
+    {
+        // 6: SAMPLE (Deepest bottom tier — lifted slightly so hue-rotate stays clean and never muddy)
+        off: 'linear-gradient(180deg, #102a5e 0%, #081632 100%)',
+        downbeat: 'linear-gradient(180deg, #173673 0%, #0c2044 100%)',
+    },
+];
+
+// Soft pastel cool-color rainbow palette for active pads in Default style (1 consistent color per instrument)
+const PASTEL_COOL_RAINBOW_ACTIVE = [
+    {
+        // 0: KICK — Soft Pastel Ice Mint / Seafoam
+        active: 'linear-gradient(180deg, #dcfff2 0%, #9df5d2 100%)',
+        accent: '#42dca2',
+    },
+    {
+        // 1: SNARE — Soft Pastel Aqua / Robin's Egg Cyan
+        active: 'linear-gradient(180deg, #d8fcff 0%, #93eef7 100%)',
+        accent: '#3ad4e6',
+    },
+    {
+        // 2: SNAP — Soft Pastel Sky / Baby Blue
+        active: 'linear-gradient(180deg, #dcefff 0%, #9ad1ff 100%)',
+        accent: '#4db0ff',
+    },
+    {
+        // 3: HI-HAT — Soft Pastel Cornflower / Periwinkle
+        active: 'linear-gradient(180deg, #e2e4ff 0%, #a9b2ff 100%)',
+        accent: '#7382ff',
+    },
+    {
+        // 4: CLAVE — Soft Pastel Lavender / Cool Violet
+        active: 'linear-gradient(180deg, #eee0ff 0%, #c6a8ff 100%)',
+        accent: '#9c6eff',
+    },
+    {
+        // 5: COWBELL — Soft Pastel Orchid / Cool Lilac-Pink
+        active: 'linear-gradient(180deg, #f9dfff 0%, #e5a9ff 100%)',
+        accent: '#cc6eff',
+    },
+    {
+        // 6: SAMPLE — Soft Pastel Cotton-Candy Rose / Cool Pink
+        active: 'linear-gradient(180deg, #ffe0f2 0%, #ffaad9 100%)',
+        accent: '#ff70bf',
+    },
+];
+
 const StepButton: React.FC<StepButtonProps> = ({
     isActive,
     isPlayingStep,
@@ -21,6 +98,8 @@ const StepButton: React.FC<StepButtonProps> = ({
     visualizerStyle = 'default',
 }) => {
     const isDownbeat = stepIndex % 4 === 0;
+    const cobaltRow = COBALT_INSTRUMENT_GRADIENTS[instrumentIndex % COBALT_INSTRUMENT_GRADIENTS.length];
+    const pastelCoolSlot = PASTEL_COOL_RAINBOW_ACTIVE[instrumentIndex % PASTEL_COOL_RAINBOW_ACTIVE.length];
 
     // Fast-path for Slow Computer / Dark Minimalist Masterpiece Mode:
     // Zero box-shadows, zero CSS transitions, zero decorative child spans.
@@ -99,6 +178,18 @@ const StepButton: React.FC<StepButtonProps> = ({
                         ? `${isDownbeat ? 'bg-[#1c151f]' : 'bg-[#151018]'} border-[#d4af37]/30 hover:border-[#d4af37]/75 shadow-[0_2px_4px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(212,175,55,0.18)]`
                         : 'border-[#fae39c] translate-y-[1px]'
                 }`;
+            case 'default':
+                // Clean, simplified single-frame square combining Color Block & Slow Computer with dark blue gradients
+                return `relative overflow-hidden w-full h-12 sm:h-14 rounded-none cursor-pointer border flex items-center justify-center ${
+                    !isActive
+                        ? `${
+                            isDownbeat
+                                ? 'border-[#3b6ca8] hover:border-[#a8dcff]'
+                                : 'border-[#1d3b66] hover:border-[#78b8f0]'
+                          }`
+                        : 'border-[#e3f3ff]'
+                }`;
+            case 'classic607':
             default:
                 return `relative overflow-hidden w-full h-12 sm:h-14 rounded-md cursor-pointer border transform active:scale-[0.97] flex items-center justify-center ${
                     !isActive ? 'bg-black/25 hover:bg-black/50 border-white/10' : 'border-transparent'
@@ -114,6 +205,8 @@ const StepButton: React.FC<StepButtonProps> = ({
             case 'bauhaus': return 'outline outline-2 outline-offset-1 outline-[#d62828] z-20';
             case 'nagra': return 'outline outline-2 outline-offset-1 outline-[#ff5e4d] z-20';
             case 'koto': return 'outline outline-2 outline-offset-1 outline-[#d4af37] z-20';
+            case 'default': return 'outline outline-2 outline-offset-0 outline-white z-20';
+            case 'classic607':
             default: return 'outline outline-2 outline-offset-2 outline-cyan-300 z-20';
         }
     };
@@ -126,13 +219,25 @@ const StepButton: React.FC<StepButtonProps> = ({
             case 'bauhaus': return '';
             case 'nagra': return '';
             case 'koto': return '';
+            case 'default': return '';
+            case 'classic607':
             default: return 'shadow-[inset_0_0_0_1px_rgba(200,220,255,0.28)]';
         }
     };
 
     const stepButtonClasses = `${getBaseClasses()} ${getRingClasses()} ${getShadowClasses()}`;
     
-    const getActiveStyle = (): React.CSSProperties => {
+    const getButtonBackgroundStyle = (): React.CSSProperties => {
+        if (visualizerStyle === 'default') {
+            return {
+                background: isActive
+                    ? pastelCoolSlot.active
+                    : isDownbeat
+                    ? cobaltRow.downbeat
+                    : cobaltRow.off,
+            };
+        }
+
         if (!isActive) return {};
         
         switch (visualizerStyle) {
@@ -160,6 +265,7 @@ const StepButton: React.FC<StepButtonProps> = ({
                     background: `linear-gradient(180deg, ${color}cc 0%, #1d1420 95%)`,
                     boxShadow: `0 2px 4px ${color}44, inset 0 1px 1px rgba(255,245,210,0.55)`,
                 };
+            case 'classic607':
             default:
                 return {
                     backgroundColor: color,
@@ -168,7 +274,7 @@ const StepButton: React.FC<StepButtonProps> = ({
         }
     };
 
-    const activeStyle = getActiveStyle();
+    const buttonInlineStyle = getButtonBackgroundStyle();
 
     const getLabelClasses = () => {
         const isMainBeat = beatLabel === '1' || beatLabel === '2' || beatLabel === '3' || beatLabel === '4';
@@ -185,6 +291,15 @@ const StepButton: React.FC<StepButtonProps> = ({
                 return `${base} font-['Plus_Jakarta_Sans'] ${isActive ? 'text-[#2d1038]' : 'text-[#6e3562]'}`;
             case 'koto':
                 return `${base} font-['Cormorant_Garamond'] text-sm sm:text-base ${isActive ? 'text-[#fff9eb]' : 'text-[#b5a692]/75'}`;
+            case 'default':
+                return `relative z-10 text-xs font-['IBM_Plex_Mono'] pointer-events-none ${
+                    isActive
+                        ? 'text-[#061224] font-semibold'
+                        : isDownbeat
+                        ? 'text-[#cde6ff] font-medium'
+                        : 'text-[#638ec2]'
+                }`;
+            case 'classic607':
             default:
                 return `${base} ${isActive ? 'text-gray-900' : 'text-gray-400'}`;
         }
@@ -195,11 +310,33 @@ const StepButton: React.FC<StepButtonProps> = ({
             data-instrument-index={instrumentIndex}
             data-step-index={stepIndex}
             className={stepButtonClasses}
-            style={activeStyle}
+            style={buttonInlineStyle}
             aria-label={`Step ${stepIndex + 1}`}
             aria-pressed={isActive}
         >
             {/* Style-Specific Tactile Hardware Details */}
+            {visualizerStyle === 'default' && (
+                <>
+                    {/* Minimal Color-Block Corner Triangle on Downbeats */}
+                    {isDownbeat && (
+                        <span
+                            className="absolute top-0 left-0 w-0 h-0 pointer-events-none"
+                            style={{
+                                borderTop: `7px solid ${isActive ? '#071428' : '#ffc4d6'}`,
+                                borderRight: '7px solid transparent',
+                            }}
+                        />
+                    )}
+                    {/* Clean Bottom Pastel Rainbow Accent Bar when Active */}
+                    {isActive && (
+                        <span
+                            className="absolute bottom-0 left-0 right-0 h-[3px] pointer-events-none"
+                            style={{ backgroundColor: pastelCoolSlot.accent }}
+                        />
+                    )}
+                </>
+            )}
+
             {visualizerStyle === 'braun' && (
                 <>
                     {/* Top Recessed Circular LED Pip */}
