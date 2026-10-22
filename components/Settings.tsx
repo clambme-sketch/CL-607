@@ -32,6 +32,10 @@ interface SettingsProps {
     onUpdateKeyboardMap: (key: string, instrument: Instrument) => void;
     isInvertColors: boolean;
     onToggleInvertColors: () => void;
+    showMuteSoloButtons?: boolean;
+    onToggleShowMuteSoloButtons?: () => void;
+    quantizePatternSwitch?: boolean;
+    onToggleQuantizePatternSwitch?: () => void;
     onToggleCappuccinoMode: () => void;
     sixSevenSpeed: number;
     onSixSevenSpeedChange: (speed: number) => void;
@@ -79,6 +83,10 @@ const Settings: React.FC<SettingsProps> = ({
     onUpdateKeyboardMap,
     isInvertColors,
     onToggleInvertColors,
+    showMuteSoloButtons = true,
+    onToggleShowMuteSoloButtons,
+    quantizePatternSwitch = true,
+    onToggleQuantizePatternSwitch,
     onToggleCappuccinoMode,
     sixSevenSpeed,
     onSixSevenSpeedChange,
@@ -170,6 +178,8 @@ const Settings: React.FC<SettingsProps> = ({
         if (beatsPerMeasure !== 4) return true;
         if (!keyboardDrummingEnabled) return true;
         if (isInvertColors) return true;
+        if (!showMuteSoloButtons) return true;
+        if (!quantizePatternSwitch) return true;
         if (Math.abs(sixSevenSpeed - 1) > 0.01) return true;
         const defaultMap: Record<string, Instrument> = {
             'a': 'kick', 's': 'snare', 'd': 'hihat', 'f': 'snap',
@@ -186,7 +196,7 @@ const Settings: React.FC<SettingsProps> = ({
         visualizer, visualizerStyle, drumKit, isPerformanceMode,
         isSlowComputerMode, tooltipsEnabled, showBeatNumbers,
         effectivePadLabelMode, beatsPerMeasure, keyboardDrummingEnabled,
-        isInvertColors, sixSevenSpeed, keyboardMap
+        isInvertColors, showMuteSoloButtons, quantizePatternSwitch, sixSevenSpeed, keyboardMap
     ]);
 
     const surface = getThemeSurface(visualizerStyle);
@@ -201,10 +211,109 @@ const Settings: React.FC<SettingsProps> = ({
             ? 'text-[10px] font-bold uppercase tracking-wider text-[#a8dcff]/80'
             : 'text-[10px] font-bold uppercase tracking-wider text-gray-400';
 
-    const rowSurfaceClass =
-        visualizerStyle === 'default'
-            ? 'bg-[#0d2140]/90 border border-[#23477a]'
-            : `${surface.faderBay} border border-gray-700/50`;
+    const rowSurfaceClass = (() => {
+        switch (visualizerStyle) {
+            case 'default':
+                return 'bg-[#0d2140]/90 border border-[#23477a] rounded-lg';
+            case 'braun':
+                return 'bg-[#e6e3da] border border-[#b8b4a8] rounded-[5px] shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]';
+            case 'bauhaus':
+                return 'bg-[#ebe4d5] border-2 border-[#141413] rounded-none shadow-[2px_2px_0px_#141413]';
+            case 'nagra':
+                return 'bg-gradient-to-b from-[#fffaf6] to-[#fce0d4] border border-white rounded-full shadow-sm';
+            case 'koto':
+                return 'bg-[#140f16] border border-[#d4af37]/30 rounded-xl';
+            case 'cyberpunk':
+                return 'bg-[#0d0d14] border border-[#00ff9f]/45 rounded-none';
+            case 'minimal':
+                return 'bg-[#09090b] border border-[#27272a] rounded-none';
+            case 'classic607':
+            default:
+                return 'bg-[#0b1d3d] border border-blue-400/35 rounded-md';
+        }
+    })();
+
+    const rowTextClass = (() => {
+        switch (visualizerStyle) {
+            case 'braun':
+                return 'text-[#1c1c1a]';
+            case 'bauhaus':
+                return 'text-[#141413]';
+            case 'nagra':
+                return 'text-[#3b1547]';
+            case 'koto':
+                return 'text-[#f2ece1]';
+            case 'cyberpunk':
+                return 'text-[#fcee0a]';
+            case 'minimal':
+                return 'text-[#f4f4f5]';
+            case 'default':
+                return 'text-[#f0f7ff]';
+            case 'classic607':
+            default:
+                return 'text-[#e6f1ff]';
+        }
+    })();
+
+    const dividerClass = (() => {
+        switch (visualizerStyle) {
+            case 'braun':
+                return 'border-[#ccc8bc]';
+            case 'bauhaus':
+                return 'border-[#141413]/30';
+            case 'nagra':
+                return 'border-[#e8b8aa]/60';
+            case 'koto':
+                return 'border-[#d4af37]/25';
+            case 'cyberpunk':
+                return 'border-[#00ff9f]/30';
+            case 'minimal':
+                return 'border-[#27272a]';
+            case 'default':
+                return 'border-[#23477a]/60';
+            case 'classic607':
+            default:
+                return 'border-blue-400/30';
+        }
+    })();
+
+    const getStatusBadgeClass = (isActive: boolean) => {
+        switch (visualizerStyle) {
+            case 'default':
+                return isActive
+                    ? 'bg-[#ffc4d6] text-[#051020] rounded'
+                    : 'bg-[#071326] text-[#9ecaff] border border-[#23477a] rounded';
+            case 'braun':
+                return isActive
+                    ? 'bg-[#ea5b0c] text-[#faf8f5] border border-[#b84304] rounded-[3px]'
+                    : 'bg-[#d5d1c6] text-[#2e2d2a] border border-[#b8b4a8] rounded-[3px]';
+            case 'bauhaus':
+                return isActive
+                    ? 'bg-[#184e9c] text-[#f7f2e7] border border-[#141413] rounded-none'
+                    : 'bg-[#d8d0c0] text-[#141413] border border-[#141413] rounded-none';
+            case 'nagra':
+                return isActive
+                    ? 'bg-[#d9325e] text-white rounded-full'
+                    : 'bg-[#f3c7ba] text-[#3b1547] rounded-full';
+            case 'koto':
+                return isActive
+                    ? 'bg-[#d4af37] text-[#120d14] rounded'
+                    : 'bg-[#231b26] text-[#dfd5c5] border border-[#d4af37]/25 rounded';
+            case 'cyberpunk':
+                return isActive
+                    ? 'bg-[#fcee0a] text-[#050508] rounded-none'
+                    : 'bg-[#14141f] text-[#00ff9f] border border-[#00ff9f]/35 rounded-none';
+            case 'minimal':
+                return isActive
+                    ? 'bg-[#f4f4f5] text-[#09090b] rounded-none'
+                    : 'bg-[#18181b] text-[#a1a1aa] border border-[#27272a] rounded-none';
+            case 'classic607':
+            default:
+                return isActive
+                    ? 'bg-[#38bdf8] text-[#081730] rounded'
+                    : 'bg-[#081730] text-[#93c5fd] border border-blue-500/35 rounded';
+        }
+    };
 
     return (
         <CollapsibleSection
@@ -224,7 +333,7 @@ const Settings: React.FC<SettingsProps> = ({
                 {/* COLUMN 1: SOUND ENGINE & SEQUENCER (4 cols) */}
                 <div className={`lg:col-span-4 ${surface.sectionCard} p-4 flex flex-col justify-between gap-4`}>
                     <div className="flex flex-col gap-4">
-                        <div className="flex items-center justify-between pb-2 border-b border-gray-700/50">
+                        <div className={`flex items-center justify-between pb-2 border-b ${dividerClass}`}>
                             <h3 className={sectionTitleClass}>Sound &amp; Sequencer</h3>
                             <span className="text-[10px] font-mono text-gray-400">
                                 {drumKit} · {beatsPerMeasure}/4
@@ -261,7 +370,7 @@ const Settings: React.FC<SettingsProps> = ({
                         </div>
 
                         {/* Beats Per Measure */}
-                        <div className="flex flex-col gap-2 pt-2.5 border-t border-gray-700/40">
+                        <div className={`flex flex-col gap-2 pt-2.5 border-t ${dividerClass}`}>
                             <div className="flex items-center justify-between">
                                 <span className={subLabelClass}>Beats Per Measure</span>
                                 <span className="text-[10px] font-mono text-gray-300 tabular-nums">
@@ -295,7 +404,7 @@ const Settings: React.FC<SettingsProps> = ({
                         </div>
 
                         {/* Compact Pattern Shift Row */}
-                        <div className="flex items-center justify-between pt-2.5 border-t border-gray-700/40">
+                        <div className={`flex items-center justify-between pt-2.5 border-t ${dividerClass}`}>
                             <span className={subLabelClass}>Shift Pattern</span>
                             <div className="flex items-center gap-1.5">
                                 <Tooltip text="Rotate all steps in the current pattern one step to the left">
@@ -321,8 +430,37 @@ const Settings: React.FC<SettingsProps> = ({
                             </div>
                         </div>
 
+                        {/* Pattern & A/B Switch Timing */}
+                        {onToggleQuantizePatternSwitch && (
+                            <div className={`flex flex-col gap-1.5 pt-2.5 border-t ${dividerClass}`}>
+                                <span className={subLabelClass}>Pattern &amp; A/B Switch Timing</span>
+                                <Tooltip
+                                    text={
+                                        quantizePatternSwitch
+                                            ? 'Wait until the end of the current measure before switching to the selected pattern or A/B side'
+                                            : 'Switch immediately when a new pattern or A/B side is selected'
+                                    }
+                                    wrapperClassName="w-full"
+                                >
+                                    <button
+                                        type="button"
+                                        onClick={onToggleQuantizePatternSwitch}
+                                        aria-pressed={quantizePatternSwitch}
+                                        className={`w-full h-9 px-3 flex items-center justify-between transition-colors cursor-pointer ${rowSurfaceClass}`}
+                                    >
+                                        <span className={`text-xs font-bold ${rowTextClass}`}>Wait for End of Measure</span>
+                                        <span
+                                            className={`text-[10px] font-mono font-bold uppercase px-2 py-0.5 ${getStatusBadgeClass(quantizePatternSwitch)}`}
+                                        >
+                                            {quantizePatternSwitch ? 'END OF BAR' : 'INSTANT'}
+                                        </span>
+                                    </button>
+                                </Tooltip>
+                            </div>
+                        )}
+
                         {/* Sequencer Grid Pad Labels */}
-                        <div className="flex flex-col gap-1.5 pt-2.5 border-t border-gray-700/40">
+                        <div className={`flex flex-col gap-1.5 pt-2.5 border-t ${dividerClass}`}>
                             <span className={subLabelClass}>Sequencer Grid Pads</span>
                             <div className="flex flex-col gap-1.5">
                                 <button
@@ -331,15 +469,9 @@ const Settings: React.FC<SettingsProps> = ({
                                     aria-pressed={effectivePadLabelMode === 'subdivisions'}
                                     className={`h-9 px-3 flex items-center justify-between transition-colors cursor-pointer ${rowSurfaceClass}`}
                                 >
-                                    <span className="text-xs font-bold text-gray-200">Rhythmic Subdivision on Pads</span>
+                                    <span className={`text-xs font-bold ${rowTextClass}`}>Rhythmic Subdivision on Pads</span>
                                     <span
-                                        className={`text-[10px] font-mono font-bold uppercase px-2 py-0.5 ${
-                                            effectivePadLabelMode === 'subdivisions'
-                                                ? visualizerStyle === 'default'
-                                                    ? 'bg-[#ffc4d6] text-[#051020]'
-                                                    : 'bg-blue-500/25 text-blue-300'
-                                                : 'bg-gray-800 text-gray-500'
-                                        }`}
+                                        className={`text-[10px] font-mono font-bold uppercase px-2 py-0.5 ${getStatusBadgeClass(effectivePadLabelMode === 'subdivisions')}`}
                                     >
                                         {effectivePadLabelMode === 'subdivisions' ? 'ON' : 'OFF'}
                                     </span>
@@ -350,15 +482,9 @@ const Settings: React.FC<SettingsProps> = ({
                                     aria-pressed={effectivePadLabelMode === 'syllables'}
                                     className={`h-9 px-3 flex items-center justify-between transition-colors cursor-pointer ${rowSurfaceClass}`}
                                 >
-                                    <span className="text-xs font-bold text-gray-200">Rhythm Syllables on Pads</span>
+                                    <span className={`text-xs font-bold ${rowTextClass}`}>Rhythm Syllables on Pads</span>
                                     <span
-                                        className={`text-[10px] font-mono font-bold uppercase px-2 py-0.5 ${
-                                            effectivePadLabelMode === 'syllables'
-                                                ? visualizerStyle === 'default'
-                                                    ? 'bg-[#ffc4d6] text-[#051020]'
-                                                    : 'bg-blue-500/25 text-blue-300'
-                                                : 'bg-gray-800 text-gray-500'
-                                        }`}
+                                        className={`text-[10px] font-mono font-bold uppercase px-2 py-0.5 ${getStatusBadgeClass(effectivePadLabelMode === 'syllables')}`}
                                     >
                                         {effectivePadLabelMode === 'syllables' ? 'ON' : 'OFF'}
                                     </span>
@@ -371,7 +497,7 @@ const Settings: React.FC<SettingsProps> = ({
                 {/* COLUMN 2: APPEARANCE, OSCILLOSCOPE & 67 SPEED (5 cols) */}
                 <div className={`lg:col-span-5 ${surface.sectionCard} p-4 flex flex-col justify-between gap-4`}>
                     <div className="flex flex-col gap-3.5">
-                        <div className="flex items-center justify-between pb-2 border-b border-gray-700/50">
+                        <div className={`flex items-center justify-between pb-2 border-b ${dividerClass}`}>
                             <h3 className={sectionTitleClass}>Appearance &amp; Display</h3>
                             <span className="text-[10px] font-mono text-gray-400">
                                 {visualizerStyle === 'minimal' || isSlowComputerMode
@@ -415,7 +541,7 @@ const Settings: React.FC<SettingsProps> = ({
 
                         {/* Oscilloscope Mode (only visible if performance mode is turned off) */}
                         {!isPerformanceMode && visualizerStyle !== 'minimal' && (
-                            <div className="flex flex-col gap-1.5 pt-2 border-t border-gray-700/40">
+                            <div className={`flex flex-col gap-1.5 pt-2 border-t ${dividerClass}`}>
                                 <span className={subLabelClass}>Oscilloscope Mode</span>
                                 <div className="grid grid-cols-3 gap-2">
                                     {VISUALIZER_MODES.map((mode) => {
@@ -443,12 +569,12 @@ const Settings: React.FC<SettingsProps> = ({
                         )}
 
                         {/* 67 Speed Slider (No Tooltips) */}
-                        <div className="flex flex-col gap-1.5 pt-2 border-t border-gray-700/40">
+                        <div className={`flex flex-col gap-1.5 pt-2 border-t ${dividerClass}`}>
                             <div className="flex items-center justify-between">
                                 <label htmlFor="67-speed-slider" className={subLabelClass}>
                                     67 Speed
                                 </label>
-                                <span className="text-xs font-mono font-bold tabular-nums text-gray-200">
+                                <span className={`text-xs font-mono font-bold tabular-nums ${rowTextClass}`}>
                                     {sixSevenSpeed.toFixed(1)}x
                                 </span>
                             </div>
@@ -465,9 +591,9 @@ const Settings: React.FC<SettingsProps> = ({
                         </div>
 
                         {/* Display & Interface Options */}
-                        <div className="flex flex-col gap-2 pt-2 border-t border-gray-700/40">
+                        <div className={`flex flex-col gap-2 pt-2 border-t ${dividerClass}`}>
                             <span className={subLabelClass}>Interface Options</span>
-                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                 <Tooltip text="Reduce visual effects and animations to save CPU and battery" wrapperClassName="w-full">
                                     <button
                                         type="button"
@@ -475,15 +601,9 @@ const Settings: React.FC<SettingsProps> = ({
                                         aria-pressed={isPerformanceMode}
                                         className={`w-full h-8 px-2.5 flex items-center justify-between transition-colors cursor-pointer ${rowSurfaceClass}`}
                                     >
-                                        <span className="text-[11px] font-bold text-gray-200 truncate">Performance Mode</span>
+                                        <span className={`text-[11px] font-bold ${rowTextClass} truncate`}>Performance Mode</span>
                                         <span
-                                            className={`text-[9px] font-mono font-bold uppercase px-1.5 py-0.5 ${
-                                                isPerformanceMode
-                                                    ? visualizerStyle === 'default'
-                                                        ? 'bg-[#ffc4d6] text-[#051020]'
-                                                        : 'bg-blue-500/25 text-blue-300'
-                                                    : 'bg-gray-800 text-gray-500'
-                                            }`}
+                                            className={`text-[9px] font-mono font-bold uppercase px-1.5 py-0.5 ${getStatusBadgeClass(isPerformanceMode)}`}
                                         >
                                             {isPerformanceMode ? 'ON' : 'OFF'}
                                         </span>
@@ -496,15 +616,9 @@ const Settings: React.FC<SettingsProps> = ({
                                     aria-pressed={tooltipsEnabled}
                                     className={`h-8 px-2.5 flex items-center justify-between transition-colors cursor-pointer ${rowSurfaceClass}`}
                                 >
-                                    <span className="text-[11px] font-bold text-gray-200 truncate">Hover Tooltips</span>
+                                    <span className={`text-[11px] font-bold ${rowTextClass} truncate`}>Hover Tooltips</span>
                                     <span
-                                        className={`text-[9px] font-mono font-bold uppercase px-1.5 py-0.5 ${
-                                            tooltipsEnabled
-                                                ? visualizerStyle === 'default'
-                                                    ? 'bg-[#ffc4d6] text-[#051020]'
-                                                    : 'bg-blue-500/25 text-blue-300'
-                                                : 'bg-gray-800 text-gray-500'
-                                        }`}
+                                        className={`text-[9px] font-mono font-bold uppercase px-1.5 py-0.5 ${getStatusBadgeClass(tooltipsEnabled)}`}
                                     >
                                         {tooltipsEnabled ? 'ON' : 'OFF'}
                                     </span>
@@ -516,19 +630,29 @@ const Settings: React.FC<SettingsProps> = ({
                                     aria-pressed={isInvertColors}
                                     className={`h-8 px-2.5 flex items-center justify-between transition-colors cursor-pointer ${rowSurfaceClass}`}
                                 >
-                                    <span className="text-[11px] font-bold text-gray-200 truncate">Invert Colors</span>
+                                    <span className={`text-[11px] font-bold ${rowTextClass} truncate`}>Invert Colors</span>
                                     <span
-                                        className={`text-[9px] font-mono font-bold uppercase px-1.5 py-0.5 ${
-                                            isInvertColors
-                                                ? visualizerStyle === 'default'
-                                                    ? 'bg-[#ffc4d6] text-[#051020]'
-                                                    : 'bg-blue-500/25 text-blue-300'
-                                                : 'bg-gray-800 text-gray-500'
-                                        }`}
+                                        className={`text-[9px] font-mono font-bold uppercase px-1.5 py-0.5 ${getStatusBadgeClass(isInvertColors)}`}
                                     >
                                         {isInvertColors ? 'ON' : 'OFF'}
                                     </span>
                                 </button>
+
+                                <Tooltip text="Show or hide Mute and Solo buttons next to each instrument's volume slider in Instrument Settings" wrapperClassName="w-full">
+                                    <button
+                                        type="button"
+                                        onClick={onToggleShowMuteSoloButtons}
+                                        aria-pressed={showMuteSoloButtons}
+                                        className={`w-full h-8 px-2.5 flex items-center justify-between transition-colors cursor-pointer ${rowSurfaceClass}`}
+                                    >
+                                        <span className={`text-[11px] font-bold ${rowTextClass} truncate`}>Mute / Solo Buttons</span>
+                                        <span
+                                            className={`text-[9px] font-mono font-bold uppercase px-1.5 py-0.5 ${getStatusBadgeClass(showMuteSoloButtons)}`}
+                                        >
+                                            {showMuteSoloButtons ? 'ON' : 'OFF'}
+                                        </span>
+                                    </button>
+                                </Tooltip>
                             </div>
 
                             {/* My Computer Is Really Really Slow Mode (Standalone below Interface Options) */}
@@ -557,17 +681,11 @@ const Settings: React.FC<SettingsProps> = ({
                             type="button"
                             onClick={onToggleKeyboardDrumming}
                             aria-pressed={keyboardDrummingEnabled}
-                            className="w-full flex items-center justify-between pb-2 border-b border-gray-700/50 cursor-pointer text-left focus:outline-none"
+                            className={`w-full flex items-center justify-between pb-2 border-b ${dividerClass} cursor-pointer text-left focus:outline-none`}
                         >
                             <h3 className={sectionTitleClass}>Keyboard Drumming</h3>
                             <span
-                                className={`text-[9px] font-mono font-bold uppercase px-2 py-0.5 border-0 ${
-                                    keyboardDrummingEnabled
-                                        ? visualizerStyle === 'default'
-                                            ? 'bg-[#ffc4d6] text-[#051020]'
-                                            : 'bg-blue-500/25 text-blue-300'
-                                        : 'bg-gray-800 text-gray-500'
-                                }`}
+                                className={`text-[9px] font-mono font-bold uppercase px-2 py-0.5 ${getStatusBadgeClass(keyboardDrummingEnabled)}`}
                             >
                                 {keyboardDrummingEnabled ? 'ON' : 'OFF'}
                             </span>
@@ -582,7 +700,7 @@ const Settings: React.FC<SettingsProps> = ({
                                         key={instrument}
                                         className={`h-8 px-2.5 flex items-center justify-between ${rowSurfaceClass}`}
                                     >
-                                        <span className="text-[11px] font-bold text-gray-200 truncate pr-2">
+                                        <span className={`text-[11px] font-bold ${rowTextClass} truncate pr-2`}>
                                             {INSTRUMENT_LABELS[instrument]}
                                         </span>
                                         <button
@@ -609,11 +727,11 @@ const Settings: React.FC<SettingsProps> = ({
                     </div>
 
                     {/* Factory Reset Footer */}
-                    <div className="pt-3 border-t border-gray-700/50 flex flex-col gap-2">
+                    <div className={`pt-3 border-t ${dividerClass} flex flex-col gap-2`}>
                         <div className="flex items-center justify-between">
                             <span className={subLabelClass}>System Reset</span>
                             {resetSuccess && (
-                                <span className="text-[10px] font-mono font-bold text-emerald-400">
+                                <span className="text-[10px] font-mono font-bold text-emerald-500">
                                     DEFAULTS RESTORED
                                 </span>
                             )}

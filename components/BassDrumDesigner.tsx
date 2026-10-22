@@ -1,6 +1,7 @@
 import React, { useState, useCallback } from 'react';
-import { KickDesignerParams } from '../types';
+import { KickDesignerParams, VisualizerStyle } from '../types';
 import Tooltip from './Tooltip';
+import { getButtonStyle } from '../utils';
 
 interface KickDrumDesignerProps {
     isActive: boolean;
@@ -9,6 +10,12 @@ interface KickDrumDesignerProps {
     volume?: number;
     onVolumeChange?: (value: number) => void;
     color?: string;
+    isMuted?: boolean;
+    isSoloed?: boolean;
+    onToggleMute?: () => void;
+    onToggleSolo?: () => void;
+    showMuteSoloButtons?: boolean;
+    visualizerStyle?: VisualizerStyle;
 }
 
 // --- PARAMETER CONFIG ---
@@ -53,8 +60,15 @@ const KickDrumDesigner: React.FC<KickDrumDesignerProps> = ({
     volume = 0.3,
     onVolumeChange,
     color,
+    isMuted = false,
+    isSoloed = false,
+    onToggleMute,
+    onToggleSolo,
+    showMuteSoloButtons = true,
+    visualizerStyle = 'default',
 }) => {
     const [isInteracting, setIsInteracting] = useState(false);
+    const isMinimal = visualizerStyle === 'minimal';
 
     const handleSliderInteractionStart = useCallback(() => {
         setIsInteracting(true);
@@ -111,24 +125,80 @@ const KickDrumDesigner: React.FC<KickDrumDesignerProps> = ({
                     <label htmlFor="kick-volume" className="text-xs text-gray-400 col-span-1">
                         Volume
                     </label>
-                    <Tooltip
-                        text="Adjust Kick volume (synced with sequencer track slider)."
-                        isInteracting={isInteracting}
-                        wrapperClassName="col-span-2"
-                    >
-                        <input
-                            type="range"
-                            id="kick-volume"
-                            min={0}
-                            max={1}
-                            step={0.01}
-                            value={volume}
-                            onChange={(e) => onVolumeChange(parseFloat(e.target.value))}
-                            {...sliderInteractionProps}
-                            className="w-full h-1.5 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-purple-400"
-                            style={color ? { accentColor: color } : undefined}
-                        />
-                    </Tooltip>
+                    <div className="col-span-2 flex items-center gap-1.5">
+                        <Tooltip
+                            text="Adjust Kick volume (synced with sequencer track slider)."
+                            isInteracting={isInteracting}
+                            wrapperClassName="flex-1 min-w-0"
+                        >
+                            <input
+                                type="range"
+                                id="kick-volume"
+                                min={0}
+                                max={1}
+                                step={0.01}
+                                value={volume}
+                                onChange={(e) => onVolumeChange(parseFloat(e.target.value))}
+                                {...sliderInteractionProps}
+                                className={`w-full h-1.5 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-purple-400 ${isMuted ? 'opacity-40' : ''}`}
+                                style={color ? { accentColor: color } : undefined}
+                            />
+                        </Tooltip>
+                        {showMuteSoloButtons && (
+                            <div className="flex items-center gap-1 flex-shrink-0">
+                                <Tooltip text={isMuted ? "Unmute Kick" : "Mute Kick"}>
+                                    <button
+                                        type="button"
+                                        onClick={onToggleMute}
+                                        aria-pressed={isMuted}
+                                        aria-label="Mute Kick"
+                                        className={
+                                            isMinimal
+                                                ? `px-1.5 py-0.5 text-[10px] font-mono font-bold uppercase tracking-wider border cursor-pointer ${
+                                                    isMuted
+                                                        ? 'bg-[#ff3b1d] text-[#09090b] border-[#ff3b1d]'
+                                                        : 'bg-[#141417] text-[#a1a1aa] border-[#27272a] hover:text-[#f4f4f5]'
+                                                }`
+                                                : getButtonStyle(
+                                                    visualizerStyle,
+                                                    isMuted ? 'danger' : 'secondary',
+                                                    isMuted,
+                                                    false,
+                                                    '!px-1.5 !py-0.5 !text-[10px] font-mono uppercase tracking-wider'
+                                                )
+                                        }
+                                    >
+                                        Mute
+                                    </button>
+                                </Tooltip>
+                                <Tooltip text={isSoloed ? "Unsolo Kick" : "Solo Kick"}>
+                                    <button
+                                        type="button"
+                                        onClick={onToggleSolo}
+                                        aria-pressed={isSoloed}
+                                        aria-label="Solo Kick"
+                                        className={
+                                            isMinimal
+                                                ? `px-1.5 py-0.5 text-[10px] font-mono font-bold uppercase tracking-wider border cursor-pointer ${
+                                                    isSoloed
+                                                        ? 'bg-[#facc15] text-[#09090b] border-[#facc15]'
+                                                        : 'bg-[#141417] text-[#a1a1aa] border-[#27272a] hover:text-[#f4f4f5]'
+                                                }`
+                                                : getButtonStyle(
+                                                    visualizerStyle,
+                                                    isSoloed ? 'primary' : 'secondary',
+                                                    isSoloed,
+                                                    false,
+                                                    '!px-1.5 !py-0.5 !text-[10px] font-mono uppercase tracking-wider'
+                                                )
+                                        }
+                                    >
+                                        Solo
+                                    </button>
+                                </Tooltip>
+                            </div>
+                        )}
+                    </div>
                     <span className="font-mono text-xs text-gray-500 text-right tabular-nums col-span-1">
                         {Math.round(volume * 100)}%
                     </span>

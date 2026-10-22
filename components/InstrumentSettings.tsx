@@ -3,6 +3,7 @@ import { Instrument, AllInstrumentParams, InstrumentParams, KickDesignerParams, 
 import { INSTRUMENTS, INSTRUMENT_LABELS, MIN_FILTER_FREQ, MAX_FILTER_FREQ } from '../constants';
 import KickDrumDesigner from './BassDrumDesigner';
 import Tooltip from './Tooltip';
+import { getButtonStyle } from '../utils';
 
 const DEFAULT_VOLUMES = [0.3, 0.59, 1, 0.42, 0.29, 0.31, 0.7];
 
@@ -18,6 +19,11 @@ interface InstrumentSettingsProps {
     volumes: number[];
     onVolumeChange: (index: number, value: number) => void;
     visualizerStyle?: VisualizerStyle;
+    instrumentMuted?: boolean[];
+    instrumentSoloed?: boolean[];
+    onToggleMute?: (index: number) => void;
+    onToggleSolo?: (index: number) => void;
+    showMuteSoloButtons?: boolean;
 }
 
 // Convert a linear slider value (0-100) to a logarithmic frequency scale
@@ -94,6 +100,11 @@ const InstrumentSettings: React.FC<InstrumentSettingsProps> = ({
     volumes,
     onVolumeChange,
     visualizerStyle = 'default',
+    instrumentMuted = [],
+    instrumentSoloed = [],
+    onToggleMute,
+    onToggleSolo,
+    showMuteSoloButtons = true,
 }) => {
     const [isInteracting, setIsInteracting] = useState(false);
     const isMinimal = visualizerStyle === 'minimal';
@@ -124,31 +135,73 @@ const InstrumentSettings: React.FC<InstrumentSettingsProps> = ({
 
     const renderVolumeControl = (instrument: Instrument, index: number, color: string) => {
         const currentVolume = volumes[index] ?? DEFAULT_VOLUMES[index] ?? 0.8;
+        const isMuted = Boolean(instrumentMuted[index]);
+        const isSoloed = Boolean(instrumentSoloed[index]);
 
         return (
             <div className="grid grid-cols-4 items-center gap-2">
                 <label htmlFor={`${instrument}-volume`} className="text-xs text-gray-400 col-span-1">
                     Volume
                 </label>
-                <Tooltip
-                    text={`Adjust ${INSTRUMENT_LABELS[instrument]} volume (synced with sequencer track slider).`}
-                    isInteracting={isInteracting}
-                    wrapperClassName="col-span-2"
-                >
-                    <input
-                        type="range"
-                        id={`${instrument}-volume`}
-                        min={0}
-                        max={1}
-                        step={0.01}
-                        value={currentVolume}
-                        onChange={(e) => onVolumeChange(index, parseFloat(e.target.value))}
-                        {...sliderInteractionProps}
-                        className="w-full h-1.5 bg-gray-600 rounded-lg appearance-none cursor-pointer"
-                        style={{ accentColor: color }}
-                        aria-label={`${INSTRUMENT_LABELS[instrument]} volume`}
-                    />
-                </Tooltip>
+                <div className="col-span-2 flex items-center gap-1.5 min-w-0">
+                    <Tooltip
+                        text={`Adjust ${INSTRUMENT_LABELS[instrument]} volume (synced with sequencer track slider).`}
+                        isInteracting={isInteracting}
+                        wrapperClassName="flex-1 min-w-0"
+                    >
+                        <input
+                            type="range"
+                            id={`${instrument}-volume`}
+                            min={0}
+                            max={1}
+                            step={0.01}
+                            value={currentVolume}
+                            onChange={(e) => onVolumeChange(index, parseFloat(e.target.value))}
+                            {...sliderInteractionProps}
+                            className="w-full h-1.5 bg-gray-600 rounded-lg appearance-none cursor-pointer"
+                            style={{ accentColor: color }}
+                            aria-label={`${INSTRUMENT_LABELS[instrument]} volume`}
+                        />
+                    </Tooltip>
+                    {showMuteSoloButtons && (
+                        <div className="flex items-center gap-1 flex-shrink-0">
+                            <Tooltip text={`Mute ${INSTRUMENT_LABELS[instrument]}`}>
+                                <button
+                                    type="button"
+                                    onClick={() => onToggleMute?.(index)}
+                                    aria-pressed={isMuted}
+                                    aria-label={`Mute ${INSTRUMENT_LABELS[instrument]}`}
+                                    className={getButtonStyle(
+                                        visualizerStyle,
+                                        isMuted ? 'danger' : 'secondary',
+                                        isMuted,
+                                        false,
+                                        'h-5 px-1.5 text-[9px] font-mono font-bold uppercase tracking-wider !rounded'
+                                    )}
+                                >
+                                    Mute
+                                </button>
+                            </Tooltip>
+                            <Tooltip text={`Solo ${INSTRUMENT_LABELS[instrument]}`}>
+                                <button
+                                    type="button"
+                                    onClick={() => onToggleSolo?.(index)}
+                                    aria-pressed={isSoloed}
+                                    aria-label={`Solo ${INSTRUMENT_LABELS[instrument]}`}
+                                    className={getButtonStyle(
+                                        visualizerStyle,
+                                        isSoloed ? 'primary' : 'secondary',
+                                        isSoloed,
+                                        false,
+                                        'h-5 px-1.5 text-[9px] font-mono font-bold uppercase tracking-wider !rounded'
+                                    )}
+                                >
+                                    Solo
+                                </button>
+                            </Tooltip>
+                        </div>
+                    )}
+                </div>
                 <span className="font-mono text-xs text-gray-500 text-right tabular-nums col-span-1">
                     {Math.round(currentVolume * 100)}%
                 </span>
@@ -156,12 +209,14 @@ const InstrumentSettings: React.FC<InstrumentSettingsProps> = ({
         );
     };
 
+    const isLightTheme = visualizerStyle === 'braun' || visualizerStyle === 'bauhaus' || visualizerStyle === 'nagra';
+
     return (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             <div className={`${cardClass} md:col-span-2 lg:col-span-3`}>
                 <div className={`flex items-center justify-between gap-3 ${isMinimal ? 'border-b border-[#1f1f23] pb-2.5' : ''}`}>
                     <div className="flex items-center gap-2">
-                        {(isMinimal || visualizerStyle === 'default') && (
+                        {(isMinimal || visualizerStyle === 'default' || isLightTheme) && (
                             <span
                                 aria-hidden="true"
                                 className="w-1.5 h-3.5 flex-shrink-0"
@@ -169,8 +224,8 @@ const InstrumentSettings: React.FC<InstrumentSettingsProps> = ({
                             />
                         )}
                         <h4
-                            className="font-bold text-sm uppercase tracking-wider"
-                            style={{ color: isMinimal ? '#f4f4f5' : instrumentColors[0] }}
+                            className={`font-bold text-sm uppercase tracking-wider ${isLightTheme ? 'text-gray-100' : ''}`}
+                            style={isLightTheme ? undefined : { color: isMinimal ? '#f4f4f5' : instrumentColors[0] }}
                         >
                             {INSTRUMENT_LABELS['kick']} DESIGNER
                         </h4>
@@ -193,6 +248,12 @@ const InstrumentSettings: React.FC<InstrumentSettingsProps> = ({
                     volume={volumes[0] ?? DEFAULT_VOLUMES[0]}
                     onVolumeChange={(val) => onVolumeChange(0, val)}
                     color={instrumentColors[0]}
+                    isMuted={Boolean(instrumentMuted[0])}
+                    isSoloed={Boolean(instrumentSoloed[0])}
+                    onToggleMute={onToggleMute ? () => onToggleMute(0) : undefined}
+                    onToggleSolo={onToggleSolo ? () => onToggleSolo(0) : undefined}
+                    showMuteSoloButtons={showMuteSoloButtons}
+                    visualizerStyle={visualizerStyle}
                 />
             </div>
 
@@ -207,7 +268,7 @@ const InstrumentSettings: React.FC<InstrumentSettingsProps> = ({
                     <div key={instrument} className={cardClass}>
                         <div className={`flex items-center justify-between gap-3 ${isMinimal ? 'border-b border-[#1f1f23] pb-2.5' : ''}`}>
                             <div className="flex items-center gap-2">
-                                {(isMinimal || visualizerStyle === 'default') && (
+                                {(isMinimal || visualizerStyle === 'default' || isLightTheme) && (
                                     <span
                                         aria-hidden="true"
                                         className="w-1.5 h-3.5 flex-shrink-0"
@@ -215,8 +276,8 @@ const InstrumentSettings: React.FC<InstrumentSettingsProps> = ({
                                     />
                                 )}
                                 <h4
-                                    className="font-bold text-sm uppercase tracking-wider"
-                                    style={{ color: isMinimal ? '#f4f4f5' : color }}
+                                    className={`font-bold text-sm uppercase tracking-wider ${isLightTheme ? 'text-gray-100' : ''}`}
+                                    style={isLightTheme ? undefined : { color: isMinimal ? '#f4f4f5' : color }}
                                 >
                                     {INSTRUMENT_LABELS[instrument]}
                                 </h4>

@@ -249,6 +249,7 @@ const DEFAULT_DJ_SETTINGS = {
     stutterSwingLocked: true,
     beatRepeatDivision: '1BEAT' as BeatRepeatDivision,
     tapeStopDuration: 0.64,
+    tapeStopPauseAfter: false,
 };
 
 const DEFAULT_EFFECTS_SETTINGS = {
@@ -332,6 +333,8 @@ const App: React.FC = () => {
     const [isXyFilterHeld, setIsXyFilterHeld] = useState<boolean>(false);
     const [isTapeStopActive, setIsTapeStopActive] = useState<boolean>(false);
     const [tapeStopDuration, setTapeStopDuration] = useState<number>(DEFAULT_DJ_SETTINGS.tapeStopDuration);
+    const [isTapeStopPauseAfter, setIsTapeStopPauseAfter] = useState<boolean>(DEFAULT_DJ_SETTINGS.tapeStopPauseAfter);
+    const isTapeStopPauseAfterRef = useRef<boolean>(DEFAULT_DJ_SETTINGS.tapeStopPauseAfter);
     const tapeStopStartTimeRef = useRef<number>(0);
     const tapeStopReleaseTimerRef = useRef<number | null>(null);
     const [isStutterActive, setIsStutterActive] = useState<boolean>(false);
@@ -389,8 +392,30 @@ const App: React.FC = () => {
     );
     const [savedPatterns, setSavedPatterns] = useState<(SavedPattern | null)[]>(Array(4).fill(null));
     const [currentPatternIndex, setCurrentPatternIndex] = useState(0);
+    const [pendingPatternSide, setPendingPatternSide] = useState<'a' | 'b' | null>(null);
+    const [pendingPatternIndex, setPendingPatternIndex] = useState<number | null>(null);
+    const [quantizePatternSwitch, setQuantizePatternSwitch] = useState<boolean>(() => {
+        const saved = safeGetItem('cl607-quantizePatternSwitch');
+        if (saved !== null) {
+            try {
+                return Boolean(JSON.parse(saved));
+            } catch {}
+        }
+        return true;
+    });
     const [isAppLoaded, setIsAppLoaded] = useState(false);
     const [instrumentVisibility, setInstrumentVisibility] = useState<boolean[]>(Array(INSTRUMENTS.length).fill(true));
+    const [instrumentMuted, setInstrumentMuted] = useState<boolean[]>(Array(INSTRUMENTS.length).fill(false));
+    const [instrumentSoloed, setInstrumentSoloed] = useState<boolean[]>(Array(INSTRUMENTS.length).fill(false));
+    const [showMuteSoloButtons, setShowMuteSoloButtons] = useState<boolean>(() => {
+        const saved = safeGetItem('cl607-showMuteSoloButtons');
+        if (saved !== null) {
+            try {
+                return Boolean(JSON.parse(saved));
+            } catch {}
+        }
+        return true;
+    });
     const [effectsEnabled, setEffectsEnabled] = useState<Record<EffectName, boolean>>({
         lowPass: true,
         highPass: true,
@@ -536,7 +561,27 @@ const App: React.FC = () => {
     const swingRef = useRef(swing);
     const chainModeRef = useRef(chainMode);
     const activePatternRef = useRef(activePattern); // Ref for scheduler
+    const savedPatternsRef = useRef(savedPatterns);
+    const currentPatternIndexRef = useRef(currentPatternIndex);
+    const pendingPatternSideRef = useRef<'a' | 'b' | null>(null);
+    const pendingPatternIndexRef = useRef<number | null>(null);
+    const quantizePatternSwitchRef = useRef<boolean>(quantizePatternSwitch);
+    const isInitializedRef = useRef(isInitialized);
+    const kickDesignerParamsRef = useRef(kickDesignerParams);
+    const drumKitRef = useRef(drumKit);
+    const prevKickDesignerParamsRef = useRef(kickDesignerParams);
+    const prevDrumKitRef = useRef(drumKit);
     const instrumentVisibilityRef = useRef(instrumentVisibility);
+    const effectiveInstrumentAudibility = useMemo(() => {
+        const anySoloed = instrumentSoloed.some(Boolean);
+        return INSTRUMENTS.map((_, idx) => {
+            if (!instrumentVisibility[idx]) return false;
+            if (instrumentMuted[idx]) return false;
+            if (anySoloed && !instrumentSoloed[idx]) return false;
+            return true;
+        });
+    }, [instrumentVisibility, instrumentMuted, instrumentSoloed]);
+    const effectiveAudibilityRef = useRef(effectiveInstrumentAudibility);
     const beatsPerMeasureRef = useRef(beatsPerMeasure);
 
     const isCurrentPatternEmpty = useMemo(() => {
@@ -554,15 +599,21 @@ const App: React.FC = () => {
         swingRef.current = swing;
         chainModeRef.current = chainMode;
         activePatternRef.current = activePattern;
+        savedPatternsRef.current = savedPatterns;
+        currentPatternIndexRef.current = currentPatternIndex;
+        quantizePatternSwitchRef.current = quantizePatternSwitch;
+        isInitializedRef.current = isInitialized;
         instrumentVisibilityRef.current = instrumentVisibility;
+        effectiveAudibilityRef.current = effectiveInstrumentAudibility;
         beatsPerMeasureRef.current = beatsPerMeasure;
         isBeatRepeatActiveRef.current = isBeatRepeatActive || isBeatRepeatHeld;
         beatRepeatDivisionRef.current = beatRepeatDivision;
         stutterSourceRef.current = stutterSource;
         stutterDivisionRef.current = stutterDivision;
         isStutterSwingLockedRef.current = isStutterSwingLocked;
+        isTapeStopPauseAfterRef.current = isTapeStopPauseAfter;
         sixSevenSpeedRef.current = sixSevenSpeed;
-    }, [grids, volumes, tempo, isRandomizeActive, randomizeIntensity, instrumentParams, swing, chainMode, activePattern, instrumentVisibility, beatsPerMeasure, isBeatRepeatActive, isBeatRepeatHeld, beatRepeatDivision, stutterSource, stutterDivision, isStutterSwingLocked, sixSevenSpeed]);
+    }, [grids, volumes, tempo, isRandomizeActive, randomizeIntensity, instrumentParams, swing, chainMode, activePattern, savedPatterns, currentPatternIndex, quantizePatternSwitch, isInitialized, instrumentVisibility, effectiveInstrumentAudibility, beatsPerMeasure, isBeatRepeatActive, isBeatRepeatHeld, beatRepeatDivision, stutterSource, stutterDivision, isStutterSwingLocked, isTapeStopPauseAfter, sixSevenSpeed]);
 
     // When the user manually changes the pattern or chain mode, reset the counter.
     useEffect(() => {
@@ -652,6 +703,21 @@ const App: React.FC = () => {
                     setInstrumentVisibility(s.instrumentVisibility);
                     instrumentVisibilityRef.current = s.instrumentVisibility;
                 }
+                if (typeof s.showMuteSoloButtons === 'boolean') {
+                    setShowMuteSoloButtons(s.showMuteSoloButtons);
+                    if (s.showMuteSoloButtons) {
+                        if (Array.isArray(s.instrumentMuted) && s.instrumentMuted.length === INSTRUMENTS.length) {
+                            setInstrumentMuted(s.instrumentMuted);
+                        }
+                        if (Array.isArray(s.instrumentSoloed) && s.instrumentSoloed.length === INSTRUMENTS.length) {
+                            setInstrumentSoloed(s.instrumentSoloed);
+                        }
+                    }
+                }
+                if (typeof s.quantizePatternSwitch === 'boolean') {
+                    setQuantizePatternSwitch(s.quantizePatternSwitch);
+                    quantizePatternSwitchRef.current = s.quantizePatternSwitch;
+                }
                 if (typeof s.exportMeasures === 'number') setExportMeasures(s.exportMeasures);
                 if (typeof s.exportIncludeTail === 'boolean') setExportIncludeTail(s.exportIncludeTail);
 
@@ -715,6 +781,10 @@ const App: React.FC = () => {
                     beatRepeatDivisionRef.current = s.beatRepeatDivision;
                 }
                 if (typeof s.tapeStopDuration === 'number') setTapeStopDuration(s.tapeStopDuration);
+                if (typeof s.tapeStopPauseAfter === 'boolean') {
+                    setIsTapeStopPauseAfter(s.tapeStopPauseAfter);
+                    isTapeStopPauseAfterRef.current = s.tapeStopPauseAfter;
+                }
                 if (Array.isArray(s.djShortcutEffects) && s.djShortcutEffects.length === 2) {
                     setDjShortcutEffects(s.djShortcutEffects as [EffectName, EffectName]);
                 }
@@ -839,6 +909,10 @@ const App: React.FC = () => {
             drumKit,
             kickDesignerParams,
             instrumentVisibility,
+            instrumentMuted,
+            instrumentSoloed,
+            showMuteSoloButtons,
+            quantizePatternSwitch,
             exportMeasures,
             exportIncludeTail,
             // Effects
@@ -876,6 +950,7 @@ const App: React.FC = () => {
             isStutterSwingLocked,
             beatRepeatDivision,
             tapeStopDuration,
+            tapeStopPauseAfter: isTapeStopPauseAfter,
             djShortcutEffects,
             // Settings & UI
             visualizerType,
@@ -904,6 +979,10 @@ const App: React.FC = () => {
         drumKit,
         kickDesignerParams,
         instrumentVisibility,
+        instrumentMuted,
+        instrumentSoloed,
+        showMuteSoloButtons,
+        quantizePatternSwitch,
         exportMeasures,
         exportIncludeTail,
         lowPassFreq,
@@ -939,6 +1018,7 @@ const App: React.FC = () => {
         isStutterSwingLocked,
         beatRepeatDivision,
         tapeStopDuration,
+        isTapeStopPauseAfter,
         djShortcutEffects,
         visualizerType,
         visualizerStyle,
@@ -1031,6 +1111,59 @@ const App: React.FC = () => {
         }
     }, [playKick, playSnare, playHiHat, playSnap, playClave, playCowbell, playSample]);
 
+    const applyPatternSlotImmediate = useCallback((newIndex: number, targetSide: 'a' | 'b' = 'a') => {
+        let patternToLoad = savedPatternsRef.current[newIndex];
+
+        if (!patternToLoad) {
+            const defaultPattern: SavedPattern = {
+                grids: { a: createInitialGrid(16), b: createInitialGrid(16) },
+                volumes: DEFAULT_VOLUMES,
+                tempo: DEFAULT_TEMPO,
+                instrumentParams: JSON.parse(JSON.stringify(DEFAULT_INSTRUMENT_PARAMS)),
+                swing: 0,
+                beatsPerMeasure: 4,
+            };
+
+            setSavedPatterns(prev => {
+                const newPatterns = [...prev];
+                newPatterns[newIndex] = defaultPattern;
+                savedPatternsRef.current = newPatterns;
+                return newPatterns;
+            });
+
+            patternToLoad = defaultPattern;
+        }
+
+        const nextBPM = patternToLoad.beatsPerMeasure || 4;
+        const nextSwing = patternToLoad.swing ?? 0;
+
+        beatsPerMeasureRef.current = nextBPM;
+        gridsRef.current = patternToLoad.grids;
+        volumesRef.current = patternToLoad.volumes;
+        tempoRef.current = patternToLoad.tempo;
+        instrumentParamsRef.current = patternToLoad.instrumentParams;
+        swingRef.current = nextSwing;
+        activePatternRef.current = targetSide;
+        currentPatternIndexRef.current = newIndex;
+
+        setBeatsPerMeasure(nextBPM);
+        setGrids(patternToLoad.grids);
+        setVolumes(patternToLoad.volumes);
+        setTempo(patternToLoad.tempo);
+        setInstrumentParams(patternToLoad.instrumentParams);
+        setSwing(nextSwing);
+        if (isInitializedRef.current && rerenderAllInstruments) {
+            rerenderAllInstruments(kickDesignerParamsRef.current, drumKitRef.current, patternToLoad.instrumentParams);
+            if (updateInstrumentParameter && patternToLoad.instrumentParams.sample) {
+                updateInstrumentParameter('sample', 'highPass', patternToLoad.instrumentParams.sample.highPass ?? MIN_FILTER_FREQ, drumKitRef.current);
+                updateInstrumentParameter('sample', 'lowPass', patternToLoad.instrumentParams.sample.lowPass ?? MAX_FILTER_FREQ, drumKitRef.current);
+            }
+        }
+
+        setActivePattern(targetSide);
+        setCurrentPatternIndex(newIndex);
+    }, [rerenderAllInstruments, updateInstrumentParameter]);
+
     useEffect(() => {
         if (!audioContext || !isPlaying) {
             if (schedulerTimerRef.current) {
@@ -1062,50 +1195,70 @@ const App: React.FC = () => {
                 nextNoteTime.current = now;
             }
 
-            const currentVolumes = volumesRef.current;
             const randomizeActive = isRandomizeActiveRef.current;
             const intensity = randomizeIntensityRef.current;
-            const allParams = instrumentParamsRef.current;
-            const currentSwing = swingRef.current;
-            const visibility = instrumentVisibilityRef.current;
-            const currentBPM = beatsPerMeasureRef.current;
-            const currentTempo = tempoRef.current;
-            const numSteps = currentBPM * 4;
+            const audibility = effectiveAudibilityRef.current;
             
             while (nextNoteTime.current < audioContext.currentTime + schedulerAheadTime) {
                 let patternToUse = activePatternRef.current;
                 const beatRepeatOn = isBeatRepeatActiveRef.current;
 
                 if (currentStepRef.current === 0 && !beatRepeatOn) {
-                    const mode = chainModeRef.current;
-                    if (mode !== 'off') {
-                        let counter = chainCounterRef.current;
-                        counter++;
-                        let nextPattern = patternToUse;
+                    if (pendingPatternIndexRef.current !== null) {
+                        const queuedIdx = pendingPatternIndexRef.current;
+                        const queuedSide = pendingPatternSideRef.current ?? 'a';
+                        pendingPatternIndexRef.current = null;
+                        pendingPatternSideRef.current = null;
+                        setPendingPatternIndex(null);
+                        setPendingPatternSide(null);
+                        applyPatternSlotImmediate(queuedIdx, queuedSide);
+                        patternToUse = queuedSide;
+                        chainCounterRef.current = 0;
+                    } else if (pendingPatternSideRef.current !== null) {
+                        const queuedSide = pendingPatternSideRef.current;
+                        pendingPatternSideRef.current = null;
+                        setPendingPatternSide(null);
+                        patternToUse = queuedSide;
+                        activePatternRef.current = queuedSide;
+                        setActivePattern(queuedSide);
+                        chainCounterRef.current = 0;
+                    } else {
+                        const mode = chainModeRef.current;
+                        if (mode !== 'off') {
+                            let counter = chainCounterRef.current;
+                            counter++;
+                            let nextPattern = patternToUse;
 
-                        if (mode === 'ab') {
-                            nextPattern = patternToUse === 'a' ? 'b' : 'a';
-                            counter = 0;
-                        } else if (mode === 'aab') {
-                            if (patternToUse === 'a' && counter >= 2) nextPattern = 'b';
-                            else if (patternToUse === 'b') { nextPattern = 'a'; counter = 0; }
-                        } else if (mode === 'aaab') {
-                            if (patternToUse === 'a' && counter >= 3) nextPattern = 'b';
-                            else if (patternToUse === 'b') { nextPattern = 'a'; counter = 0; }
-                        } else if (mode === 'aabb') {
-                            if (patternToUse === 'a' && counter >= 2) nextPattern = 'b';
-                            else if (patternToUse === 'b' && counter >= 2) { nextPattern = 'a'; counter = 0; }
-                        }
+                            if (mode === 'ab') {
+                                nextPattern = patternToUse === 'a' ? 'b' : 'a';
+                                counter = 0;
+                            } else if (mode === 'aab') {
+                                if (patternToUse === 'a' && counter >= 2) nextPattern = 'b';
+                                else if (patternToUse === 'b') { nextPattern = 'a'; counter = 0; }
+                            } else if (mode === 'aaab') {
+                                if (patternToUse === 'a' && counter >= 3) nextPattern = 'b';
+                                else if (patternToUse === 'b') { nextPattern = 'a'; counter = 0; }
+                            } else if (mode === 'aabb') {
+                                if (patternToUse === 'a' && counter >= 2) nextPattern = 'b';
+                                else if (patternToUse === 'b' && counter >= 2) { nextPattern = 'a'; counter = 0; }
+                            }
 
-                        chainCounterRef.current = counter;
-                        if (nextPattern !== patternToUse) {
-                            patternToUse = nextPattern;
-                            activePatternRef.current = nextPattern;
-                            setActivePattern(nextPattern); 
+                            chainCounterRef.current = counter;
+                            if (nextPattern !== patternToUse) {
+                                patternToUse = nextPattern;
+                                activePatternRef.current = nextPattern;
+                                setActivePattern(nextPattern); 
+                            }
                         }
                     }
                 }
                 
+                const currentVolumes = volumesRef.current;
+                const allParams = instrumentParamsRef.current;
+                const currentSwing = swingRef.current;
+                const currentBPM = beatsPerMeasureRef.current;
+                const currentTempo = tempoRef.current;
+                const numSteps = currentBPM * 4;
                 const grid = gridsRef.current[patternToUse];
                 const secondsPerStep = 60.0 / currentTempo / 4.0;
                 const scheduledStep = currentStepRef.current;
@@ -1138,7 +1291,7 @@ const App: React.FC = () => {
     
                 if (stepToPlay > -1) {
                     for (let instrumentIndex = 0; instrumentIndex < INSTRUMENTS.length; instrumentIndex++) {
-                        if (visibility[instrumentIndex] && grid[instrumentIndex]?.[stepToPlay] && currentVolumes[instrumentIndex] > 0) {
+                        if (audibility[instrumentIndex] && grid[instrumentIndex]?.[stepToPlay] && currentVolumes[instrumentIndex] > 0) {
                             const instrument = INSTRUMENTS[instrumentIndex];
                             playSoundAtTime(instrument, currentVolumes[instrumentIndex], scheduledTime, allParams[instrument]);
                         }
@@ -1198,7 +1351,7 @@ const App: React.FC = () => {
                 URL.revokeObjectURL(workerUrl);
             }
         };
-    }, [isPlaying, audioContext, playSoundAtTime, syncStutterTransport]);
+    }, [isPlaying, audioContext, playSoundAtTime, syncStutterTransport, applyPatternSlotImmediate]);
     
     const instrumentColors = useMemo(() => {
         switch (visualizerStyle) {
@@ -1293,11 +1446,6 @@ const App: React.FC = () => {
     const handleKickDesignerParamChange = useCallback((param: keyof KickDesignerParams, value: number) => {
         setKickDesignerParams(prev => ({ ...prev, [param]: value }));
     }, []);
-    
-    const kickDesignerParamsRef = useRef(kickDesignerParams);
-    const drumKitRef = useRef(drumKit);
-    const prevKickDesignerParamsRef = useRef(kickDesignerParams);
-    const prevDrumKitRef = useRef(drumKit);
 
     useEffect(() => {
         kickDesignerParamsRef.current = kickDesignerParams;
@@ -1459,7 +1607,7 @@ const App: React.FC = () => {
                 const stemFiles: { path: string; blob: Blob }[] = [];
 
                 const instrumentsWithHits = INSTRUMENTS.filter((_, idx) => {
-                    if (!instrumentVisibility[idx] || volumes[idx] <= 0) return false;
+                    if (!effectiveInstrumentAudibility[idx] || volumes[idx] <= 0) return false;
                     if (chainMode !== 'off') {
                         return Boolean(grids.a[idx]?.some(Boolean) || grids.b[idx]?.some(Boolean));
                     }
@@ -1474,7 +1622,7 @@ const App: React.FC = () => {
 
                 const targetInstruments = instrumentsWithHits.length > 0
                     ? instrumentsWithHits
-                    : INSTRUMENTS.filter((_, idx) => instrumentVisibility[idx] && volumes[idx] > 0);
+                    : INSTRUMENTS.filter((_, idx) => effectiveInstrumentAudibility[idx] && volumes[idx] > 0);
 
                 for (let idx = 0; idx < targetInstruments.length; idx++) {
                     const inst = targetInstruments[idx];
@@ -1503,7 +1651,7 @@ const App: React.FC = () => {
                         envelopeFilterAmount,
                         envelopeFilterBaseFreq,
                         envelopeFilterQ,
-                        instrumentVisibility,
+                        effectiveInstrumentAudibility,
                         isolatorGains,
                         lofiMix,
                         activePattern,
@@ -1573,7 +1721,7 @@ const App: React.FC = () => {
                     envelopeFilterAmount,
                     envelopeFilterBaseFreq,
                     envelopeFilterQ,
-                    instrumentVisibility,
+                    effectiveInstrumentAudibility,
                     isolatorGains,
                     lofiMix,
                     activePattern,
@@ -1625,7 +1773,7 @@ const App: React.FC = () => {
         kickSidechainAmount, kickSidechainThreshold, kickSidechainRatio,
         crushAmount, tapeSaturationMix, tapeSaturationAmount, tapeSaturationTone,
         envelopeFilterMix, envelopeFilterAmount, envelopeFilterBaseFreq, envelopeFilterQ,
-        effectsEnabled, instrumentVisibility, isolatorGains, lofiMix, activePattern, chainMode,
+        effectsEnabled, effectiveInstrumentAudibility, isolatorGains, lofiMix, activePattern, chainMode,
         isRandomizeActive, randomizeIntensity, isStutterActive, isStutterHeld, stutterDivision,
         isStutterSwingLocked, isBeatRepeatActive, isBeatRepeatHeld, beatRepeatDivision, beatRepeatAnchorStep, stutterSource,
         exportMeasures, exportIncludeTail
@@ -1658,7 +1806,7 @@ const App: React.FC = () => {
                 envelopeFilterAmount,
                 envelopeFilterBaseFreq,
                 envelopeFilterQ,
-                instrumentVisibility,
+                effectiveInstrumentAudibility,
                 isolatorGains,
                 lofiMix,
                 activePattern,
@@ -1701,7 +1849,7 @@ const App: React.FC = () => {
         kickSidechainAmount, kickSidechainThreshold, kickSidechainRatio,
         crushAmount, tapeSaturationMix, tapeSaturationAmount, tapeSaturationTone,
         envelopeFilterMix, envelopeFilterAmount, envelopeFilterBaseFreq, envelopeFilterQ,
-        effectsEnabled, instrumentVisibility, isolatorGains, lofiMix, activePattern, chainMode,
+        effectsEnabled, effectiveInstrumentAudibility, isolatorGains, lofiMix, activePattern, chainMode,
         isRandomizeActive, randomizeIntensity, isStutterActive, isStutterHeld, stutterDivision,
         isStutterSwingLocked, isBeatRepeatActive, isBeatRepeatHeld, beatRepeatDivision, beatRepeatAnchorStep, stutterSource,
         exportMeasures, exportIncludeTail
@@ -1721,7 +1869,7 @@ const App: React.FC = () => {
         kickSidechainAmount, kickSidechainThreshold, kickSidechainRatio,
         crushAmount, tapeSaturationMix, tapeSaturationAmount, tapeSaturationTone,
         envelopeFilterMix, envelopeFilterAmount, envelopeFilterBaseFreq, envelopeFilterQ,
-        effectsEnabled, instrumentVisibility, isolatorGains, lofiMix, activePattern, chainMode,
+        effectsEnabled, effectiveInstrumentAudibility, isolatorGains, lofiMix, activePattern, chainMode,
         isRandomizeActive, randomizeIntensity, isXyFilterHeld, isStutterActive, isStutterHeld, stutterDivision,
         isBeatRepeatActive, isBeatRepeatHeld, beatRepeatDivision, beatRepeatAnchorStep, stutterSource,
         instrumentParams, kickDesignerParams, drumKit, fullAudioData, trimRange, exportMeasures, exportIncludeTail
@@ -1738,54 +1886,90 @@ const App: React.FC = () => {
             currentStepRef.current = 0;
             notesInQueueRef.current = [];
             setCurrentStep(null);
-        }
-        
-        setIsPlaying(newIsPlaying);
-    }, [isPlaying, audioContext]);
-    
-    const handleSelectPattern = useCallback((newIndex: number) => {
-        if (newIndex === currentPatternIndex) return;
-
-        let patternToLoad = savedPatterns[newIndex];
-        
-        if (!patternToLoad) {
-            // This slot is empty. Create a default pattern for it.
-            const defaultPattern: SavedPattern = {
-                grids: { a: createInitialGrid(16), b: createInitialGrid(16) },
-                volumes: DEFAULT_VOLUMES,
-                tempo: DEFAULT_TEMPO,
-                instrumentParams: JSON.parse(JSON.stringify(DEFAULT_INSTRUMENT_PARAMS)),
-                swing: 0,
-                beatsPerMeasure: 4,
-            };
-            
-            setSavedPatterns(prev => {
-                const newPatterns = [...prev];
-                newPatterns[newIndex] = defaultPattern;
-                return newPatterns;
-            });
-
-            patternToLoad = defaultPattern;
-        }
-
-        setBeatsPerMeasure(patternToLoad.beatsPerMeasure || 4);
-        setGrids(patternToLoad.grids);
-        setVolumes(patternToLoad.volumes);
-        tempoRef.current = patternToLoad.tempo;
-        setTempo(patternToLoad.tempo);
-        setInstrumentParams(patternToLoad.instrumentParams);
-        setSwing(patternToLoad.swing ?? 0);
-        if (isInitialized && rerenderAllInstruments) {
-            rerenderAllInstruments(kickDesignerParamsRef.current, drumKitRef.current, patternToLoad.instrumentParams);
-            if (updateInstrumentParameter && patternToLoad.instrumentParams.sample) {
-                updateInstrumentParameter('sample', 'highPass', patternToLoad.instrumentParams.sample.highPass ?? MIN_FILTER_FREQ, drumKitRef.current);
-                updateInstrumentParameter('sample', 'lowPass', patternToLoad.instrumentParams.sample.lowPass ?? MAX_FILTER_FREQ, drumKitRef.current);
+        } else if (!newIsPlaying) {
+            if (pendingPatternIndexRef.current !== null) {
+                const queuedIdx = pendingPatternIndexRef.current;
+                const queuedSide = pendingPatternSideRef.current ?? 'a';
+                pendingPatternIndexRef.current = null;
+                pendingPatternSideRef.current = null;
+                setPendingPatternIndex(null);
+                setPendingPatternSide(null);
+                applyPatternSlotImmediate(queuedIdx, queuedSide);
+            } else if (pendingPatternSideRef.current !== null) {
+                const queuedSide = pendingPatternSideRef.current;
+                pendingPatternSideRef.current = null;
+                setPendingPatternSide(null);
+                activePatternRef.current = queuedSide;
+                setActivePattern(queuedSide);
             }
         }
         
-        setActivePattern('a');
-        setCurrentPatternIndex(newIndex);
-    }, [currentPatternIndex, savedPatterns, isInitialized, rerenderAllInstruments, updateInstrumentParameter]);
+        setIsPlaying(newIsPlaying);
+    }, [isPlaying, audioContext, applyPatternSlotImmediate]);
+
+    const handlePatternSideToggle = useCallback((side: 'a' | 'b') => {
+        if (!isPlaying || !quantizePatternSwitchRef.current) {
+            pendingPatternSideRef.current = null;
+            setPendingPatternSide(null);
+            activePatternRef.current = side;
+            setActivePattern(side);
+            return;
+        }
+        if (pendingPatternIndexRef.current === null && side === activePatternRef.current) {
+            pendingPatternSideRef.current = null;
+            setPendingPatternSide(null);
+            return;
+        }
+        pendingPatternSideRef.current = side;
+        setPendingPatternSide(side);
+    }, [isPlaying]);
+    
+    const handleSelectPattern = useCallback((newIndex: number) => {
+        if (!isPlaying || !quantizePatternSwitchRef.current) {
+            pendingPatternIndexRef.current = null;
+            pendingPatternSideRef.current = null;
+            setPendingPatternIndex(null);
+            setPendingPatternSide(null);
+            if (newIndex === currentPatternIndexRef.current) return;
+            applyPatternSlotImmediate(newIndex, 'a');
+            return;
+        }
+        if (newIndex === currentPatternIndexRef.current) {
+            pendingPatternIndexRef.current = null;
+            setPendingPatternIndex(null);
+            return;
+        }
+        pendingPatternIndexRef.current = newIndex;
+        pendingPatternSideRef.current = null;
+        setPendingPatternIndex(newIndex);
+        setPendingPatternSide(null);
+    }, [isPlaying, applyPatternSlotImmediate]);
+
+    const handleToggleQuantizePatternSwitch = useCallback(() => {
+        setQuantizePatternSwitch(prev => {
+            const next = !prev;
+            quantizePatternSwitchRef.current = next;
+            safeSetItem('cl607-quantizePatternSwitch', JSON.stringify(next));
+            if (!next) {
+                if (pendingPatternIndexRef.current !== null) {
+                    const queuedIdx = pendingPatternIndexRef.current;
+                    const queuedSide = pendingPatternSideRef.current ?? 'a';
+                    pendingPatternIndexRef.current = null;
+                    pendingPatternSideRef.current = null;
+                    setPendingPatternIndex(null);
+                    setPendingPatternSide(null);
+                    applyPatternSlotImmediate(queuedIdx, queuedSide);
+                } else if (pendingPatternSideRef.current !== null) {
+                    const queuedSide = pendingPatternSideRef.current;
+                    pendingPatternSideRef.current = null;
+                    setPendingPatternSide(null);
+                    activePatternRef.current = queuedSide;
+                    setActivePattern(queuedSide);
+                }
+            }
+            return next;
+        });
+    }, [applyPatternSlotImmediate]);
 
     const handleClearPattern = useCallback(() => {
         const numSteps = beatsPerMeasure * 4;
@@ -1797,6 +1981,52 @@ const App: React.FC = () => {
             const newVisibility = [...prev];
             newVisibility[index] = !newVisibility[index];
             return newVisibility;
+        });
+    }, []);
+
+    const handleToggleInstrumentMute = useCallback((index: number) => {
+        setInstrumentMuted(prev => {
+            const next = [...prev];
+            const nextMuted = !next[index];
+            next[index] = nextMuted;
+            if (nextMuted) {
+                setInstrumentSoloed(prevSolo => {
+                    if (!prevSolo[index]) return prevSolo;
+                    const nextSolo = [...prevSolo];
+                    nextSolo[index] = false;
+                    return nextSolo;
+                });
+            }
+            return next;
+        });
+    }, []);
+
+    const handleToggleInstrumentSolo = useCallback((index: number) => {
+        setInstrumentSoloed(prev => {
+            const next = [...prev];
+            const nextSoloed = !next[index];
+            next[index] = nextSoloed;
+            if (nextSoloed) {
+                setInstrumentMuted(prevMute => {
+                    if (!prevMute[index]) return prevMute;
+                    const nextMute = [...prevMute];
+                    nextMute[index] = false;
+                    return nextMute;
+                });
+            }
+            return next;
+        });
+    }, []);
+
+    const handleToggleShowMuteSoloButtons = useCallback(() => {
+        setShowMuteSoloButtons(prev => {
+            const next = !prev;
+            safeSetItem('cl607-showMuteSoloButtons', JSON.stringify(next));
+            if (!next) {
+                setInstrumentMuted(Array(INSTRUMENTS.length).fill(false));
+                setInstrumentSoloed(Array(INSTRUMENTS.length).fill(false));
+            }
+            return next;
         });
     }, []);
     
@@ -1905,13 +2135,46 @@ const App: React.FC = () => {
         }
         tapeStopStartTimeRef.current = performance.now();
         setIsTapeStopActive(true);
-        setTapeStop(true, tapeStopDuration, tempoRef.current);
+        const pauseAfter = isTapeStopPauseAfterRef.current;
+        setTapeStop(true, tapeStopDuration, tempoRef.current, pauseAfter);
+
+        if (pauseAfter) {
+            const fullBrakeMs = tapeStopDuration * 1000;
+            tapeStopReleaseTimerRef.current = window.setTimeout(() => {
+                setIsPlaying(false);
+                setCurrentStep(null);
+                setTransportStep(null);
+                setIsTapeStopActive(false);
+                tapeStopReleaseTimerRef.current = null;
+            }, fullBrakeMs);
+        }
     }, [setTapeStop, tapeStopDuration]);
 
     const handleTapeStopEnd = useCallback(() => {
-        setTapeStop(false, tapeStopDuration, tempoRef.current);
+        const pauseAfter = isTapeStopPauseAfterRef.current;
+        setTapeStop(false, tapeStopDuration, tempoRef.current, pauseAfter);
         const elapsedMs = performance.now() - tapeStopStartTimeRef.current;
         const fullBrakeMs = tapeStopDuration * 1000;
+        if (pauseAfter) {
+            if (elapsedMs < fullBrakeMs) {
+                if (tapeStopReleaseTimerRef.current) {
+                    clearTimeout(tapeStopReleaseTimerRef.current);
+                }
+                tapeStopReleaseTimerRef.current = window.setTimeout(() => {
+                    setIsPlaying(false);
+                    setCurrentStep(null);
+                    setTransportStep(null);
+                    setIsTapeStopActive(false);
+                    tapeStopReleaseTimerRef.current = null;
+                }, Math.max(0, fullBrakeMs - elapsedMs));
+            } else {
+                setIsPlaying(false);
+                setCurrentStep(null);
+                setTransportStep(null);
+                setIsTapeStopActive(false);
+            }
+            return;
+        }
         if (elapsedMs < fullBrakeMs) {
             if (tapeStopReleaseTimerRef.current) {
                 clearTimeout(tapeStopReleaseTimerRef.current);
@@ -1928,8 +2191,17 @@ const App: React.FC = () => {
     const handleTapeStopDurationChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
         const nextDur = Number(e.target.value);
         setTapeStopDuration(nextDur);
-        updateTapeStopDuration(nextDur, tempoRef.current);
+        updateTapeStopDuration(nextDur, tempoRef.current, isTapeStopPauseAfterRef.current);
     }, [updateTapeStopDuration]);
+
+    const handleToggleTapeStopPauseAfter = useCallback(() => {
+        setIsTapeStopPauseAfter(prev => {
+            const next = !prev;
+            isTapeStopPauseAfterRef.current = next;
+            updateTapeStopDuration(tapeStopDuration, tempoRef.current, next);
+            return next;
+        });
+    }, [tapeStopDuration, updateTapeStopDuration]);
 
     const handleToggleStutterSwing = useCallback(() => {
         setIsStutterSwingLocked(prev => {
@@ -2005,12 +2277,12 @@ const App: React.FC = () => {
         // snap to the most recent active step so Beat Repeater always loops an audible hit.
         if (repeatSteps <= 2) {
             const grid = gridsRef.current[activePatternRef.current];
-            const visibility = instrumentVisibilityRef.current;
+            const audibility = effectiveAudibilityRef.current;
             const hasActiveHitInSlice = (startStep: number) => {
                 for (let offset = 0; offset < repeatSteps; offset++) {
                     const s = (startStep + offset) % numSteps;
                     for (let i = 0; i < INSTRUMENTS.length; i++) {
-                        if (visibility[i] && grid[i]?.[s]) return true;
+                        if (audibility[i] && grid[i]?.[s]) return true;
                     }
                 }
                 return false;
@@ -2259,7 +2531,9 @@ const App: React.FC = () => {
         }
         setIsTapeStopActive(false);
         setTapeStopDuration(DEFAULT_DJ_SETTINGS.tapeStopDuration);
-        setTapeStop(false, DEFAULT_DJ_SETTINGS.tapeStopDuration, tempoRef.current);
+        setIsTapeStopPauseAfter(DEFAULT_DJ_SETTINGS.tapeStopPauseAfter);
+        isTapeStopPauseAfterRef.current = DEFAULT_DJ_SETTINGS.tapeStopPauseAfter;
+        setTapeStop(false, DEFAULT_DJ_SETTINGS.tapeStopDuration, tempoRef.current, DEFAULT_DJ_SETTINGS.tapeStopPauseAfter, true);
         setIsStutterHeld(false);
         setIsStutterActive(false);
         setIsStutterSwingLocked(DEFAULT_DJ_SETTINGS.stutterSwingLocked);
@@ -2323,6 +2597,8 @@ const App: React.FC = () => {
         safeRemoveItem('cl607-notationTextMode');
         safeRemoveItem('cl607-stutterSwingLocked');
         safeRemoveItem('cl607-invertColors');
+        safeRemoveItem('cl607-showMuteSoloButtons');
+        safeRemoveItem('cl607-quantizePatternSwitch');
         safeRemoveItem('cl607-customTitle');
         safeRemoveItem('cl607-visualizerStyle');
         safeRemoveItem('cl607-slowComputerMode');
@@ -2385,6 +2661,13 @@ const App: React.FC = () => {
         setPadLabelMode('off');
         setNotationTextMode('syllables');
         setIsInvertColors(false);
+        setShowMuteSoloButtons(true);
+        setQuantizePatternSwitch(true);
+        quantizePatternSwitchRef.current = true;
+        pendingPatternIndexRef.current = null;
+        pendingPatternSideRef.current = null;
+        setPendingPatternIndex(null);
+        setPendingPatternSide(null);
         setKeyboardDrummingEnabled(true);
         setKeyboardMap({
             'a': 'kick',
@@ -2396,6 +2679,8 @@ const App: React.FC = () => {
             'j': 'sample'
         });
         setInstrumentVisibility(Array(INSTRUMENTS.length).fill(true));
+        setInstrumentMuted(Array(INSTRUMENTS.length).fill(false));
+        setInstrumentSoloed(Array(INSTRUMENTS.length).fill(false));
         setEffectsEnabled({
             lowPass: true, highPass: true, sidechain: true, crush: true, tape: true, envelope: true, reverb: true, delay: true
         });
@@ -2445,6 +2730,8 @@ const App: React.FC = () => {
         prevKickDesignerParamsRef.current = freshKickParams;
         setVolumes(freshVolumes);
         setInstrumentVisibility(Array(INSTRUMENTS.length).fill(true));
+        setInstrumentMuted(Array(INSTRUMENTS.length).fill(false));
+        setInstrumentSoloed(Array(INSTRUMENTS.length).fill(false));
         if (isInitialized && rerenderAllInstruments) {
             rerenderAllInstruments(freshKickParams, drumKitRef.current, freshInstParams);
         }
@@ -2593,9 +2880,9 @@ const App: React.FC = () => {
     useEffect(() => { if (setIsoGain) setIsoGain('high', isolatorGains.high); }, [isolatorGains.high, setIsoGain, isInitialized]);
     useEffect(() => {
         if (updateTapeStopDuration) {
-            updateTapeStopDuration(tapeStopDuration, tempo);
+            updateTapeStopDuration(tapeStopDuration, tempo, isTapeStopPauseAfter);
         }
-    }, [tapeStopDuration, tempo, updateTapeStopDuration, isInitialized]);
+    }, [tapeStopDuration, tempo, isTapeStopPauseAfter, updateTapeStopDuration, isInitialized]);
     useEffect(() => {
         if (updateStutterParams) {
             const srcVol = stutterSource === 'all' ? 0.7 : (volumes[INSTRUMENTS.indexOf(stutterSource)] ?? 0.7);
@@ -2623,11 +2910,12 @@ const App: React.FC = () => {
             isStutterSwingLocked === DEFAULT_DJ_SETTINGS.stutterSwingLocked &&
             beatRepeatDivision === DEFAULT_DJ_SETTINGS.beatRepeatDivision &&
             Math.abs(tapeStopDuration - DEFAULT_DJ_SETTINGS.tapeStopDuration) < 0.005 &&
+            isTapeStopPauseAfter === DEFAULT_DJ_SETTINGS.tapeStopPauseAfter &&
             !isXyFilterHeld &&
             !isStutterHeld &&
             !isBeatRepeatHeld;
         setIsDjSettingsDefault(isDefault);
-    }, [randomizeIntensity, chainMode, isolatorGains, lofiMix, stutterDivision, stutterSource, isStutterSwingLocked, beatRepeatDivision, tapeStopDuration, isXyFilterHeld, isStutterHeld, isBeatRepeatHeld]);
+    }, [randomizeIntensity, chainMode, isolatorGains, lofiMix, stutterDivision, stutterSource, isStutterSwingLocked, beatRepeatDivision, tapeStopDuration, isTapeStopPauseAfter, isXyFilterHeld, isStutterHeld, isBeatRepeatHeld]);
 
     // Effect for checking if effects settings are default
     useEffect(() => {
@@ -2669,8 +2957,10 @@ const App: React.FC = () => {
         if (JSON.stringify(kickDesignerParams) !== JSON.stringify(DEFAULT_KICK_DESIGNER_PARAMS)) return true;
         if (volumes.length !== DEFAULT_VOLUMES.length || volumes.some((v, i) => Math.abs(v - DEFAULT_VOLUMES[i]) > 0.001)) return true;
         if (instrumentVisibility.some(v => !v)) return true;
+        if (instrumentMuted.some(Boolean)) return true;
+        if (instrumentSoloed.some(Boolean)) return true;
         return false;
-    }, [instrumentParams, kickDesignerParams, volumes, instrumentVisibility]);
+    }, [instrumentParams, kickDesignerParams, volumes, instrumentVisibility, instrumentMuted, instrumentSoloed]);
 
     const isSampleRecorderChanged = useMemo(() => {
         if (fullAudioData && fullAudioData.length > 0) return true;
@@ -3142,7 +3432,9 @@ const App: React.FC = () => {
                             false,
                             isMinimal
                                 ? 'w-32 h-14 text-sm font-mono tracking-widest'
-                                : 'w-32 h-16 text-lg bg-purple-600 hover:bg-purple-700 focus:ring-purple-500'
+                                : visualizerStyle === 'classic607'
+                                ? 'w-32 h-16 text-lg bg-purple-600 hover:bg-purple-700 focus:ring-purple-500'
+                                : 'w-32 h-16 text-lg'
                         )}
                     >
                         {randomizeButtonText}
@@ -3206,6 +3498,32 @@ const App: React.FC = () => {
                         />
                     </div>
                 </Tooltip>
+                <Tooltip text={isTapeStopPauseAfter
+                    ? "Pause After Stop is ON: automatically pauses the beat when the tape stop finishes"
+                    : "Pause After Stop is OFF: beat spins back up after braking. Click to pause the beat after tape stop."}>
+                    <button
+                        type="button"
+                        onClick={handleToggleTapeStopPauseAfter}
+                        aria-pressed={isTapeStopPauseAfter}
+                        className={
+                            isMinimal
+                                ? `w-full px-2.5 py-1 text-[10px] font-mono font-bold uppercase tracking-wider border cursor-pointer ${
+                                    isTapeStopPauseAfter
+                                        ? 'bg-[#ff3b1d] text-[#09090b] border-[#ff3b1d]'
+                                        : 'bg-[#141417] text-[#a1a1aa] border-[#27272a] hover:text-[#f4f4f5]'
+                                }`
+                                : getButtonStyle(
+                                    visualizerStyle,
+                                    isTapeStopPauseAfter ? 'danger' : 'secondary',
+                                    isTapeStopPauseAfter,
+                                    false,
+                                    'w-full !px-2.5 !py-1 !text-[10px] font-mono uppercase tracking-wider'
+                                )
+                        }
+                    >
+                        Pause After Stop
+                    </button>
+                </Tooltip>
             </div>
 
             {/* Stutter */}
@@ -3267,9 +3585,9 @@ const App: React.FC = () => {
                             false,
                             isMinimal
                                 ? 'w-36 h-11 text-xs font-mono tracking-widest whitespace-nowrap'
-                                : visualizerStyle === 'default'
-                                ? 'w-36 h-11 text-xs font-bold tracking-wider whitespace-nowrap'
-                                : 'w-36 h-11 text-xs sm:text-sm font-bold tracking-wider whitespace-nowrap bg-cyan-600 hover:bg-cyan-700 focus:ring-cyan-500'
+                                : visualizerStyle === 'classic607'
+                                ? 'w-36 h-11 text-xs sm:text-sm font-bold tracking-wider whitespace-nowrap bg-cyan-600 hover:bg-cyan-700 focus:ring-cyan-500'
+                                : 'w-36 h-11 text-xs font-bold tracking-wider whitespace-nowrap'
                         )}
                     >
                         {isStutterActive || isStutterHeld ? `STUTTER ${stutterDivision}` : 'STUTTER'}
@@ -3369,7 +3687,9 @@ const App: React.FC = () => {
                             false,
                             isMinimal
                                 ? 'w-40 h-11 text-xs font-mono tracking-widest'
-                                : 'w-40 h-11 text-sm font-bold tracking-wider bg-indigo-600 hover:bg-indigo-700 focus:ring-indigo-500'
+                                : visualizerStyle === 'classic607'
+                                ? 'w-40 h-11 text-sm font-bold tracking-wider bg-indigo-600 hover:bg-indigo-700 focus:ring-indigo-500'
+                                : 'w-40 h-11 text-sm font-bold tracking-wider'
                         )}
                     >
                         {isBeatRepeatActive || isBeatRepeatHeld
@@ -3587,6 +3907,7 @@ const App: React.FC = () => {
         visualizerStyle, isRandomizeActive, isMinimal, randomizeButtonText, isInteractingWithSlider,
         randomizeIntensity, handleRandomizeIntensityChange, sliderInteractionProps,
         handleTapeStopStart, handleTapeStopEnd, isTapeStopActive, tapeStopDuration, handleTapeStopDurationChange,
+        isTapeStopPauseAfter, handleToggleTapeStopPauseAfter,
         isStutterHeld, handleToggleStutterHold, handleStutterPressStart, handleStutterPressEnd,
         isStutterActive, stutterDivision, handleStutterDivisionChange, stutterSource, handleStutterSourceChange,
         isStutterSwingLocked, handleToggleStutterSwing,
@@ -3687,11 +4008,17 @@ const App: React.FC = () => {
             volumes={volumes}
             onVolumeChange={handleVolumeChange}
             visualizerStyle={visualizerStyle}
+            instrumentMuted={instrumentMuted}
+            instrumentSoloed={instrumentSoloed}
+            onToggleMute={handleToggleInstrumentMute}
+            onToggleSolo={handleToggleInstrumentSolo}
+            showMuteSoloButtons={showMuteSoloButtons}
         />
     ), [
         instrumentParams, instrumentColors, handleInstrumentParamChange, instrumentVisibility,
         handleInstrumentVisibilityChange, kickDesignerParams, handleKickDesignerParamChange,
-        volumes, handleVolumeChange, visualizerStyle
+        volumes, handleVolumeChange, visualizerStyle, instrumentMuted, instrumentSoloed,
+        handleToggleInstrumentMute, handleToggleInstrumentSolo, showMuteSoloButtons
     ]);
 
     const renderRecorderContent = useCallback(() => (
@@ -3890,6 +4217,10 @@ const App: React.FC = () => {
                         onUpdateKeyboardMap={handleUpdateKeyboardMap}
                         isInvertColors={isInvertColors}
                         onToggleInvertColors={handleToggleInvertColors}
+                        showMuteSoloButtons={showMuteSoloButtons}
+                        onToggleShowMuteSoloButtons={handleToggleShowMuteSoloButtons}
+                        quantizePatternSwitch={quantizePatternSwitch}
+                        onToggleQuantizePatternSwitch={handleToggleQuantizePatternSwitch}
                         onToggleCappuccinoMode={handleToggleCappuccinoMode}
                         sixSevenSpeed={sixSevenSpeed}
                         onSixSevenSpeedChange={setSixSevenSpeed}
@@ -4158,7 +4489,8 @@ const App: React.FC = () => {
                             onMasterVolumeChange={handleMasterVolumeChange}
                             onDirectMasterVolumeChange={setMasterVolume}
                             activePattern={activePattern}
-                            onPatternToggle={setActivePattern}
+                            pendingPattern={pendingPatternSide}
+                            onPatternToggle={handlePatternSideToggle}
                             hueRotate={hueRotate}
                             onHueRotateChange={setHueRotate}
                             isColorAnimating={isColorAnimating}
@@ -4172,6 +4504,7 @@ const App: React.FC = () => {
                             onClearDragUrl={handleClearDragUrl}
                             savedPatterns={savedPatterns}
                             currentPatternIndex={currentPatternIndex}
+                            pendingPatternIndex={pendingPatternIndex}
                             onSelectPattern={handleSelectPattern}
                             onCatClick={playAirhorn}
                             onClearPattern={handleClearPattern}

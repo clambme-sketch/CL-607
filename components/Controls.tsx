@@ -4,13 +4,246 @@ import { SavedPattern, VisualizerStyle, LiveRecording } from '../types';
 import Tooltip from './Tooltip';
 import { getButtonStyle, getThemeSurface } from '../utils';
 
-// --- Disco Ball Component (Minimal Cat-Matched Illustration in Default Mode, 3D Mirror Ball in Other Modes) ---
+interface CatColorway {
+    body: string;
+    bodyStroke: string;
+    bodyHighlight: string;
+    bellyHighlight: string;
+    head: string;
+    headHighlight: string;
+    earInner: string;
+    toeBeans: string;
+    toeBeansBounce: string;
+    sunglassesFrame: string;
+    sunglassesLensStroke: string;
+    sunglassesGlint: string;
+    whiskers: string;
+}
+
+interface DiscoColorway {
+    suspensionString: string;
+    suspensionRingFill: string;
+    sphereFill: string;
+    sphereStroke: string;
+    sphereHighlight: string;
+    facet1: string;
+    facet2: string;
+    facet3: string;
+    seamStroke: string;
+    sparkle1: string;
+    sparkle2: string;
+}
+
+const THEME_CAT_COLORWAYS: Record<Exclude<VisualizerStyle, 'classic607'>, CatColorway> = {
+    default: {
+        body: '#a8dcff',
+        bodyStroke: '#e3f4ff',
+        bodyHighlight: '#d6eeff',
+        bellyHighlight: '#cceaff',
+        head: '#b4e2ff',
+        headHighlight: '#d6eeff',
+        earInner: '#ffc4d6',
+        toeBeans: '#ffc4d6',
+        toeBeansBounce: '#ffd1e0',
+        sunglassesFrame: '#051e3e',
+        sunglassesLensStroke: '#e3f4ff',
+        sunglassesGlint: '#ffc4d6',
+        whiskers: '#051e3e',
+    },
+    cyberpunk: {
+        body: '#00f0ff',
+        bodyStroke: '#fcee0a',
+        bodyHighlight: '#7cf7ff',
+        bellyHighlight: '#00ff9f',
+        head: '#00e5ff',
+        headHighlight: '#8affd1',
+        earInner: '#ff003c',
+        toeBeans: '#ff003c',
+        toeBeansBounce: '#ff3366',
+        sunglassesFrame: '#050508',
+        sunglassesLensStroke: '#00ff9f',
+        sunglassesGlint: '#fcee0a',
+        whiskers: '#fcee0a',
+    },
+    braun: {
+        body: '#dcd8cd',
+        bodyStroke: '#8c887d',
+        bodyHighlight: '#f4f2ec',
+        bellyHighlight: '#efece4',
+        head: '#e6e3da',
+        headHighlight: '#faf8f5',
+        earInner: '#ea5b0c',
+        toeBeans: '#ea5b0c',
+        toeBeansBounce: '#f26a1b',
+        sunglassesFrame: '#1c1c1a',
+        sunglassesLensStroke: '#b8b4a8',
+        sunglassesGlint: '#ea5b0c',
+        whiskers: '#1c1c1a',
+    },
+    bauhaus: {
+        body: '#184e9c',
+        bodyStroke: '#141413',
+        bodyHighlight: '#3b73c4',
+        bellyHighlight: '#f2ece1',
+        head: '#215bb0',
+        headHighlight: '#4d84d6',
+        earInner: '#d62828',
+        toeBeans: '#f2b705',
+        toeBeansBounce: '#ffd000',
+        sunglassesFrame: '#141413',
+        sunglassesLensStroke: '#faf6ed',
+        sunglassesGlint: '#f2b705',
+        whiskers: '#141413',
+    },
+    nagra: {
+        body: '#ff8566',
+        bodyStroke: '#fff5ee',
+        bodyHighlight: '#ffb399',
+        bellyHighlight: '#ffe0cc',
+        head: '#ff9478',
+        headHighlight: '#ffc4b0',
+        earInner: '#d9325e',
+        toeBeans: '#ffe885',
+        toeBeansBounce: '#fff2ad',
+        sunglassesFrame: '#3b1547',
+        sunglassesLensStroke: '#ffbfa3',
+        sunglassesGlint: '#ffe885',
+        whiskers: '#3b1547',
+    },
+    koto: {
+        body: '#2a202d',
+        bodyStroke: '#d4af37',
+        bodyHighlight: '#433347',
+        bellyHighlight: '#382a3c',
+        head: '#322636',
+        headHighlight: '#4a3950',
+        earInner: '#c83e2b',
+        toeBeans: '#d4af37',
+        toeBeansBounce: '#fae39c',
+        sunglassesFrame: '#0d0a0f',
+        sunglassesLensStroke: '#d4af37',
+        sunglassesGlint: '#c83e2b',
+        whiskers: '#d4af37',
+    },
+    minimal: {
+        body: '#3f3f46',
+        bodyStroke: '#a1a1aa',
+        bodyHighlight: '#71717a',
+        bellyHighlight: '#52525b',
+        head: '#52525b',
+        headHighlight: '#71717a',
+        earInner: '#d4d4d8',
+        toeBeans: '#e4e4e7',
+        toeBeansBounce: '#f4f4f5',
+        sunglassesFrame: '#09090b',
+        sunglassesLensStroke: '#a1a1aa',
+        sunglassesGlint: '#f4f4f5',
+        whiskers: '#09090b',
+    },
+};
+
+const THEME_DISCO_COLORWAYS: Record<Exclude<VisualizerStyle, 'classic607'>, DiscoColorway> = {
+    default: {
+        suspensionString: '#d6eeff',
+        suspensionRingFill: '#091930',
+        sphereFill: '#a8dcff',
+        sphereStroke: '#e3f4ff',
+        sphereHighlight: '#cceaff',
+        facet1: '#ffc4d6',
+        facet2: '#d6eeff',
+        facet3: '#e8f6ff',
+        seamStroke: '#051e3e',
+        sparkle1: '#ffc4d6',
+        sparkle2: '#d6eeff',
+    },
+    cyberpunk: {
+        suspensionString: '#00ff9f',
+        suspensionRingFill: '#050508',
+        sphereFill: '#00f0ff',
+        sphereStroke: '#fcee0a',
+        sphereHighlight: '#7cf7ff',
+        facet1: '#ff003c',
+        facet2: '#fcee0a',
+        facet3: '#00ff9f',
+        seamStroke: '#050508',
+        sparkle1: '#fcee0a',
+        sparkle2: '#ff003c',
+    },
+    braun: {
+        suspensionString: '#8c887d',
+        suspensionRingFill: '#262624',
+        sphereFill: '#dcd8cd',
+        sphereStroke: '#8c887d',
+        sphereHighlight: '#f4f2ec',
+        facet1: '#ea5b0c',
+        facet2: '#faf8f5',
+        facet3: '#b8b4a8',
+        seamStroke: '#1c1c1a',
+        sparkle1: '#ea5b0c',
+        sparkle2: '#262624',
+    },
+    bauhaus: {
+        suspensionString: '#141413',
+        suspensionRingFill: '#f2b705',
+        sphereFill: '#184e9c',
+        sphereStroke: '#141413',
+        sphereHighlight: '#3b73c4',
+        facet1: '#d62828',
+        facet2: '#f2b705',
+        facet3: '#faf6ed',
+        seamStroke: '#141413',
+        sparkle1: '#d62828',
+        sparkle2: '#f2b705',
+    },
+    nagra: {
+        suspensionString: '#fff5ee',
+        suspensionRingFill: '#3b1547',
+        sphereFill: '#ff8566',
+        sphereStroke: '#fff5ee',
+        sphereHighlight: '#ffb399',
+        facet1: '#ffe885',
+        facet2: '#d9325e',
+        facet3: '#fff5ee',
+        seamStroke: '#3b1547',
+        sparkle1: '#ffe885',
+        sparkle2: '#fff5ee',
+    },
+    koto: {
+        suspensionString: '#d4af37',
+        suspensionRingFill: '#161118',
+        sphereFill: '#2a202d',
+        sphereStroke: '#d4af37',
+        sphereHighlight: '#433347',
+        facet1: '#c83e2b',
+        facet2: '#d4af37',
+        facet3: '#fae39c',
+        seamStroke: '#0d0a0f',
+        sparkle1: '#d4af37',
+        sparkle2: '#c83e2b',
+    },
+    minimal: {
+        suspensionString: '#a1a1aa',
+        suspensionRingFill: '#09090b',
+        sphereFill: '#3f3f46',
+        sphereStroke: '#a1a1aa',
+        sphereHighlight: '#52525b',
+        facet1: '#f4f4f5',
+        facet2: '#a1a1aa',
+        facet3: '#d4d4d8',
+        seamStroke: '#09090b',
+        sparkle1: '#f4f4f5',
+        sparkle2: '#a1a1aa',
+    },
+};
+
+// --- Disco Ball Component (Minimal Cat-Matched Illustration in All Modes Except Classic 607) ---
 const DiscoBall: React.FC<{ isPlaying: boolean; tempo?: number; beatFrame?: number; visualizerStyle?: VisualizerStyle }> = React.memo(({ isPlaying, tempo = 120, beatFrame = 0, visualizerStyle = 'default' }) => {
-    const isCobalt = visualizerStyle === 'default';
+    const isClassic607 = visualizerStyle === 'classic607';
     const beatSec = 60 / Math.max(30, tempo);
     const barSec = beatSec * 4;
 
-    if (isCobalt) {
+    if (!isClassic607) {
+        const discoColors = THEME_DISCO_COLORWAYS[visualizerStyle] ?? THEME_DISCO_COLORWAYS.default;
         return (
             <div
                 className={`
@@ -21,7 +254,7 @@ const DiscoBall: React.FC<{ isPlaying: boolean; tempo?: number; beatFrame?: numb
             >
                 <svg viewBox="0 0 64 84" fill="none" xmlns="http://www.w3.org/2000/svg">
                     <defs>
-                        <clipPath id="cobalt-minimal-disco-clip">
+                        <clipPath id={`minimal-disco-clip-${visualizerStyle}`}>
                             <circle cx="32" cy="50" r="19" />
                         </clipPath>
                         <style>
@@ -61,7 +294,7 @@ const DiscoBall: React.FC<{ isPlaying: boolean; tempo?: number; beatFrame?: numb
                             y1="0"
                             x2="32"
                             y2="25"
-                            stroke="#d6eeff"
+                            stroke={discoColors.suspensionString}
                             strokeWidth="2.2"
                             strokeLinecap="round"
                         />
@@ -69,18 +302,18 @@ const DiscoBall: React.FC<{ isPlaying: boolean; tempo?: number; beatFrame?: numb
                             cx="32"
                             cy="27.5"
                             r="2.8"
-                            fill="#091930"
-                            stroke="#d6eeff"
+                            fill={discoColors.suspensionRingFill}
+                            stroke={discoColors.suspensionString}
                             strokeWidth="2"
                         />
 
-                        {/* Sculpted Minimal Baby Blue Sphere Body (matching Cat #a8dcff + #cceaff + #e3f4ff) */}
+                        {/* Sculpted Minimal Sphere Body */}
                         <circle
                             cx="32"
                             cy="50"
                             r="19"
-                            fill="#a8dcff"
-                            stroke="#e3f4ff"
+                            fill={discoColors.sphereFill}
+                            stroke={discoColors.sphereStroke}
                             strokeWidth="2"
                         />
                         <ellipse
@@ -88,27 +321,27 @@ const DiscoBall: React.FC<{ isPlaying: boolean; tempo?: number; beatFrame?: numb
                             cy="45"
                             rx="12"
                             ry="11"
-                            fill="#cceaff"
+                            fill={discoColors.sphereHighlight}
                             opacity="0.7"
                         />
 
-                        {/* Minimal Facet Accents (Baby Pink & Baby Blue, locked to beatFrame) */}
-                        <g clipPath="url(#cobalt-minimal-disco-clip)">
+                        {/* Minimal Facet Accents (locked to beatFrame) */}
+                        <g clipPath={`url(#minimal-disco-clip-${visualizerStyle})`}>
                             <g opacity={!isPlaying || beatFrame === 0 ? 0.95 : 0.25}>
-                                <rect x="24" y="34" width="7" height="7" rx="1.5" fill="#ffc4d6" />
-                                <rect x="33" y="43" width="7" height="7" rx="1.5" fill="#d6eeff" />
-                                <rect x="16" y="43" width="7" height="7" rx="1.5" fill="#e8f6ff" />
-                                <rect x="24" y="52" width="7" height="7" rx="1.5" fill="#ffc4d6" opacity="0.9" />
+                                <rect x="24" y="34" width="7" height="7" rx="1.5" fill={discoColors.facet1} />
+                                <rect x="33" y="43" width="7" height="7" rx="1.5" fill={discoColors.facet2} />
+                                <rect x="16" y="43" width="7" height="7" rx="1.5" fill={discoColors.facet3} />
+                                <rect x="24" y="52" width="7" height="7" rx="1.5" fill={discoColors.facet1} opacity="0.9" />
                             </g>
                             <g opacity={isPlaying && beatFrame === 1 ? 0.95 : 0.25}>
-                                <rect x="33" y="34" width="7" height="7" rx="1.5" fill="#e8f6ff" />
-                                <rect x="24" y="43" width="7" height="7" rx="1.5" fill="#ffc4d6" />
-                                <rect x="41" y="43" width="7" height="7" rx="1.5" fill="#ffc4d6" opacity="0.9" />
-                                <rect x="33" y="52" width="7" height="7" rx="1.5" fill="#d6eeff" />
+                                <rect x="33" y="34" width="7" height="7" rx="1.5" fill={discoColors.facet3} />
+                                <rect x="24" y="43" width="7" height="7" rx="1.5" fill={discoColors.facet1} />
+                                <rect x="41" y="43" width="7" height="7" rx="1.5" fill={discoColors.facet1} opacity="0.9" />
+                                <rect x="33" y="52" width="7" height="7" rx="1.5" fill={discoColors.facet2} />
                             </g>
 
-                            {/* Minimal Midnight-Navy Seam Lines (matching Cat's #051e3e 2.4px rounded whiskers) */}
-                            <g stroke="#051e3e" strokeWidth="2.2" strokeLinecap="round">
+                            {/* Minimal Seam Lines */}
+                            <g stroke={discoColors.seamStroke} strokeWidth="2.2" strokeLinecap="round">
                                 <path d="M14 42 Q 32 45 50 42" />
                                 <path d="M13 51 Q 32 54 51 51" />
                                 <path d="M15 60 Q 32 62 49 60" />
@@ -124,22 +357,22 @@ const DiscoBall: React.FC<{ isPlaying: boolean; tempo?: number; beatFrame?: numb
                             cy="50"
                             r="19"
                             fill="none"
-                            stroke="#e3f4ff"
+                            stroke={discoColors.sphereStroke}
                             strokeWidth="2"
                         />
 
-                        {/* Minimal Hand-Drawn Plus / Star Sparkles in Baby Pink & Baby Blue */}
+                        {/* Minimal Hand-Drawn Plus / Star Sparkles */}
                         {isPlaying && (
                             <g strokeLinecap="round" strokeWidth="2.2">
-                                <g className="cobalt-sparkle-1" stroke="#ffc4d6">
+                                <g className="cobalt-sparkle-1" stroke={discoColors.sparkle1}>
                                     <line x1="10" y1="29" x2="10" y2="37" />
                                     <line x1="6" y1="33" x2="14" y2="33" />
                                 </g>
-                                <g className="cobalt-sparkle-2" stroke="#d6eeff">
+                                <g className="cobalt-sparkle-2" stroke={discoColors.sparkle2}>
                                     <line x1="54" y1="33" x2="54" y2="41" />
                                     <line x1="50" y1="37" x2="58" y2="37" />
                                 </g>
-                                <g className="cobalt-sparkle-3" stroke="#ffc4d6">
+                                <g className="cobalt-sparkle-3" stroke={discoColors.sparkle1}>
                                     <line x1="13" y1="64" x2="13" y2="70" />
                                     <line x1="10" y1="67" x2="16" y2="67" />
                                 </g>
@@ -151,7 +384,7 @@ const DiscoBall: React.FC<{ isPlaying: boolean; tempo?: number; beatFrame?: numb
         );
     }
 
-    // Classic chrome/prism themes
+    // Classic 607 chrome/prism disco ball
     const cordColor = '#94a3b8';
     const capFill = '#334155';
     const capStroke = '#cbd5e1';
@@ -350,69 +583,76 @@ interface DancingCatProps {
     visualizerStyle?: VisualizerStyle;
 }
 
-const BlueCobaltCatFrame1: React.FC = () => (
+const ThemedSunglassesCatFrame1: React.FC<{ colors: CatColorway }> = ({ colors }) => (
     <svg width="96" height="96" viewBox="0 0 96 96" fill="none" xmlns="http://www.w3.org/2000/svg">
-        {/* Waving Left Arm & Paw with 4 Baby Pink Toe-Beans */}
+        {/* Waving Left Arm & Paw with 4 Toe-Beans */}
         <path
             d="M36 74 C 19 72, 16 54, 21 38"
-            stroke="#a8dcff"
+            stroke={colors.bodyStroke}
+            strokeWidth="16"
+            strokeLinecap="round"
+            fill="none"
+        />
+        <path
+            d="M36 74 C 19 72, 16 54, 21 38"
+            stroke={colors.body}
             strokeWidth="12"
             strokeLinecap="round"
             fill="none"
         />
         <path
             d="M36 74 C 19 72, 16 54, 21 38"
-            stroke="#d6eeff"
+            stroke={colors.bodyHighlight}
             strokeWidth="8"
             strokeLinecap="round"
             fill="none"
             opacity="0.7"
         />
-        {/* Paw Pad & 4 Baby Pink Toe Beans */}
+        {/* Paw Pad & 4 Toe Beans */}
         <g transform="translate(21, 35) rotate(-12)">
-            <ellipse cx="0" cy="3" rx="4.2" ry="3.4" fill="#ffc4d6" />
-            <circle cx="-5.5" cy="-2.5" r="2.1" fill="#ffc4d6" />
-            <circle cx="-2" cy="-5" r="2.1" fill="#ffc4d6" />
-            <circle cx="2.2" cy="-5" r="2.1" fill="#ffc4d6" />
-            <circle cx="5.6" cy="-2.2" r="2.1" fill="#ffc4d6" />
+            <ellipse cx="0" cy="3" rx="4.2" ry="3.4" fill={colors.toeBeans} />
+            <circle cx="-5.5" cy="-2.5" r="2.1" fill={colors.toeBeans} />
+            <circle cx="-2" cy="-5" r="2.1" fill={colors.toeBeans} />
+            <circle cx="2.2" cy="-5" r="2.1" fill={colors.toeBeans} />
+            <circle cx="5.6" cy="-2.2" r="2.1" fill={colors.toeBeans} />
         </g>
 
-        {/* Sculpted Minimal Baby Blue Body */}
+        {/* Sculpted Minimal Body */}
         <path
             d="M35 84 C 33 66, 39 56, 52 56 C 65 56, 70 66, 68 84 C 60 87, 43 87, 35 84 Z"
-            fill="#a8dcff"
-            stroke="#e3f4ff"
+            fill={colors.body}
+            stroke={colors.bodyStroke}
             strokeWidth="2"
         />
-        <ellipse cx="52" cy="71" rx="10" ry="9" fill="#cceaff" opacity="0.7" />
+        <ellipse cx="52" cy="71" rx="10" ry="9" fill={colors.bellyHighlight} opacity="0.7" />
 
         {/* Cat Head & Pointed Ears */}
         <g transform="translate(53, 44)">
             {/* Left & Right Pointed Ears */}
-            <path d="M-17 -8 L-21 -27 L-4 -17 Z" fill="#a8dcff" stroke="#e3f4ff" strokeWidth="2" strokeLinejoin="round" />
-            <path d="M-15 -10 L-18 -22 L-7 -15 Z" fill="#ffc4d6" opacity="0.85" />
-            <path d="M17 -8 L21 -27 L4 -17 Z" fill="#a8dcff" stroke="#e3f4ff" strokeWidth="2" strokeLinejoin="round" />
-            <path d="M15 -10 L18 -22 L7 -15 Z" fill="#ffc4d6" opacity="0.85" />
+            <path d="M-17 -8 L-21 -27 L-4 -17 Z" fill={colors.body} stroke={colors.bodyStroke} strokeWidth="2" strokeLinejoin="round" />
+            <path d="M-15 -10 L-18 -22 L-7 -15 Z" fill={colors.earInner} opacity="0.85" />
+            <path d="M17 -8 L21 -27 L4 -17 Z" fill={colors.body} stroke={colors.bodyStroke} strokeWidth="2" strokeLinejoin="round" />
+            <path d="M15 -10 L18 -22 L7 -15 Z" fill={colors.earInner} opacity="0.85" />
 
             {/* Head Silhouette */}
-            <ellipse cx="0" cy="0" rx="19" ry="16" fill="#b4e2ff" stroke="#e3f4ff" strokeWidth="2" />
-            <ellipse cx="0" cy="3" rx="13" ry="10" fill="#d6eeff" opacity="0.65" />
+            <ellipse cx="0" cy="0" rx="19" ry="16" fill={colors.head} stroke={colors.bodyStroke} strokeWidth="2" />
+            <ellipse cx="0" cy="3" rx="13" ry="10" fill={colors.headHighlight} opacity="0.65" />
 
             {/* Cool Modern Minimal Sunglasses */}
             <g>
                 {/* Temple Arms & Nose Bridge */}
-                <path d="M-18.5 -4.5 L-13 -3.8 M13 -3.8 L18.5 -4.5" stroke="#051e3e" strokeWidth="2.2" strokeLinecap="round" />
-                <path d="M-2.5 -4.2 H2.5" stroke="#051e3e" strokeWidth="2.4" strokeLinecap="round" />
+                <path d="M-18.5 -4.5 L-13 -3.8 M13 -3.8 L18.5 -4.5" stroke={colors.sunglassesFrame} strokeWidth="2.2" strokeLinecap="round" />
+                <path d="M-2.5 -4.2 H2.5" stroke={colors.sunglassesFrame} strokeWidth="2.4" strokeLinecap="round" />
                 {/* Left & Right Lenses */}
-                <rect x="-13.5" y="-6.8" width="11.2" height="7" rx="2.2" fill="#051e3e" stroke="#e3f4ff" strokeWidth="1" />
-                <rect x="2.3" y="-6.8" width="11.2" height="7" rx="2.2" fill="#051e3e" stroke="#e3f4ff" strokeWidth="1" />
-                {/* Baby Pink & Ice Specular Lens Glints */}
-                <path d="M-10.8 -4.8 L-8.2 -1.8 M-7.2 -4.8 L-5.8 -3.2" stroke="#ffc4d6" strokeWidth="1.5" strokeLinecap="round" />
-                <path d="M5 -4.8 L7.6 -1.8 M8.6 -4.8 L10 -3.2" stroke="#ffc4d6" strokeWidth="1.5" strokeLinecap="round" />
+                <rect x="-13.5" y="-6.8" width="11.2" height="7" rx="2.2" fill={colors.sunglassesFrame} stroke={colors.sunglassesLensStroke} strokeWidth="1" />
+                <rect x="2.3" y="-6.8" width="11.2" height="7" rx="2.2" fill={colors.sunglassesFrame} stroke={colors.sunglassesLensStroke} strokeWidth="1" />
+                {/* Specular Lens Glints */}
+                <path d="M-10.8 -4.8 L-8.2 -1.8 M-7.2 -4.8 L-5.8 -3.2" stroke={colors.sunglassesGlint} strokeWidth="1.5" strokeLinecap="round" />
+                <path d="M5 -4.8 L7.6 -1.8 M8.6 -4.8 L10 -3.2" stroke={colors.sunglassesGlint} strokeWidth="1.5" strokeLinecap="round" />
             </g>
 
-            {/* Minimalist Midnight-Navy Whiskers */}
-            <g stroke="#051e3e" strokeWidth="2.4" strokeLinecap="round">
+            {/* Minimalist Whiskers */}
+            <g stroke={colors.whiskers} strokeWidth="2.4" strokeLinecap="round">
                 <path d="M-13 2 L-24 -1" />
                 <path d="M-14 5 L-25 5" />
                 <path d="M-13 8 L-23 11.5" />
@@ -424,67 +664,74 @@ const BlueCobaltCatFrame1: React.FC = () => (
     </svg>
 );
 
-const BlueCobaltCatFrame2: React.FC = () => (
+const ThemedSunglassesCatFrame2: React.FC<{ colors: CatColorway }> = ({ colors }) => (
     <svg width="96" height="96" viewBox="0 0 96 96" fill="none" xmlns="http://www.w3.org/2000/svg">
-        {/* Waving Left Arm & Paw with 4 Baby Pink Toe-Beans (bouncing up) */}
+        {/* Waving Left Arm & Paw with 4 Toe-Beans (bouncing up) */}
         <path
             d="M36 74 C 17 68, 13 48, 17 32"
-            stroke="#a8dcff"
+            stroke={colors.bodyStroke}
+            strokeWidth="16"
+            strokeLinecap="round"
+            fill="none"
+        />
+        <path
+            d="M36 74 C 17 68, 13 48, 17 32"
+            stroke={colors.body}
             strokeWidth="12"
             strokeLinecap="round"
             fill="none"
         />
         <path
             d="M36 74 C 17 68, 13 48, 17 32"
-            stroke="#d6eeff"
+            stroke={colors.bodyHighlight}
             strokeWidth="8"
             strokeLinecap="round"
             fill="none"
             opacity="0.7"
         />
-        {/* Paw Pad & 4 Baby Pink Toe Beans */}
+        {/* Paw Pad & 4 Toe Beans */}
         <g transform="translate(17, 29) rotate(-22)">
-            <ellipse cx="0" cy="3" rx="4.2" ry="3.4" fill="#ffd1e0" />
-            <circle cx="-5.5" cy="-2.5" r="2.1" fill="#ffd1e0" />
-            <circle cx="-2" cy="-5" r="2.1" fill="#ffd1e0" />
-            <circle cx="2.2" cy="-5" r="2.1" fill="#ffd1e0" />
-            <circle cx="5.6" cy="-2.2" r="2.1" fill="#ffd1e0" />
+            <ellipse cx="0" cy="3" rx="4.2" ry="3.4" fill={colors.toeBeansBounce} />
+            <circle cx="-5.5" cy="-2.5" r="2.1" fill={colors.toeBeansBounce} />
+            <circle cx="-2" cy="-5" r="2.1" fill={colors.toeBeansBounce} />
+            <circle cx="2.2" cy="-5" r="2.1" fill={colors.toeBeansBounce} />
+            <circle cx="5.6" cy="-2.2" r="2.1" fill={colors.toeBeansBounce} />
         </g>
 
-        {/* Sculpted Minimal Baby Blue Body */}
+        {/* Sculpted Minimal Body */}
         <path
             d="M35 85 C 33 68, 39 58, 52 58 C 65 58, 70 68, 68 85 C 60 88, 43 88, 35 85 Z"
-            fill="#a8dcff"
-            stroke="#e3f4ff"
+            fill={colors.body}
+            stroke={colors.bodyStroke}
             strokeWidth="2"
         />
-        <ellipse cx="52" cy="73" rx="10" ry="9" fill="#cceaff" opacity="0.7" />
+        <ellipse cx="52" cy="73" rx="10" ry="9" fill={colors.bellyHighlight} opacity="0.7" />
 
         {/* Cat Head & Pointed Ears (tilted to the beat) */}
         <g transform="translate(54, 46) rotate(5)">
-            <path d="M-17 -8 L-21 -27 L-4 -17 Z" fill="#a8dcff" stroke="#e3f4ff" strokeWidth="2" strokeLinejoin="round" />
-            <path d="M-15 -10 L-18 -22 L-7 -15 Z" fill="#ffc4d6" opacity="0.85" />
-            <path d="M17 -8 L21 -27 L4 -17 Z" fill="#a8dcff" stroke="#e3f4ff" strokeWidth="2" strokeLinejoin="round" />
-            <path d="M15 -10 L18 -22 L7 -15 Z" fill="#ffc4d6" opacity="0.85" />
+            <path d="M-17 -8 L-21 -27 L-4 -17 Z" fill={colors.body} stroke={colors.bodyStroke} strokeWidth="2" strokeLinejoin="round" />
+            <path d="M-15 -10 L-18 -22 L-7 -15 Z" fill={colors.earInner} opacity="0.85" />
+            <path d="M17 -8 L21 -27 L4 -17 Z" fill={colors.body} stroke={colors.bodyStroke} strokeWidth="2" strokeLinejoin="round" />
+            <path d="M15 -10 L18 -22 L7 -15 Z" fill={colors.earInner} opacity="0.85" />
 
-            <ellipse cx="0" cy="0" rx="19" ry="16" fill="#b4e2ff" stroke="#e3f4ff" strokeWidth="2" />
-            <ellipse cx="0" cy="3" rx="13" ry="10" fill="#d6eeff" opacity="0.65" />
+            <ellipse cx="0" cy="0" rx="19" ry="16" fill={colors.head} stroke={colors.bodyStroke} strokeWidth="2" />
+            <ellipse cx="0" cy="3" rx="13" ry="10" fill={colors.headHighlight} opacity="0.65" />
 
             {/* Cool Modern Minimal Sunglasses */}
             <g>
                 {/* Temple Arms & Nose Bridge */}
-                <path d="M-18.5 -4.5 L-13 -3.8 M13 -3.8 L18.5 -4.5" stroke="#051e3e" strokeWidth="2.2" strokeLinecap="round" />
-                <path d="M-2.5 -4.2 H2.5" stroke="#051e3e" strokeWidth="2.4" strokeLinecap="round" />
+                <path d="M-18.5 -4.5 L-13 -3.8 M13 -3.8 L18.5 -4.5" stroke={colors.sunglassesFrame} strokeWidth="2.2" strokeLinecap="round" />
+                <path d="M-2.5 -4.2 H2.5" stroke={colors.sunglassesFrame} strokeWidth="2.4" strokeLinecap="round" />
                 {/* Left & Right Lenses */}
-                <rect x="-13.5" y="-6.8" width="11.2" height="7" rx="2.2" fill="#051e3e" stroke="#e3f4ff" strokeWidth="1" />
-                <rect x="2.3" y="-6.8" width="11.2" height="7" rx="2.2" fill="#051e3e" stroke="#e3f4ff" strokeWidth="1" />
-                {/* Baby Pink & Ice Specular Lens Glints */}
-                <path d="M-10.8 -4.8 L-8.2 -1.8 M-7.2 -4.8 L-5.8 -3.2" stroke="#ffc4d6" strokeWidth="1.5" strokeLinecap="round" />
-                <path d="M5 -4.8 L7.6 -1.8 M8.6 -4.8 L10 -3.2" stroke="#ffc4d6" strokeWidth="1.5" strokeLinecap="round" />
+                <rect x="-13.5" y="-6.8" width="11.2" height="7" rx="2.2" fill={colors.sunglassesFrame} stroke={colors.sunglassesLensStroke} strokeWidth="1" />
+                <rect x="2.3" y="-6.8" width="11.2" height="7" rx="2.2" fill={colors.sunglassesFrame} stroke={colors.sunglassesLensStroke} strokeWidth="1" />
+                {/* Specular Lens Glints */}
+                <path d="M-10.8 -4.8 L-8.2 -1.8 M-7.2 -4.8 L-5.8 -3.2" stroke={colors.sunglassesGlint} strokeWidth="1.5" strokeLinecap="round" />
+                <path d="M5 -4.8 L7.6 -1.8 M8.6 -4.8 L10 -3.2" stroke={colors.sunglassesGlint} strokeWidth="1.5" strokeLinecap="round" />
             </g>
 
-            {/* Minimalist Midnight-Navy Whiskers */}
-            <g stroke="#051e3e" strokeWidth="2.4" strokeLinecap="round">
+            {/* Minimalist Whiskers */}
+            <g stroke={colors.whiskers} strokeWidth="2.4" strokeLinecap="round">
                 <path d="M-13 2 L-24 -2" />
                 <path d="M-14 5 L-25 4" />
                 <path d="M-13 8 L-23 11" />
@@ -647,19 +894,14 @@ const BrownTabbyCatFrame2: React.FC = () => (
 );
 
 
-const catFrames = [
+const classicTabbyFrames = [
     <BrownTabbyCatFrame1 key="1" />,
     <BrownTabbyCatFrame2 key="2" />,
 ];
 
-const blueCatFrames = [
-    <BlueCobaltCatFrame1 key="b1" />,
-    <BlueCobaltCatFrame2 key="b2" />,
-];
-
 const DancingCat: React.FC<DancingCatProps> = React.memo(({ isPlaying, tempo, currentStep, visualizerStyle = 'default' }) => {
-    const isCobaltDefault = visualizerStyle === 'default';
-    const activeFrames = isCobaltDefault ? blueCatFrames : catFrames;
+    const isClassic607 = visualizerStyle === 'classic607';
+    const catColors = !isClassic607 ? (THEME_CAT_COLORWAYS[visualizerStyle] ?? THEME_CAT_COLORWAYS.default) : null;
 
     // Phase-locked to the exact Web Audio sequencer step clock:
     // Downbeat 8th notes (steps 0,1 / 4,5 / 8,9 / 12,13) trigger Frame 1 (beat bob / dance pose),
@@ -667,7 +909,7 @@ const DancingCat: React.FC<DancingCatProps> = React.memo(({ isPlaying, tempo, cu
     const currentFrame = !isPlaying
         ? 0
         : currentStep !== null && currentStep !== undefined
-        ? (Math.floor(currentStep / 2) % 2 === 0 ? 1 : 0) % activeFrames.length
+        ? (Math.floor(currentStep / 2) % 2 === 0 ? 1 : 0)
         : 1;
 
     const containerClasses = `
@@ -679,7 +921,11 @@ const DancingCat: React.FC<DancingCatProps> = React.memo(({ isPlaying, tempo, cu
     return (
         <div className={containerClasses} aria-hidden="true">
             <div className="absolute left-0 bottom-0 pointer-events-none">
-                {activeFrames[currentFrame]}
+                {isClassic607
+                    ? classicTabbyFrames[currentFrame]
+                    : currentFrame === 1
+                    ? <ThemedSunglassesCatFrame2 colors={catColors!} />
+                    : <ThemedSunglassesCatFrame1 colors={catColors!} />}
             </div>
             <div className="absolute right-0 top-0 pointer-events-none">
                  <DiscoBall isPlaying={isPlaying} tempo={tempo} beatFrame={currentFrame} visualizerStyle={visualizerStyle} />
@@ -927,6 +1173,7 @@ interface ControlsProps {
     onMasterVolumeChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
     onDirectMasterVolumeChange?: (volume: number) => void;
     activePattern: 'a' | 'b';
+    pendingPattern?: 'a' | 'b' | null;
     onPatternToggle: (pattern: 'a' | 'b') => void;
     hueRotate: number;
     onHueRotateChange: (value: number) => void;
@@ -943,6 +1190,7 @@ interface ControlsProps {
     onClearDragUrl?: () => void;
     savedPatterns: (SavedPattern | null)[];
     currentPatternIndex: number;
+    pendingPatternIndex?: number | null;
     onSelectPattern: (slotIndex: number) => void;
     onCatClick: () => void;
     onClearPattern: () => void;
@@ -1029,6 +1277,7 @@ interface PatternSlotButtonProps {
     slotIndex: number;
     hasContent: boolean;
     isActive: boolean;
+    isPending?: boolean;
     onClick: (index: number) => void;
     visualizerStyle: import('../types').VisualizerStyle;
 }
@@ -1040,30 +1289,32 @@ const hasContentInPattern = (pattern: SavedPattern | null): boolean => {
     return hasNotesA || hasNotesB;
 };
 
-const PatternSlotButton: React.FC<PatternSlotButtonProps> = React.memo(({ slotIndex, hasContent, isActive, onClick, visualizerStyle }) => {
+const PatternSlotButton: React.FC<PatternSlotButtonProps> = React.memo(({ slotIndex, hasContent, isActive, isPending = false, onClick, visualizerStyle }) => {
     const buttonClasses = getButtonStyle(
         visualizerStyle,
         hasContent ? 'primary' : 'secondary',
         isActive,
         false,
-        'w-10 h-10 text-lg'
+        `w-10 h-10 text-lg ${isPending ? 'animate-pulse ring-2 ring-amber-400/90' : ''}`
     );
 
     return (
         <button
             onClick={() => onClick(slotIndex)}
             className={buttonClasses}
-            aria-label={`Pattern ${slotIndex + 1}. ${isActive ? 'Currently active.' : ''}`}
+            aria-label={`Pattern ${slotIndex + 1}. ${isActive ? 'Currently active.' : isPending ? 'Queued for next measure.' : ''}`}
             aria-pressed={isActive}
         >
-            {/* Subtle hardware status pip when pattern slot has notes */}
-            {hasContent && (
+            {/* Subtle hardware status pip when pattern slot has notes or is queued */}
+            {(hasContent || isPending) && (
                 <span
                     aria-hidden="true"
                     className={`absolute top-1.5 right-1.5 w-1.5 h-1.5 ${
                         visualizerStyle === 'bauhaus' || visualizerStyle === 'cyberpunk' || visualizerStyle === 'minimal' ? 'rounded-none' : 'rounded-full'
                     } ${
-                        isActive
+                        isPending
+                            ? 'bg-amber-400 shadow-[0_0_6px_#fbbf24] animate-ping'
+                            : isActive
                             ? 'bg-current opacity-80'
                             : visualizerStyle === 'minimal'
                             ? 'bg-[#ff3b1d]'
@@ -1103,6 +1354,7 @@ const Controls: React.FC<ControlsProps> = ({
     onMasterVolumeChange,
     onDirectMasterVolumeChange,
     activePattern,
+    pendingPattern = null,
     onPatternToggle,
     hueRotate,
     onHueRotateChange,
@@ -1117,6 +1369,7 @@ const Controls: React.FC<ControlsProps> = ({
     onClearDragUrl,
     savedPatterns,
     currentPatternIndex,
+    pendingPatternIndex = null,
     onSelectPattern,
     onCatClick,
     onClearPattern,
@@ -2229,21 +2482,45 @@ const Controls: React.FC<ControlsProps> = ({
             <div className="flex flex-col items-center gap-1">
                  <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">BEAT SWITCH</span>
                 <div className="flex items-center gap-2" role="group" aria-label="Pattern selector">
-                    <Tooltip text="Switch to Pattern A">
+                    <Tooltip text={pendingPattern === 'a' ? "Pattern A queued for next measure" : "Switch to Pattern A"}>
                         <button
                             onClick={() => onPatternToggle('a')}
-                            className={getButtonStyle(visualizerStyle, 'secondary', activePattern === 'a', false, 'w-14 h-12 text-lg')}
+                            className={getButtonStyle(
+                                visualizerStyle,
+                                'secondary',
+                                activePattern === 'a',
+                                false,
+                                `w-14 h-12 text-lg ${pendingPattern === 'a' && activePattern !== 'a' ? 'animate-pulse ring-2 ring-amber-400/90' : ''}`
+                            )}
                             aria-pressed={activePattern === 'a'}
                         >
+                            {pendingPattern === 'a' && activePattern !== 'a' && (
+                                <span
+                                    aria-hidden="true"
+                                    className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-amber-400 shadow-[0_0_6px_#fbbf24] animate-ping"
+                                />
+                            )}
                             A
                         </button>
                     </Tooltip>
-                    <Tooltip text="Switch to Pattern B">
+                    <Tooltip text={pendingPattern === 'b' ? "Pattern B queued for next measure" : "Switch to Pattern B"}>
                         <button
                             onClick={() => onPatternToggle('b')}
-                            className={getButtonStyle(visualizerStyle, 'secondary', activePattern === 'b', false, 'w-14 h-12 text-lg')}
+                            className={getButtonStyle(
+                                visualizerStyle,
+                                'secondary',
+                                activePattern === 'b',
+                                false,
+                                `w-14 h-12 text-lg ${pendingPattern === 'b' && activePattern !== 'b' ? 'animate-pulse ring-2 ring-amber-400/90' : ''}`
+                            )}
                             aria-pressed={activePattern === 'b'}
                         >
+                            {pendingPattern === 'b' && activePattern !== 'b' && (
+                                <span
+                                    aria-hidden="true"
+                                    className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-amber-400 shadow-[0_0_6px_#fbbf24] animate-ping"
+                                />
+                            )}
                             B
                         </button>
                     </Tooltip>
@@ -2254,11 +2531,12 @@ const Controls: React.FC<ControlsProps> = ({
                 <span className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">PATTERN SELECT</span>
                 <div className="flex items-center gap-2" role="group" aria-label="Pattern selection slots">
                     {savedPatterns.map((pattern, index) => (
-                        <Tooltip key={index} text={`Load Pattern ${index + 1}`}>
+                        <Tooltip key={index} text={pendingPatternIndex === index ? `Pattern ${index + 1} queued for next measure` : `Load Pattern ${index + 1}`}>
                             <PatternSlotButton 
                                 slotIndex={index}
                                 hasContent={hasContentInPattern(pattern)}
                                 isActive={currentPatternIndex === index}
+                                isPending={pendingPatternIndex === index && currentPatternIndex !== index}
                                 onClick={onSelectPattern}
                                 visualizerStyle={visualizerStyle}
                             />
@@ -2446,32 +2724,30 @@ const Controls: React.FC<ControlsProps> = ({
                 )}
             </div>
 
-            {(visualizerStyle !== 'minimal' || isCappuccinoMode) && (
-                <div
-                    role="button"
-                    tabIndex={isPlaying ? 0 : -1}
-                    aria-label="Trigger airhorn"
-                    onPointerDown={(e) => {
-                        if (!isPlaying) return;
+            <div
+                role="button"
+                tabIndex={isPlaying ? 0 : -1}
+                aria-label="Trigger airhorn"
+                onPointerDown={(e) => {
+                    if (!isPlaying) return;
+                    e.preventDefault();
+                    onCatClick();
+                }}
+                onKeyDown={(e) => {
+                    if (!isPlaying) return;
+                    if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault();
                         onCatClick();
-                    }}
-                    onKeyDown={(e) => {
-                        if (!isPlaying) return;
-                        if (e.key === 'Enter' || e.key === ' ') {
-                            e.preventDefault();
-                            onCatClick();
-                        }
-                    }}
-                    className={`select-none touch-manipulation transition-transform duration-75 ${isPlaying ? 'cursor-pointer active:scale-95' : ''}`}
-                >
-                    {isCappuccinoMode ? (
-                        <DancingCoffeeCup isPlaying={isPlaying} tempo={tempo} currentStep={currentStep} visualizerStyle={visualizerStyle} />
-                    ) : (
-                        <DancingCat isPlaying={isPlaying} tempo={tempo} currentStep={currentStep} visualizerStyle={visualizerStyle} />
-                    )}
-                </div>
-            )}
+                    }
+                }}
+                className={`select-none touch-manipulation transition-transform duration-75 ${isPlaying ? 'cursor-pointer active:scale-95' : ''}`}
+            >
+                {isCappuccinoMode ? (
+                    <DancingCoffeeCup isPlaying={isPlaying} tempo={tempo} currentStep={currentStep} visualizerStyle={visualizerStyle} />
+                ) : (
+                    <DancingCat isPlaying={isPlaying} tempo={tempo} currentStep={currentStep} visualizerStyle={visualizerStyle} />
+                )}
+            </div>
         </div>
     );
 };

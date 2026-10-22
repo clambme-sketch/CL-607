@@ -150,6 +150,7 @@ class DjFxProcessor extends AudioWorkletProcessor {
     this.tapeStartDuration = 0.16;
     this.tapeReleasePending = false;
     this.tapeHoldPauseSamples = 0;
+    this.tapePauseAfterStop = false;
 
     // Variable-speed fractional delay line state
     this.tapeDelaySamples = 0.0;
@@ -208,6 +209,15 @@ class DjFxProcessor extends AudioWorkletProcessor {
         } else {
           const wasPaused = !this.transportPlaying;
           this.transportPlaying = true;
+          if (wasPaused && this.tapeState === 'stopped') {
+            this.tapeState = 'idle';
+            this.tapeSpeed = 1.0;
+            this.tapePhase = 0.0;
+            this.tapeStartPhase = 0.0;
+            this.tapeDelaySamples = 0.0;
+            this.tapeReleasePending = false;
+            this.tapeHoldPauseSamples = 0;
+          }
           if (data.reanchor || wasPaused) {
             const elapsedSinceAnchor = Math.max(0, Math.min(4096, Math.ceil((currentTime - this.beatAnchorTime) * sampleRate) + 64));
             this.samplesSinceTransportStart = elapsedSinceAnchor;
@@ -301,11 +311,22 @@ class DjFxProcessor extends AudioWorkletProcessor {
         if (typeof data.duration === 'number' && data.duration > 0.1) {
           this.tapeStopDuration = Math.max(0.20, Math.min(1.50, data.duration));
         }
+        if (typeof data.pauseAfterStop === 'boolean') {
+          this.tapePauseAfterStop = data.pauseAfterStop;
+        }
 
         if (data.beatSamples) {
           this.beatSamples = Math.max(256, Math.floor(data.beatSamples));
         }
-        if (data.active) {
+        if (data.reset) {
+          this.tapeState = 'idle';
+          this.tapeSpeed = 1.0;
+          this.tapePhase = 0.0;
+          this.tapeStartPhase = 0.0;
+          this.tapeDelaySamples = 0.0;
+          this.tapeReleasePending = false;
+          this.tapeHoldPauseSamples = 0;
+        } else if (data.active) {
           this.tapeReleasePending = false;
           if (this.tapeState !== 'stopping' && this.tapeState !== 'stopped') {
             this.anchorTapeStop();
@@ -314,7 +335,10 @@ class DjFxProcessor extends AudioWorkletProcessor {
             this.tapeSpeed = 1.0;
           }
         } else {
-          if (this.tapeState === 'stopping') {
+          if (this.tapePauseAfterStop) {
+            // When Pause After Stop is active, keep braking to a dead stop without spinning back up
+            this.tapeReleasePending = false;
+          } else if (this.tapeState === 'stopping') {
             // If released before the brake finishes (e.g. a quick tap/click), complete the full downward stop first!
             this.tapeReleasePending = true;
           } else if (this.tapeState === 'stopped') {
@@ -327,6 +351,15 @@ class DjFxProcessor extends AudioWorkletProcessor {
       } else if (data.type === 'tapestopParams') {
         if (typeof data.duration === 'number' && data.duration > 0.1) {
           this.tapeStopDuration = Math.max(0.20, Math.min(1.50, data.duration));
+        }
+        if (typeof data.pauseAfterStop === 'boolean') {
+          this.tapePauseAfterStop = data.pauseAfterStop;
+          if (!this.tapePauseAfterStop && this.tapeState === 'stopped' && !this.transportPlaying) {
+            this.tapeState = 'idle';
+            this.tapeSpeed = 1.0;
+            this.tapePhase = 0.0;
+            this.tapeDelaySamples = 0.0;
+          }
         }
         if (data.beatSamples) {
           this.beatSamples = Math.max(256, Math.floor(data.beatSamples));
@@ -808,7 +841,7 @@ class DjFxProcessor extends AudioWorkletProcessor {
           procL = 0.0;
           procR = 0.0;
           this.tapeState = 'stopped';
-          this.tapeHoldPauseSamples = this.tapeReleasePending ? Math.floor(sampleRate * 0.035) : 0;
+          this.tapeHoldPauseSamples = (!this.tapePauseAfterStop && this.tapeReleasePending) ? Math.floor(sampleRate * 0.035) : 0;
         } else {
           const readPos = this.writeIndex - this.tapeDelaySamples;
           const rawTapL = this.readBufferCubic(this.tapeBufferL, this.bufferLength, readPos);
@@ -833,19 +866,26 @@ class DjFxProcessor extends AudioWorkletProcessor {
           }
         }
       } else if (this.tapeState === 'stopped') {
-        this.tapeBufferL[this.writeIndex] = procL;
-        this.tapeBufferR[this.writeIndex] = procR;
-        procL = 0.0;
-        procR = 0.0;
-        if (this.tapeReleasePending) {
-          if (this.tapeHoldPauseSamples > 0) {
-            this.tapeHoldPauseSamples--;
-          } else {
-            this.tapeReleasePending = false;
-            this.tapeState = 'starting';
-            this.tapeStartPhase = 0.0;
-            this.tapeSpeed = 0.08;
-            this.tapeDelaySamples = Math.floor(sampleRate * 0.065);
+        if (this.tapePauseAfterStop) {
+          this.tapeBufferL[this.writeIndex] = 0.0;
+          this.tapeBufferR[this.writeIndex] = 0.0;
+          procL = 0.0;
+          procR = 0.0;
+        } else {
+          this.tapeBufferL[this.writeIndex] = procL;
+          this.tapeBufferR[this.writeIndex] = procR;
+          procL = 0.0;
+          procR = 0.0;
+          if (this.tapeReleasePending) {
+            if (this.tapeHoldPauseSamples > 0) {
+              this.tapeHoldPauseSamples--;
+            } else {
+              this.tapeReleasePending = false;
+              this.tapeState = 'starting';
+              this.tapeStartPhase = 0.0;
+              this.tapeSpeed = 0.08;
+              this.tapeDelaySamples = Math.floor(sampleRate * 0.065);
+            }
           }
         }
       } else if (this.tapeState === 'starting') {
@@ -2391,6 +2431,9 @@ export const useAudioEngine = () => {
         if (context.state === 'suspended') {
             context.resume();
         }
+        if (time === undefined && !transportPlayingRef.current && djFxWorkletNodeRef.current) {
+            djFxWorkletNodeRef.current.port.postMessage({ type: 'tapestop', reset: true });
+        }
         const playTime = time !== undefined ? Math.max(context.currentTime, time) : context.currentTime;
 
         const source = context.createBufferSource();
@@ -3774,6 +3817,9 @@ export const useAudioEngine = () => {
         if (context.state === 'suspended') {
             context.resume().catch(() => {});
         }
+        if (!transportPlayingRef.current && djFxWorkletNodeRef.current) {
+            djFxWorkletNodeRef.current.port.postMessage({ type: 'tapestop', reset: true });
+        }
 
         const now = context.currentTime;
 
@@ -3894,20 +3940,25 @@ export const useAudioEngine = () => {
         });
     }, []);
 
-    const setTapeStop = useCallback((active: boolean, duration: number = 0.64, tempo: number = 90) => {
+    const setTapeStop = useCallback((active: boolean, duration: number = 0.64, tempo: number = 90, pauseAfterStop: boolean = false, reset: boolean = false) => {
         const node = djFxWorkletNodeRef.current;
         const context = audioContextRef.current;
         if (!node) return;
         const beatSamples = context ? Math.max(256, Math.floor((60 / tempo) * context.sampleRate)) : 24000;
-        node.port.postMessage({ type: 'tapestop', active, duration, beatSamples });
+        node.port.postMessage({ type: 'tapestop', active, duration, beatSamples, pauseAfterStop, reset });
     }, []);
 
-    const updateTapeStopDuration = useCallback((duration: number, tempo: number = 90) => {
+    const updateTapeStopDuration = useCallback((duration: number, tempo: number = 90, pauseAfterStop?: boolean) => {
         const node = djFxWorkletNodeRef.current;
         const context = audioContextRef.current;
         if (!node) return;
         const beatSamples = context ? Math.max(256, Math.floor((60 / tempo) * context.sampleRate)) : 24000;
-        node.port.postMessage({ type: 'tapestopParams', duration, beatSamples });
+        node.port.postMessage({
+            type: 'tapestopParams',
+            duration,
+            beatSamples,
+            ...(typeof pauseAfterStop === 'boolean' ? { pauseAfterStop } : {}),
+        });
     }, []);
 
     const setStutterState = useCallback((

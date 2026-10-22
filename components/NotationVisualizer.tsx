@@ -694,7 +694,7 @@ const NotationVisualizer: React.FC<NotationVisualizerProps> = ({
                     <span className="text-xs font-bold uppercase tracking-wider text-gray-300">
                         Notation Text:
                     </span>
-                    <div className="inline-flex rounded-md bg-gray-800/80 p-0.5 border border-gray-700/60" role="group" aria-label="Notation rhythm text display">
+                    <div className="inline-flex rounded-md bg-gray-800/50 p-0.5 border border-gray-700/60" role="group" aria-label="Notation rhythm text display">
                         <button
                             type="button"
                             onClick={() => handleSetTextMode('subdivisions')}
@@ -725,7 +725,7 @@ const NotationVisualizer: React.FC<NotationVisualizerProps> = ({
                             aria-pressed={currentTextMode === 'off'}
                             className={`px-2.5 py-1 text-xs font-mono font-bold rounded transition-colors cursor-pointer ${
                                 currentTextMode === 'off'
-                                    ? 'bg-gray-700 text-gray-200 shadow-sm'
+                                    ? 'bg-blue-600 text-white shadow-sm'
                                     : 'text-gray-400 hover:text-gray-200'
                             }`}
                         >
