@@ -256,14 +256,14 @@ const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
                 }}
                 role="button"
                 tabIndex={0}
-                className={`relative z-10 w-full flex items-center justify-between ${isMinimal || visualizerStyle === 'default' ? 'px-4 py-3' : 'p-4'} ${isMinimal ? 'hover:bg-[#141418]' : visualizerStyle === 'default' ? 'hover:bg-[#102747]/60' : ''} ${isSunset ? 'px-7 py-4 rounded-t-[38px]' : ''} text-left focus:outline-none cursor-pointer select-none ${isMinimal ? '' : 'transition-transform active:scale-[0.99]'} ${
+                className={`relative z-10 w-full flex items-center justify-between ${isMinimal ? 'px-4 py-3' : visualizerStyle === 'default' ? 'px-5 py-3.5' : 'p-4'} ${isMinimal ? 'hover:bg-[#141418]' : visualizerStyle === 'default' ? 'hover:bg-[#16345e]/45 rounded-t-2xl transition-colors' : ''} ${isSunset ? 'px-7 py-4 rounded-t-[38px]' : ''} text-left focus:outline-none cursor-pointer select-none ${isMinimal ? '' : 'transition-transform active:scale-[0.99]'} ${
                     visualizerStyle === 'bauhaus' && isOpen ? 'border-b-2 border-[#141413] bg-[#ebe4d5]/60' : ''
                 } ${visualizerStyle === 'braun' && isOpen ? 'border-b border-[#d5d1c5]' : ''} ${
                     isSunset && isOpen ? 'border-b border-[#f7bba6]/65 bg-gradient-to-b from-white/60 to-[#ffe6d9]/35' : ''
                 } ${
                     isMinimal && isOpen ? 'border-b border-[#222226] bg-[#111114]' : ''
                 } ${
-                    visualizerStyle === 'default' && isOpen ? 'border-b border-[#1b3963] bg-[#08162b]/80' : ''
+                    visualizerStyle === 'default' && isOpen ? 'border-b border-[#8ecaff]/18 bg-[#09182e]/50' : ''
                 } ${
                     hasDragSupport ? 'cursor-grab active:cursor-grabbing' : ''
                 }`}
@@ -281,12 +281,6 @@ const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
                         <span
                             aria-hidden="true"
                             className={`w-3.5 h-3.5 border-2 border-[#141413] transition-colors ${isOpen ? 'bg-[#d62828]' : 'bg-[#f2b705]'}`}
-                        />
-                    )}
-                    {visualizerStyle === 'default' && (
-                        <span
-                            aria-hidden="true"
-                            className={`w-2.5 h-2.5 border transition-colors ${isOpen ? 'bg-[#ffc4d6] border-[#ffe0ea]' : 'bg-[#a8dcff] border-[#d6eeff]'}`}
                         />
                     )}
                     {isSunset && <SunsetCloudEmblem isOpen={isOpen} />}

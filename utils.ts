@@ -284,52 +284,55 @@ export const getButtonStyle = (
             styleClasses = `border border-[#18181b] bg-[#09090b] text-[#3f3f46] !transition-none rounded-none font-['IBM_Plex_Mono'] tracking-[0.12em]`;
         }
     } else if (visualizerStyle === 'default') {
-        // Default (Dark Blue Gradient + Baby Pink & Baby Blue Minimal Color-Block Masterpiece)
+        // Default (Modern Minimal Gallery Masterpiece — Deep Sapphire & Luminous Pastel Keycaps)
         const isDanger = variant === 'danger';
         const isSuccess = variant === 'success';
         const isPrimary = variant === 'primary';
 
         const bgStyle = isActive
-            ? 'bg-[#ffc4d6]'
+            ? 'bg-gradient-to-b from-[#ffd2e0] to-[#ffb8ce]'
             : isDanger
-            ? 'bg-gradient-to-b from-[#1a162b] to-[#0e0c1a]'
+            ? 'bg-gradient-to-b from-[#211936] to-[#120e21]'
             : isSuccess
-            ? 'bg-gradient-to-b from-[#173d6e] to-[#0d274a]'
+            ? 'bg-gradient-to-b from-[#1a4378] to-[#0f2b52]'
             : isPrimary
-            ? 'bg-[#a8dcff]'
-            : 'bg-gradient-to-b from-[#112a4e] to-[#091830]';
+            ? 'bg-gradient-to-b from-[#bae4ff] to-[#9cd5ff]'
+            : 'bg-gradient-to-b from-[#143059] to-[#0b1c36]';
         const textColor = isActive
-            ? 'text-[#061121]'
+            ? 'text-[#061224]'
             : isPrimary
-            ? 'text-[#061121]'
+            ? 'text-[#061224]'
             : isDanger
             ? 'text-[#ffc4d6]'
             : isSuccess
-            ? 'text-[#cceaff]'
-            : 'text-[#dff0ff]';
+            ? 'text-[#d8f0ff]'
+            : 'text-[#e8f4ff]';
         const borderColor = isActive
-            ? 'border-[#ffe0ea]'
+            ? 'border-white/85'
             : isDanger
-            ? 'border-[#ffc4d6]/70'
+            ? 'border-[#ffc4d6]/55'
             : isSuccess
-            ? 'border-[#a8dcff]/80'
+            ? 'border-[#a8dcff]/65'
             : isPrimary
-            ? 'border-[#d4eeff]'
-            : 'border-[#1e3f6e]';
+            ? 'border-white/85'
+            : 'border-[#8ecaff]/25';
+        const keycapShadow = isActive || isPrimary
+            ? 'shadow-[0_4px_12px_rgba(4,12,26,0.32),inset_0_1px_0_rgba(255,255,255,0.75)]'
+            : 'shadow-[0_2px_8px_rgba(3,10,24,0.35),inset_0_1px_0_rgba(214,238,255,0.14)]';
         const hoverStyle = isActive
-            ? 'hover:bg-[#ffd4e2]'
+            ? 'hover:from-[#ffdeea] hover:to-[#ffc4d6]'
             : isDanger
-            ? 'hover:from-[#ffc4d6] hover:to-[#ffb0c8] hover:text-[#061121] hover:border-[#ffe0ea]'
+            ? 'hover:from-[#ffc4d6] hover:to-[#ffb0c8] hover:text-[#061224] hover:border-white'
             : isSuccess
-            ? 'hover:from-[#1f4d87] hover:to-[#12335e] hover:border-[#cceaff]'
+            ? 'hover:from-[#215290] hover:to-[#133563] hover:border-[#cceaff]'
             : isPrimary
-            ? 'hover:bg-[#bce5ff] hover:border-white'
-            : 'hover:from-[#163663] hover:to-[#0c2140] hover:border-[#a8dcff]/80 hover:text-white';
+            ? 'hover:from-[#ccebff] hover:to-[#adddff] hover:border-white'
+            : 'hover:from-[#193b6b] hover:to-[#0e2444] hover:border-[#a8dcff]/65 hover:text-white';
 
-        styleClasses = `border ${borderColor} ${bgStyle} ${textColor} ${hoverStyle} active:translate-y-[1px] focus:ring-1 focus:ring-offset-0 focus:ring-[#a8dcff] rounded-none font-['IBM_Plex_Mono'] font-medium tracking-[0.12em]`;
+        styleClasses = `border ${borderColor} ${bgStyle} ${textColor} ${keycapShadow} ${hoverStyle} active:translate-y-[1px] focus:ring-1 focus:ring-offset-0 focus:ring-[#a8dcff] rounded-xl font-['Plus_Jakarta_Sans'] font-semibold tracking-[0.08em]`;
 
         if (isDisabled) {
-            styleClasses = `border border-[#132847] bg-[#071324] text-[#3b5b82] rounded-none font-['IBM_Plex_Mono'] tracking-[0.12em]`;
+            styleClasses = `border border-[#152c4f] bg-[#081529] text-[#456894] rounded-xl font-['Plus_Jakarta_Sans'] font-medium tracking-[0.08em]`;
         }
     } else {
         // Classic 607 style (Classic Electric Blue Drum Machine)
@@ -436,14 +439,14 @@ export const getThemeSurface = (visualizerStyle: VisualizerStyle) => {
             };
         case 'default':
             return {
-                mainDeck: 'bg-gradient-to-b from-[#132d54] to-[#0b1d38] rounded-none border border-[#244a7d] shadow-[6px_6px_0px_#050f20]',
-                sectionCard: 'bg-gradient-to-b from-[#11294c] to-[#0a1b34] rounded-none border border-[#214373] shadow-[4px_4px_0px_#050f20]',
-                sectionHeaderText: "font-['IBM_Plex_Mono'] font-medium text-[#e4f2ff] tracking-[0.18em] text-xs",
-                instrumentBadge: "rounded-none bg-gradient-to-b from-[#15335e] to-[#0c203e] border border-[#244a7d] text-[#d6ecff] font-['IBM_Plex_Mono'] font-medium tracking-[0.14em]",
-                faderBay: 'rounded-none bg-[#0b1d38] border border-[#1f3f6e]',
-                scopeBezel: 'rounded-none bg-[#09172e] border border-[#1f3f6e]',
+                mainDeck: 'bg-gradient-to-b from-[#132d54]/95 via-[#0e2342]/95 to-[#09182e]/95 rounded-2xl border border-[#8ecaff]/25 shadow-[0_18px_44px_rgba(3,10,24,0.48),inset_0_1px_0_rgba(214,238,255,0.18)]',
+                sectionCard: 'bg-gradient-to-b from-[#11284a]/95 to-[#0a1a33]/95 rounded-2xl border border-[#8ecaff]/20 shadow-[0_10px_28px_rgba(3,10,24,0.36),inset_0_1px_0_rgba(214,238,255,0.14)]',
+                sectionHeaderText: "font-['Plus_Jakarta_Sans'] font-semibold text-[#f0f7ff] tracking-[0.14em] text-xs sm:text-[13px]",
+                instrumentBadge: "rounded-xl bg-gradient-to-b from-[#173562] to-[#0e2342] border border-[#8ecaff]/25 text-[#f0f7ff] font-['Plus_Jakarta_Sans'] font-semibold tracking-[0.08em] shadow-[0_2px_6px_rgba(3,10,24,0.28),inset_0_1px_0_rgba(255,255,255,0.14)]",
+                faderBay: 'rounded-xl bg-[#081529]/90 border border-[#8ecaff]/18 shadow-inner',
+                scopeBezel: 'rounded-xl bg-[#071224] border border-[#8ecaff]/20 shadow-inner',
                 stepNumLit: "font-['IBM_Plex_Mono'] font-semibold text-[#ffc4d6]",
-                stepNumDim: "font-['IBM_Plex_Mono'] text-[#638ec2]",
+                stepNumDim: "font-['IBM_Plex_Mono'] text-[#6e99cc]",
             };
         case 'classic607':
         default:

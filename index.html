@@ -77,62 +77,75 @@
          CULTURED HARDWARE THEME OVERRIDES & BESPOKE FADER MECHANICS
          ========================================================================== */
 
-      /* 0A. DEFAULT — DARK BLUE GRADIENT & BABY PINK/BLUE MINIMAL MASTERPIECE */
-      .theme-default,
+      /* 0A. DEFAULT — MODERN MINIMAL GALLERY MASTERPIECE (DEEP SAPPHIRE & LUMINOUS PASTELS) */
+      .theme-default {
+        font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      }
       .theme-default button,
-      .theme-default input,
       .theme-default label,
       .theme-default h1,
       .theme-default h2,
       .theme-default h3,
       .theme-default h4 {
+        font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      }
+      .theme-default .font-mono,
+      .theme-default .tabular-nums {
         font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
       }
       .theme-default .bg-gray-900\/50,
       .theme-default .bg-gray-800\/50,
       .theme-default .bg-gray-900 {
-        background: linear-gradient(180deg, #11294c 0%, #0a1b34 100%) !important;
-        border: 1px solid #214373 !important;
-        border-radius: 0px !important;
-        box-shadow: none !important;
+        background: linear-gradient(180deg, rgba(19, 45, 84, 0.78) 0%, rgba(10, 26, 51, 0.88) 100%) !important;
+        border: 1px solid rgba(142, 202, 255, 0.2) !important;
+        border-radius: 14px !important;
+        box-shadow: 0 6px 20px rgba(3, 10, 24, 0.28), inset 0 1px 0 rgba(214, 238, 255, 0.1) !important;
       }
       .theme-default .text-gray-100,
       .theme-default .text-white {
-        color: #eef7ff !important;
+        color: #f0f7ff !important;
       }
       .theme-default .text-gray-300 {
-        color: #cce8ff !important;
+        color: #d4ecff !important;
       }
       .theme-default .text-gray-400 {
-        color: #a8dcff !important;
+        color: #9ecaff !important;
       }
       .theme-default .text-gray-500 {
-        color: #6b96c2 !important;
+        color: #6e99cc !important;
       }
       .theme-default select {
-        background-color: #061121 !important;
-        color: #eef7ff !important;
-        border: 1px solid #234778 !important;
-        border-radius: 0px !important;
-        font-family: 'IBM Plex Mono', monospace !important;
+        background-color: #081529 !important;
+        color: #f0f7ff !important;
+        border: 1px solid rgba(142, 202, 255, 0.28) !important;
+        border-radius: 8px !important;
+        font-family: 'Plus Jakarta Sans', sans-serif !important;
       }
       .theme-default input[type="range"] {
         -webkit-appearance: none;
         appearance: none;
-        background: #163054 !important;
-        height: 3px !important;
-        border-radius: 0px !important;
-        border: none !important;
+        background: #081529 !important;
+        height: 6px !important;
+        border-radius: 9999px !important;
+        border: 1px solid rgba(142, 202, 255, 0.22) !important;
+        box-shadow: inset 0 1px 2px rgba(2, 8, 20, 0.65) !important;
       }
       .theme-default input[type="range"]::-webkit-slider-thumb {
         -webkit-appearance: none;
         appearance: none;
-        width: 11px;
-        height: 18px;
-        border-radius: 0px;
+        width: 15px;
+        height: 15px;
+        border-radius: 9999px;
         background: #ffc4d6;
-        border: 1.5px solid #061121;
+        border: 2px solid #ffffff;
+        box-shadow: 0 2px 6px rgba(4, 12, 26, 0.45);
         cursor: pointer;
+        transition: transform 0.15s ease, background-color 0.15s ease;
+      }
+      .theme-default input[type="range"]::-webkit-slider-thumb:hover,
+      .theme-default input[type="range"]::-webkit-slider-thumb:active {
+        background: #a8dcff;
+        transform: scale(1.1);
       }
 
       /* 0B. CLASSIC 607 (Authentic Electric Blue Hardware Theme) */

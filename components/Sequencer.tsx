@@ -224,7 +224,15 @@ const Sequencer: React.FC<SequencerProps> = ({
                         {visualizerStyle !== 'classic607' && (
                             <span
                                 aria-hidden="true"
-                                className={`absolute left-0 top-0 bottom-0 ${isMinimal || visualizerStyle === 'default' ? 'w-[3px]' : visualizerStyle === 'nagra' ? 'left-2.5 top-2.5 bottom-2.5 w-1.5 rounded-full' : 'left-1 top-2 bottom-2 w-1'} ${visualizerStyle === 'koto' || visualizerStyle === 'braun' ? 'rounded-full' : ''}`}
+                                className={`absolute ${
+                                    isMinimal
+                                        ? 'left-0 top-0 bottom-0 w-[3px]'
+                                        : visualizerStyle === 'default'
+                                        ? 'left-1.5 top-2.5 bottom-2.5 w-1 rounded-full'
+                                        : visualizerStyle === 'nagra'
+                                        ? 'left-2.5 top-2.5 bottom-2.5 w-1.5 rounded-full'
+                                        : 'left-1 top-2 bottom-2 w-1'
+                                } ${visualizerStyle === 'koto' || visualizerStyle === 'braun' ? 'rounded-full' : ''}`}
                                 style={{ backgroundColor: instrumentColors[instrumentIndex] }}
                             />
                         )}

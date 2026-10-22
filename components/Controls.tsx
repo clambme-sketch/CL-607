@@ -5,8 +5,10 @@ import Tooltip from './Tooltip';
 import { getButtonStyle, getThemeSurface } from '../utils';
 
 // --- Disco Ball Component (Minimal Cat-Matched Illustration in Default Mode, 3D Mirror Ball in Other Modes) ---
-const DiscoBall: React.FC<{ isPlaying: boolean; visualizerStyle?: VisualizerStyle }> = React.memo(({ isPlaying, visualizerStyle = 'default' }) => {
+const DiscoBall: React.FC<{ isPlaying: boolean; tempo?: number; beatFrame?: number; visualizerStyle?: VisualizerStyle }> = React.memo(({ isPlaying, tempo = 120, beatFrame = 0, visualizerStyle = 'default' }) => {
     const isCobalt = visualizerStyle === 'default';
+    const beatSec = 60 / Math.max(30, tempo);
+    const barSec = beatSec * 4;
 
     if (isCobalt) {
         return (
@@ -25,33 +27,23 @@ const DiscoBall: React.FC<{ isPlaying: boolean; visualizerStyle?: VisualizerStyl
                         <style>
                             {`
                                 .cobalt-disco-sway {
-                                    animation: cobaltDiscoSway 3.6s ease-in-out infinite;
+                                    animation: cobaltDiscoSway ${barSec.toFixed(3)}s ease-in-out infinite;
                                     transform-origin: 32px 0px;
                                 }
                                 @keyframes cobaltDiscoSway {
                                     0%, 100% { transform: rotate(-5deg); }
                                     50% { transform: rotate(5deg); }
                                 }
-                                .cobalt-tile-a {
-                                    animation: cobaltTileToggle 1.6s steps(2, end) infinite;
-                                }
-                                .cobalt-tile-b {
-                                    animation: cobaltTileToggle 1.6s steps(2, end) infinite 0.8s;
-                                }
-                                @keyframes cobaltTileToggle {
-                                    0%, 100% { opacity: 0.95; }
-                                    50% { opacity: 0.2; }
-                                }
                                 .cobalt-sparkle-1 {
-                                    animation: cobaltSparklePulse 1.4s ease-in-out infinite;
+                                    animation: cobaltSparklePulse ${beatSec.toFixed(3)}s ease-in-out infinite;
                                     transform-origin: 10px 33px;
                                 }
                                 .cobalt-sparkle-2 {
-                                    animation: cobaltSparklePulse 1.6s ease-in-out infinite 0.4s;
+                                    animation: cobaltSparklePulse ${beatSec.toFixed(3)}s ease-in-out infinite ${(beatSec * 0.25).toFixed(3)}s;
                                     transform-origin: 54px 37px;
                                 }
                                 .cobalt-sparkle-3 {
-                                    animation: cobaltSparklePulse 1.5s ease-in-out infinite 0.8s;
+                                    animation: cobaltSparklePulse ${beatSec.toFixed(3)}s ease-in-out infinite ${(beatSec * 0.5).toFixed(3)}s;
                                     transform-origin: 13px 67px;
                                 }
                                 @keyframes cobaltSparklePulse {
@@ -100,15 +92,15 @@ const DiscoBall: React.FC<{ isPlaying: boolean; visualizerStyle?: VisualizerStyl
                             opacity="0.7"
                         />
 
-                        {/* Minimal Facet Accents (Baby Pink & Baby Blue) */}
+                        {/* Minimal Facet Accents (Baby Pink & Baby Blue, locked to beatFrame) */}
                         <g clipPath="url(#cobalt-minimal-disco-clip)">
-                            <g className={isPlaying ? 'cobalt-tile-a' : ''}>
+                            <g opacity={!isPlaying || beatFrame === 0 ? 0.95 : 0.25}>
                                 <rect x="24" y="34" width="7" height="7" rx="1.5" fill="#ffc4d6" />
                                 <rect x="33" y="43" width="7" height="7" rx="1.5" fill="#d6eeff" />
                                 <rect x="16" y="43" width="7" height="7" rx="1.5" fill="#e8f6ff" />
                                 <rect x="24" y="52" width="7" height="7" rx="1.5" fill="#ffc4d6" opacity="0.9" />
                             </g>
-                            <g className={isPlaying ? 'cobalt-tile-b' : ''}>
+                            <g opacity={isPlaying && beatFrame === 1 ? 0.95 : 0.25}>
                                 <rect x="33" y="34" width="7" height="7" rx="1.5" fill="#e8f6ff" />
                                 <rect x="24" y="43" width="7" height="7" rx="1.5" fill="#ffc4d6" />
                                 <rect x="41" y="43" width="7" height="7" rx="1.5" fill="#ffc4d6" opacity="0.9" />
@@ -205,27 +197,17 @@ const DiscoBall: React.FC<{ isPlaying: boolean; visualizerStyle?: VisualizerStyl
                     <style>
                         {`
                             .disco-rig-sway {
-                                animation: discoRigSway 4.8s ease-in-out infinite;
+                                animation: discoRigSway ${barSec.toFixed(3)}s ease-in-out infinite;
                                 transform-origin: 32px 0px;
                             }
                             @keyframes discoRigSway {
                                 0%, 100% { transform: rotate(-6deg); }
                                 50% { transform: rotate(6deg); }
                             }
-                            .disco-facet-shift {
-                                animation: discoFacetShift 2.4s steps(2, end) infinite;
-                            }
-                            .disco-facet-shift-alt {
-                                animation: discoFacetShift 2.4s steps(2, end) infinite 1.2s;
-                            }
-                            @keyframes discoFacetShift {
-                                0%, 100% { opacity: 0.92; }
-                                50% { opacity: 0.25; }
-                            }
-                            .disco-star-1 { animation: discoStarPulse 1.4s ease-in-out infinite; transform-origin: 10px 30px; }
-                            .disco-star-2 { animation: discoStarPulse 1.7s ease-in-out infinite 0.35s; transform-origin: 55px 36px; }
-                            .disco-star-3 { animation: discoStarPulse 1.5s ease-in-out infinite 0.7s; transform-origin: 14px 68px; }
-                            .disco-star-4 { animation: discoStarPulse 1.8s ease-in-out infinite 0.2s; transform-origin: 52px 66px; }
+                            .disco-star-1 { animation: discoStarPulse ${beatSec.toFixed(3)}s ease-in-out infinite; transform-origin: 10px 30px; }
+                            .disco-star-2 { animation: discoStarPulse ${beatSec.toFixed(3)}s ease-in-out infinite ${(beatSec * 0.25).toFixed(3)}s; transform-origin: 55px 36px; }
+                            .disco-star-3 { animation: discoStarPulse ${beatSec.toFixed(3)}s ease-in-out infinite ${(beatSec * 0.5).toFixed(3)}s; transform-origin: 14px 68px; }
+                            .disco-star-4 { animation: discoStarPulse ${beatSec.toFixed(3)}s ease-in-out infinite ${(beatSec * 0.75).toFixed(3)}s; transform-origin: 52px 66px; }
                             @keyframes discoStarPulse {
                                 0%, 100% { opacity: 0.15; transform: scale(0.45) rotate(0deg); }
                                 50% { opacity: 1; transform: scale(1.05) rotate(20deg); }
@@ -262,8 +244,8 @@ const DiscoBall: React.FC<{ isPlaying: boolean; visualizerStyle?: VisualizerStyl
                         {/* 3D Spherical Base Gradient */}
                         <circle cx="32" cy="50" r="21" fill="url(#disco-sphere-base)" />
 
-                        {/* Shimmering Mirror Facet Tiles Group A */}
-                        <g className={isPlaying ? 'disco-facet-shift' : ''}>
+                        {/* Shimmering Mirror Facet Tiles Group A (locked to beatFrame) */}
+                        <g opacity={!isPlaying || beatFrame === 0 ? 0.92 : 0.25}>
                             <rect x="22" y="34" width="5" height="4.5" fill={glintPrimary} fillOpacity="0.9" />
                             <rect x="32" y="34" width="5" height="4.5" fill={glintTertiary} fillOpacity="0.75" />
                             <rect x="17" y="39" width="5" height="5" fill={glintTertiary} fillOpacity="0.8" />
@@ -279,8 +261,8 @@ const DiscoBall: React.FC<{ isPlaying: boolean; visualizerStyle?: VisualizerStyl
                             <rect x="27" y="61" width="5" height="4.5" fill={glintTertiary} fillOpacity="0.75" />
                         </g>
 
-                        {/* Shimmering Mirror Facet Tiles Group B (Alternating) */}
-                        <g className={isPlaying ? 'disco-facet-shift-alt' : ''}>
+                        {/* Shimmering Mirror Facet Tiles Group B (Alternating on beatFrame) */}
+                        <g opacity={isPlaying && beatFrame === 1 ? 0.92 : 0.25}>
                             <rect x="27" y="34" width="5" height="4.5" fill={glintSecondary} fillOpacity="0.75" />
                             <rect x="22" y="39" width="5" height="5" fill={glintPrimary} fillOpacity="0.9" />
                             <rect x="37.5" y="39" width="4.5" height="5" fill={glintPrimary} fillOpacity="0.8" />
@@ -364,6 +346,7 @@ const DiscoBall: React.FC<{ isPlaying: boolean; visualizerStyle?: VisualizerStyl
 interface DancingCatProps {
     isPlaying: boolean;
     tempo: number;
+    currentStep?: number | null;
     visualizerStyle?: VisualizerStyle;
 }
 
@@ -413,16 +396,29 @@ const BlueCobaltCatFrame1: React.FC = () => (
 
             {/* Head Silhouette */}
             <ellipse cx="0" cy="0" rx="19" ry="16" fill="#b4e2ff" stroke="#e3f4ff" strokeWidth="2" />
-            <ellipse cx="0" cy="2" rx="13" ry="11" fill="#d6eeff" opacity="0.65" />
+            <ellipse cx="0" cy="3" rx="13" ry="10" fill="#d6eeff" opacity="0.65" />
 
-            {/* Minimalist Midnight-Navy Whiskers (matching Procreate brush strokes) */}
+            {/* Cool Modern Minimal Sunglasses */}
+            <g>
+                {/* Temple Arms & Nose Bridge */}
+                <path d="M-18.5 -4.5 L-13 -3.8 M13 -3.8 L18.5 -4.5" stroke="#051e3e" strokeWidth="2.2" strokeLinecap="round" />
+                <path d="M-2.5 -4.2 H2.5" stroke="#051e3e" strokeWidth="2.4" strokeLinecap="round" />
+                {/* Left & Right Lenses */}
+                <rect x="-13.5" y="-6.8" width="11.2" height="7" rx="2.2" fill="#051e3e" stroke="#e3f4ff" strokeWidth="1" />
+                <rect x="2.3" y="-6.8" width="11.2" height="7" rx="2.2" fill="#051e3e" stroke="#e3f4ff" strokeWidth="1" />
+                {/* Baby Pink & Ice Specular Lens Glints */}
+                <path d="M-10.8 -4.8 L-8.2 -1.8 M-7.2 -4.8 L-5.8 -3.2" stroke="#ffc4d6" strokeWidth="1.5" strokeLinecap="round" />
+                <path d="M5 -4.8 L7.6 -1.8 M8.6 -4.8 L10 -3.2" stroke="#ffc4d6" strokeWidth="1.5" strokeLinecap="round" />
+            </g>
+
+            {/* Minimalist Midnight-Navy Whiskers */}
             <g stroke="#051e3e" strokeWidth="2.4" strokeLinecap="round">
-                <path d="M-13 -1 L-24 -5" />
-                <path d="M-14 3 L-25 3" />
-                <path d="M-13 7 L-23 11" />
-                <path d="M13 -1 L24 -5" />
-                <path d="M14 3 L25 3" />
-                <path d="M13 7 L23 11" />
+                <path d="M-13 2 L-24 -1" />
+                <path d="M-14 5 L-25 5" />
+                <path d="M-13 8 L-23 11.5" />
+                <path d="M13 2 L24 -1" />
+                <path d="M14 5 L25 5" />
+                <path d="M13 8 L23 11.5" />
             </g>
         </g>
     </svg>
@@ -472,16 +468,29 @@ const BlueCobaltCatFrame2: React.FC = () => (
             <path d="M15 -10 L18 -22 L7 -15 Z" fill="#ffc4d6" opacity="0.85" />
 
             <ellipse cx="0" cy="0" rx="19" ry="16" fill="#b4e2ff" stroke="#e3f4ff" strokeWidth="2" />
-            <ellipse cx="0" cy="2" rx="13" ry="11" fill="#d6eeff" opacity="0.65" />
+            <ellipse cx="0" cy="3" rx="13" ry="10" fill="#d6eeff" opacity="0.65" />
+
+            {/* Cool Modern Minimal Sunglasses */}
+            <g>
+                {/* Temple Arms & Nose Bridge */}
+                <path d="M-18.5 -4.5 L-13 -3.8 M13 -3.8 L18.5 -4.5" stroke="#051e3e" strokeWidth="2.2" strokeLinecap="round" />
+                <path d="M-2.5 -4.2 H2.5" stroke="#051e3e" strokeWidth="2.4" strokeLinecap="round" />
+                {/* Left & Right Lenses */}
+                <rect x="-13.5" y="-6.8" width="11.2" height="7" rx="2.2" fill="#051e3e" stroke="#e3f4ff" strokeWidth="1" />
+                <rect x="2.3" y="-6.8" width="11.2" height="7" rx="2.2" fill="#051e3e" stroke="#e3f4ff" strokeWidth="1" />
+                {/* Baby Pink & Ice Specular Lens Glints */}
+                <path d="M-10.8 -4.8 L-8.2 -1.8 M-7.2 -4.8 L-5.8 -3.2" stroke="#ffc4d6" strokeWidth="1.5" strokeLinecap="round" />
+                <path d="M5 -4.8 L7.6 -1.8 M8.6 -4.8 L10 -3.2" stroke="#ffc4d6" strokeWidth="1.5" strokeLinecap="round" />
+            </g>
 
             {/* Minimalist Midnight-Navy Whiskers */}
             <g stroke="#051e3e" strokeWidth="2.4" strokeLinecap="round">
-                <path d="M-13 -1 L-24 -6" />
-                <path d="M-14 3 L-25 2" />
-                <path d="M-13 7 L-23 10" />
-                <path d="M13 -1 L24 -4" />
-                <path d="M14 3 L25 4" />
-                <path d="M13 7 L23 12" />
+                <path d="M-13 2 L-24 -2" />
+                <path d="M-14 5 L-25 4" />
+                <path d="M-13 8 L-23 11" />
+                <path d="M13 2 L24 0" />
+                <path d="M14 5 L25 6" />
+                <path d="M13 8 L23 12.5" />
             </g>
         </g>
     </svg>
@@ -648,33 +657,18 @@ const blueCatFrames = [
     <BlueCobaltCatFrame2 key="b2" />,
 ];
 
-const DancingCat: React.FC<DancingCatProps> = React.memo(({ isPlaying, tempo, visualizerStyle = 'default' }) => {
-    const [currentFrame, setCurrentFrame] = useState(0);
-    const tempoRef = useRef(tempo);
-    tempoRef.current = tempo;
+const DancingCat: React.FC<DancingCatProps> = React.memo(({ isPlaying, tempo, currentStep, visualizerStyle = 'default' }) => {
     const isCobaltDefault = visualizerStyle === 'default';
     const activeFrames = isCobaltDefault ? blueCatFrames : catFrames;
 
-    useEffect(() => {
-        if (!isPlaying) {
-            const timer = setTimeout(() => setCurrentFrame(0), 500);
-            return () => clearTimeout(timer);
-        }
-
-        let timeoutId: number;
-        const tick = () => {
-            setCurrentFrame(prevFrame => (prevFrame + 1) % activeFrames.length);
-            const nextIntervalMs = (60 / Math.max(30, tempoRef.current) / 2) * 1000;
-            timeoutId = window.setTimeout(tick, nextIntervalMs);
-        };
-
-        const initialIntervalMs = (60 / Math.max(30, tempoRef.current) / 2) * 1000;
-        timeoutId = window.setTimeout(tick, initialIntervalMs);
-
-        return () => {
-            clearTimeout(timeoutId);
-        };
-    }, [isPlaying, activeFrames.length]);
+    // Phase-locked to the exact Web Audio sequencer step clock:
+    // Downbeat 8th notes (steps 0,1 / 4,5 / 8,9 / 12,13) trigger Frame 1 (beat bob / dance pose),
+    // Upbeat '&' 8th notes (steps 2,3 / 6,7 / 10,11 / 14,15) rebound to Frame 0.
+    const currentFrame = !isPlaying
+        ? 0
+        : currentStep !== null && currentStep !== undefined
+        ? (Math.floor(currentStep / 2) % 2 === 0 ? 1 : 0) % activeFrames.length
+        : 1;
 
     const containerClasses = `
         relative w-32 h-24
@@ -688,7 +682,7 @@ const DancingCat: React.FC<DancingCatProps> = React.memo(({ isPlaying, tempo, vi
                 {activeFrames[currentFrame]}
             </div>
             <div className="absolute right-0 top-0 pointer-events-none">
-                 <DiscoBall isPlaying={isPlaying} visualizerStyle={visualizerStyle} />
+                 <DiscoBall isPlaying={isPlaying} tempo={tempo} beatFrame={currentFrame} visualizerStyle={visualizerStyle} />
             </div>
         </div>
     );
@@ -767,31 +761,12 @@ const coffeeFrames = [
     <CoffeeCupFrame2 key="2" />,
 ];
 
-const DancingCoffeeCup: React.FC<DancingCatProps> = React.memo(({ isPlaying, tempo, visualizerStyle = 'default' }) => {
-    const [currentFrame, setCurrentFrame] = useState(0);
-    const tempoRef = useRef(tempo);
-    tempoRef.current = tempo;
-
-    useEffect(() => {
-        if (!isPlaying) {
-            const timer = setTimeout(() => setCurrentFrame(0), 500);
-            return () => clearTimeout(timer);
-        }
-
-        let timeoutId: number;
-        const tick = () => {
-            setCurrentFrame(prevFrame => (prevFrame + 1) % coffeeFrames.length);
-            const nextIntervalMs = (60 / Math.max(30, tempoRef.current) / 2) * 1000;
-            timeoutId = window.setTimeout(tick, nextIntervalMs);
-        };
-
-        const initialIntervalMs = (60 / Math.max(30, tempoRef.current) / 2) * 1000;
-        timeoutId = window.setTimeout(tick, initialIntervalMs);
-
-        return () => {
-            clearTimeout(timeoutId);
-        };
-    }, [isPlaying]);
+const DancingCoffeeCup: React.FC<DancingCatProps> = React.memo(({ isPlaying, tempo, currentStep, visualizerStyle = 'default' }) => {
+    const currentFrame = !isPlaying
+        ? 0
+        : currentStep !== null && currentStep !== undefined
+        ? (Math.floor(currentStep / 2) % 2 === 0 ? 1 : 0) % coffeeFrames.length
+        : 1;
 
     const containerClasses = `
         relative w-32 h-24
@@ -805,7 +780,7 @@ const DancingCoffeeCup: React.FC<DancingCatProps> = React.memo(({ isPlaying, tem
                 {coffeeFrames[currentFrame]}
             </div>
             <div className="absolute right-0 top-0 pointer-events-none">
-                 <DiscoBall isPlaying={isPlaying} visualizerStyle={visualizerStyle} />
+                 <DiscoBall isPlaying={isPlaying} tempo={tempo} beatFrame={currentFrame} visualizerStyle={visualizerStyle} />
             </div>
         </div>
     );
@@ -929,7 +904,7 @@ const EditableValue: React.FC<EditableValueProps> = React.memo(({
                     : visualizerStyle === 'cyberpunk'
                     ? 'text-gray-100 hover:text-[#00ff9f] hover:bg-[#00ff9f]/10 hover:border-[#00ff9f]/50'
                     : visualizerStyle === 'default'
-                    ? 'text-[#edf7ff] font-mono hover:text-[#ffc4d6] hover:bg-[#0b1f3b] hover:border-[#a8dcff]/70 rounded-none'
+                    ? 'text-[#f0f7ff] font-mono hover:text-[#ffc4d6] hover:bg-[#0b1f3b] hover:border-[#a8dcff]/60 rounded-lg'
                     : 'text-gray-100 hover:text-blue-400 hover:bg-gray-700/60 hover:border-gray-600'
             }`}
         >
@@ -940,6 +915,7 @@ const EditableValue: React.FC<EditableValueProps> = React.memo(({
 
 interface ControlsProps {
     isPlaying: boolean;
+    currentStep?: number | null;
     onPlayToggle: () => void;
     tempo: number;
     onTempoChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
@@ -1084,8 +1060,8 @@ const PatternSlotButton: React.FC<PatternSlotButtonProps> = React.memo(({ slotIn
             {hasContent && (
                 <span
                     aria-hidden="true"
-                    className={`absolute top-1 right-1 w-1.5 h-1.5 ${
-                        visualizerStyle === 'bauhaus' || visualizerStyle === 'cyberpunk' || visualizerStyle === 'minimal' || visualizerStyle === 'default' ? 'rounded-none' : 'rounded-full'
+                    className={`absolute top-1.5 right-1.5 w-1.5 h-1.5 ${
+                        visualizerStyle === 'bauhaus' || visualizerStyle === 'cyberpunk' || visualizerStyle === 'minimal' ? 'rounded-none' : 'rounded-full'
                     } ${
                         isActive
                             ? 'bg-current opacity-80'
@@ -1115,6 +1091,7 @@ const PatternSlotButton: React.FC<PatternSlotButtonProps> = React.memo(({ slotIn
 
 const Controls: React.FC<ControlsProps> = ({ 
     isPlaying, 
+    currentStep = null,
     onPlayToggle, 
     tempo, 
     onTempoChange,
@@ -1688,7 +1665,7 @@ const Controls: React.FC<ControlsProps> = ({
                                             : visualizerStyle === 'koto'
                                             ? 'bg-[#d4af37] text-[#120d14]'
                                             : visualizerStyle === 'default'
-                                            ? 'bg-[#f4a8c4] text-[#061121] border border-[#061121] rounded-none'
+                                            ? 'bg-[#ffc4d6] text-[#061224] border border-white/80 rounded-full'
                                             : 'bg-blue-500 text-white'
                                     }`}
                                 >
@@ -1716,7 +1693,7 @@ const Controls: React.FC<ControlsProps> = ({
                                 : visualizerStyle === 'minimal'
                                 ? 'bg-[#09090b] border-2 border-[#f4f4f5] rounded-none text-[#f4f4f5] shadow-[0_12px_30px_rgba(0,0,0,0.9)]'
                                 : visualizerStyle === 'default'
-                                ? 'bg-gradient-to-b from-[#0c213d] to-[#071428] border border-[#8ecaff] rounded-none text-[#e6f3ff] shadow-[5px_5px_0px_#030914]'
+                                ? 'bg-gradient-to-b from-[#11284a] to-[#09182e] border border-[#8ecaff]/35 rounded-2xl text-[#f0f7ff] shadow-[0_18px_44px_rgba(3,10,24,0.65),inset_0_1px_0_rgba(214,238,255,0.16)]'
                                 : 'bg-[#111827] border-2 border-[#374151] rounded-xl text-[#f9fafb] shadow-[0_20px_50px_rgba(0,0,0,0.85)]'
                         }`}
                         role="dialog"
@@ -1783,7 +1760,7 @@ const Controls: React.FC<ControlsProps> = ({
                                                     : visualizerStyle === 'minimal'
                                                     ? 'bg-[#141418] border border-[#2e2e36] rounded-none'
                                                     : visualizerStyle === 'default'
-                                                    ? 'bg-[#08172e] border border-[#1e3f6e] rounded-none'
+                                                    ? 'bg-[#09172e]/90 border border-[#8ecaff]/20 rounded-xl'
                                                     : 'bg-[#1f2937] border border-[#374151] rounded-lg'
                                             }`}
                                         >
@@ -1940,7 +1917,7 @@ const Controls: React.FC<ControlsProps> = ({
                                 : visualizerStyle === 'minimal'
                                 ? 'bg-[#09090b] border-2 border-[#f4f4f5] rounded-none text-[#f4f4f5] shadow-[0_12px_30px_rgba(0,0,0,0.9)]'
                                 : visualizerStyle === 'default'
-                                ? 'bg-gradient-to-b from-[#0c213d] to-[#071428] border border-[#a8dcff] rounded-none text-[#edf7ff] shadow-[5px_5px_0px_#030914]'
+                                ? 'bg-gradient-to-b from-[#11284a] to-[#09182e] border border-[#8ecaff]/35 rounded-2xl text-[#f0f7ff] shadow-[0_18px_44px_rgba(3,10,24,0.65),inset_0_1px_0_rgba(214,238,255,0.16)]'
                                 : 'bg-[#111827] border-2 border-[#374151] rounded-xl text-[#f9fafb] shadow-[0_20px_50px_rgba(0,0,0,0.85)]'
                         }`}
                         role="dialog"
@@ -1998,7 +1975,7 @@ const Controls: React.FC<ControlsProps> = ({
                                             : visualizerStyle === 'minimal'
                                             ? 'bg-[#141418] border border-[#52525b] rounded-none'
                                             : visualizerStyle === 'default'
-                                            ? 'bg-[#061121] border border-[#234778] rounded-none'
+                                            ? 'bg-[#081529] border border-[#8ecaff]/28 rounded-xl'
                                             : 'bg-[#1f2937] border border-[#4b5563] rounded-lg'
                                     }`}
                                 >
@@ -2150,7 +2127,7 @@ const Controls: React.FC<ControlsProps> = ({
                                                 : visualizerStyle === 'minimal'
                                                 ? 'bg-[#141418] border border-[#3f3f46] rounded-none'
                                                 : visualizerStyle === 'default'
-                                                ? 'bg-[#08172e] border border-[#1e3f6e] rounded-none'
+                                                ? 'bg-[#09172e]/90 border border-[#8ecaff]/20 rounded-xl'
                                                 : 'bg-[#1f2937]/90 border border-[#374151] rounded-lg hover:border-gray-500'
                                         }`}
                                     >
@@ -2188,7 +2165,7 @@ const Controls: React.FC<ControlsProps> = ({
                                                 : visualizerStyle === 'minimal'
                                                 ? 'bg-[#141418] border border-[#3f3f46] rounded-none'
                                                 : visualizerStyle === 'default'
-                                                ? 'bg-[#08172e] border border-[#1e3f6e] rounded-none'
+                                                ? 'bg-[#09172e]/90 border border-[#8ecaff]/20 rounded-xl'
                                                 : 'bg-[#1f2937]/90 border border-[#374151] rounded-lg hover:border-gray-500'
                                         }`}
                                     >
@@ -2436,7 +2413,7 @@ const Controls: React.FC<ControlsProps> = ({
                                     : visualizerStyle === 'cyberpunk'
                                     ? 'bg-[#0a0a0f] border-2 border-[#00ff9f] shadow-[3px_3px_0px_#ff003c]'
                                     : visualizerStyle === 'default'
-                                    ? 'bg-gradient-to-b from-[#132f57] to-[#08162b] border border-[#a8dcff] shadow-[3px_3px_0px_#030914]'
+                                    ? 'bg-gradient-to-b from-[#173663] to-[#0b1d38] border-2 border-[#a8dcff]/70 shadow-[0_6px_18px_rgba(3,10,24,0.45),inset_0_1px_1px_rgba(255,255,255,0.22)]'
                                     : 'bg-gray-700 shadow-inner ring-1 ring-gray-600'
                             } ${isColorAnimating ? 'animate-pulse ring-2 ring-pink-500 ring-offset-2' : ''}`}
                         >
@@ -2458,7 +2435,7 @@ const Controls: React.FC<ControlsProps> = ({
                                             : visualizerStyle === 'cyberpunk'
                                             ? 'bg-[#fcee0a]'
                                             : visualizerStyle === 'default'
-                                            ? 'bg-[#ffc4d6]'
+                                            ? 'bg-[#ffc4d6] rounded-full shadow-[0_0_6px_rgba(255,196,214,0.7)]'
                                             : 'bg-pink-400 rounded-full'
                                     }`}
                                 />
@@ -2489,9 +2466,9 @@ const Controls: React.FC<ControlsProps> = ({
                     className={`select-none touch-manipulation transition-transform duration-75 ${isPlaying ? 'cursor-pointer active:scale-95' : ''}`}
                 >
                     {isCappuccinoMode ? (
-                        <DancingCoffeeCup isPlaying={isPlaying} tempo={tempo} visualizerStyle={visualizerStyle} />
+                        <DancingCoffeeCup isPlaying={isPlaying} tempo={tempo} currentStep={currentStep} visualizerStyle={visualizerStyle} />
                     ) : (
-                        <DancingCat isPlaying={isPlaying} tempo={tempo} visualizerStyle={visualizerStyle} />
+                        <DancingCat isPlaying={isPlaying} tempo={tempo} currentStep={currentStep} visualizerStyle={visualizerStyle} />
                     )}
                 </div>
             )}

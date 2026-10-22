@@ -494,6 +494,7 @@ const App: React.FC = () => {
     const [isDjSettingsDefault, setIsDjSettingsDefault] = useState(true);
     const [isEffectsSettingsDefault, setIsEffectsSettingsDefault] = useState(true);
     const [isAudioEngineReady, setIsAudioEngineReady] = useState(false);
+    const [transportStep, setTransportStep] = useState<number | null>(null);
 
     // State for hiding tooltips while dragging sliders
     const [isInteractingWithSlider, setIsInteractingWithSlider] = useState(false);
@@ -524,7 +525,7 @@ const App: React.FC = () => {
     const nextNoteTime = useRef<number>(0.0);
     const currentStepRef = useRef<number>(0);
     const chainCounterRef = useRef(0);
-    const notesInQueueRef = useRef<Array<{ step: number; time: number }>>([]);
+    const notesInQueueRef = useRef<Array<{ step: number; transportStep: number; time: number }>>([]);
 
     const gridsRef = useRef(grids);
     const volumesRef = useRef(volumes);
@@ -1126,7 +1127,7 @@ const App: React.FC = () => {
                     ? (anchorStep + (scheduledStep % repeatSteps)) % numSteps
                     : scheduledStep;
 
-                notesInQueueRef.current.push({ step: effectiveStep, time: scheduledTime });
+                notesInQueueRef.current.push({ step: effectiveStep, transportStep: scheduledStep, time: scheduledTime });
                 if (notesInQueueRef.current.length > 64) {
                     notesInQueueRef.current.shift();
                 }
@@ -1225,6 +1226,7 @@ const App: React.FC = () => {
         if (!audioContext || !isPlaying) {
             if (visualizerTimerRef.current) cancelAnimationFrame(visualizerTimerRef.current);
             setCurrentStep(null);
+            setTransportStep(null);
             return;
         }
 
@@ -1232,14 +1234,19 @@ const App: React.FC = () => {
             const currentTime = audioContext.currentTime;
             const queue = notesInQueueRef.current;
             let stepToShow: number | null = null;
+            let rawStepToShow: number | null = null;
 
             while (queue.length > 0 && queue[0].time <= currentTime + 0.008) {
                 stepToShow = queue[0].step;
+                rawStepToShow = queue[0].transportStep;
                 queue.shift();
             }
 
             if (stepToShow !== null) {
                 setCurrentStep(prev => (prev === stepToShow ? prev : stepToShow));
+            }
+            if (rawStepToShow !== null) {
+                setTransportStep(prev => (prev === rawStepToShow ? prev : rawStepToShow));
             }
             
             visualizerTimerRef.current = requestAnimationFrame(visualizerLoop);
@@ -2985,10 +2992,10 @@ const App: React.FC = () => {
             case 'default':
                 return {
                     filter: activeFilter,
-                    backgroundColor: '#09172e',
+                    backgroundColor: '#071428',
                     backgroundImage:
-                        'linear-gradient(180deg, #10264a 0%, #09172e 100%)',
-                    color: '#e6f3ff',
+                        'radial-gradient(circle at 50% 0%, rgba(142, 202, 255, 0.14) 0%, transparent 65%), linear-gradient(180deg, #0e2242 0%, #071428 100%)',
+                    color: '#f0f7ff',
                 };
             case 'classic607':
             default:
@@ -3006,7 +3013,7 @@ const App: React.FC = () => {
             : isMinimal
             ? 'bg-[#09090b] text-[#f4f4f5]'
             : visualizerStyle === 'default'
-            ? 'bg-[#09172e] text-[#e6f3ff]'
+            ? 'bg-[#071428] text-[#f0f7ff]'
             : 'bg-gray-900 text-gray-100'
     }`;
 
@@ -3014,7 +3021,7 @@ const App: React.FC = () => {
         visualizerStyle === 'minimal'
             ? "text-2xl sm:text-3xl font-bold font-mono uppercase tracking-[0.14em] text-[#f4f4f5]"
             : visualizerStyle === 'default'
-            ? "text-2xl sm:text-3xl font-bold font-['IBM_Plex_Mono'] uppercase tracking-[0.14em] text-[#e6f3ff]"
+            ? "text-3xl sm:text-4xl font-bold font-['Plus_Jakarta_Sans'] tracking-tight text-[#f0f7ff]"
             : visualizerStyle === 'braun'
             ? "text-3xl sm:text-4xl font-bold tracking-tight text-[#1c1c1a] font-['Plus_Jakarta_Sans']"
             : visualizerStyle === 'bauhaus'
@@ -3031,7 +3038,7 @@ const App: React.FC = () => {
         visualizerStyle === 'minimal'
             ? "text-xs text-[#71717a] font-mono uppercase tracking-[0.16em] mt-2 mb-8"
             : visualizerStyle === 'default'
-            ? "text-xs text-[#ffc4d6] font-['IBM_Plex_Mono'] uppercase tracking-[0.16em] mt-2 mb-8"
+            ? "text-xs sm:text-sm text-[#ffc4d6] font-['Plus_Jakarta_Sans'] font-semibold uppercase tracking-[0.18em] mt-2 mb-8"
             : visualizerStyle === 'braun'
             ? "text-sm text-[#737067] font-['Plus_Jakarta_Sans'] font-medium mt-1.5 mb-8"
             : visualizerStyle === 'bauhaus'
@@ -3059,13 +3066,13 @@ const App: React.FC = () => {
     const djCardClass = isMinimal
         ? 'flex flex-col items-center gap-3 p-3.5 bg-[#0e0e11] border border-[#27272a]'
         : visualizerStyle === 'default'
-        ? 'flex flex-col items-center gap-3 p-3.5 rounded-none bg-gradient-to-b from-[#132d54] to-[#0b1d38] border border-[#244a7d]'
+        ? 'flex flex-col items-center gap-3 p-4 rounded-xl bg-gradient-to-b from-[#132d54]/85 to-[#0a1a33]/90 border border-[#8ecaff]/20 shadow-[0_6px_20px_rgba(3,10,24,0.28),inset_0_1px_0_rgba(214,238,255,0.1)]'
         : 'flex flex-col items-center gap-3 p-3 rounded-lg bg-gray-900/50';
 
     const djDropdownPanelClass = useMemo(() => {
         switch (visualizerStyle) {
             case 'default':
-                return 'bg-[#0b1d38] border border-[#a8dcff] text-[#e6f3ff] shadow-[4px_4px_0px_#050f20]';
+                return 'bg-[#0b1d38] border border-[#a8dcff]/50 rounded-xl text-[#f0f7ff] shadow-[0_14px_32px_rgba(3,10,24,0.65)]';
             case 'minimal':
                 return 'bg-[#09090b] border border-[#3f3f46] text-[#f4f4f5] shadow-2xl';
             case 'braun':
@@ -4071,12 +4078,7 @@ const App: React.FC = () => {
                             </div>
                         </div>
                     ) : visualizerStyle === 'default' ? (
-                        <div className="relative flex items-center justify-center px-5 py-3 bg-gradient-to-b from-[#132d54] to-[#0b1d38] border border-[#244a7d] shadow-[4px_4px_0px_#050f20]">
-                            {/* Left Minimal Color-Block Accent Bar (Powder Pink & Powder Blue) */}
-                            <div aria-hidden="true" className="absolute left-0 top-0 bottom-0 flex">
-                                <span className="w-1.5 h-full bg-[#f4a8c4]" />
-                                <span className="w-1.5 h-full bg-[#8ecaff]" />
-                            </div>
+                        <div className="relative flex items-center justify-center px-6 py-3.5 bg-gradient-to-b from-[#132d54]/95 to-[#0b1d38]/95 rounded-2xl border border-[#8ecaff]/25 shadow-[0_12px_32px_rgba(3,10,24,0.42),inset_0_1px_0_rgba(214,238,255,0.18)]">
                             {isEditingTitle ? (
                                 <input
                                     ref={titleInputRef}
@@ -4086,19 +4088,19 @@ const App: React.FC = () => {
                                     onBlur={handleTitleCommit}
                                     onKeyDown={handleTitleKeyDown}
                                     aria-label="Edit header title"
-                                    className={`w-full max-w-md text-center bg-transparent border-b border-[#f4a8c4] focus:outline-none font-bold text-[#e6f3ff] ${isCappuccinoMode ? "font-['Dancing_Script'] text-3xl sm:text-4xl normal-case tracking-normal" : "text-lg sm:text-xl font-mono uppercase tracking-[0.14em]"}`}
+                                    className={`w-full max-w-md text-center bg-transparent border-b-2 border-[#ffc4d6] focus:outline-none font-bold text-[#f0f7ff] ${isCappuccinoMode ? "font-['Dancing_Script'] text-3xl sm:text-4xl normal-case tracking-normal" : "text-xl sm:text-2xl font-['Plus_Jakarta_Sans'] tracking-[0.06em]"}`}
                                 />
                             ) : (
                                 <h1
-                                    className={`font-bold text-[#e6f3ff] select-none cursor-pointer hover:text-[#8ecaff] transition-colors ${isCappuccinoMode ? "font-['Dancing_Script'] text-3xl sm:text-4xl normal-case tracking-normal" : "text-lg sm:text-xl font-mono uppercase tracking-[0.14em]"}`}
+                                    className={`font-bold text-[#f0f7ff] select-none cursor-pointer hover:text-[#a8dcff] transition-colors ${isCappuccinoMode ? "font-['Dancing_Script'] text-3xl sm:text-4xl normal-case tracking-normal" : "text-xl sm:text-2xl font-['Plus_Jakarta_Sans'] tracking-[0.06em]"}`}
                                     onClick={handleTitleClick}
                                     title="Click to edit title"
                                 >
                                     {displayedTitle}
                                 </h1>
                             )}
-                            <div className="absolute right-3 sm:right-4 font-mono text-[10px] tracking-[0.16em] text-[#f4a8c4] bg-[#09172e] border border-[#244a7d] px-2.5 py-0.5 uppercase tabular-nums select-none pointer-events-none hidden min-[400px]:block">
-                                {tempo} BPM // {beatsPerMeasure}/4
+                            <div className="absolute right-4 sm:right-5 font-mono text-[11px] font-medium tracking-[0.12em] text-[#ffc4d6] bg-[#081529]/90 border border-[#8ecaff]/25 rounded-lg px-3 py-1 uppercase tabular-nums select-none pointer-events-none hidden min-[400px]:block">
+                                {tempo} BPM · {beatsPerMeasure}/4
                             </div>
                         </div>
                     ) : (
@@ -4144,6 +4146,7 @@ const App: React.FC = () => {
                         )}
                         <Controls 
                             isPlaying={isPlaying}
+                            currentStep={transportStep ?? currentStep}
                             onPlayToggle={handlePlayToggle}
                             tempo={tempo}
                             onTempoChange={handleTempoChange}

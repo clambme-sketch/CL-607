@@ -216,6 +216,10 @@ class DjFxProcessor extends AudioWorkletProcessor {
             this.stutterRetriggerFade = 0;
             if (this.stutterActive) {
               this.anchorStutterSlice();
+              if (wasPaused && this.stutterHasAudio && currentTime >= this.beatAnchorTime && (currentTime - this.beatAnchorTime) < 0.03) {
+                this.stutterFirstPass = false;
+                this.stutterPlayOffset = 0;
+              }
             }
           }
         }
@@ -249,11 +253,12 @@ class DjFxProcessor extends AudioWorkletProcessor {
           this.fallbackSlice = data.fallbackSlice;
         }
         if (nextActive && !this.stutterActive) {
-          this.lastSubdivPhase = -1.0;
+          if (!this.transportPlaying) {
+            this.lastSubdivPhase = -1.0;
+          }
           this.lastGridStep = -1;
           this.anchorStutterSlice();
         } else if (!nextActive) {
-          this.lastSubdivPhase = -1.0;
           this.lastGridStep = -1;
           this.stutterFirstPass = false;
         }
@@ -273,6 +278,7 @@ class DjFxProcessor extends AudioWorkletProcessor {
         if (typeof data.transportPlaying === 'boolean') {
           this.transportPlaying = data.transportPlaying;
         }
+        const prevSwing = this.stutterSwing;
         if (typeof data.stutterSwing === 'number') {
           this.stutterSwing = Math.max(0, Math.min(1.0, data.stutterSwing));
         }
@@ -287,7 +293,7 @@ class DjFxProcessor extends AudioWorkletProcessor {
         if (data.fallbackSlice !== undefined) {
           this.fallbackSlice = data.fallbackSlice;
         }
-        if (Math.abs(this.divBeats - prevDivBeats) > 0.0001) {
+        if (Math.abs(this.divBeats - prevDivBeats) > 0.0001 || Math.abs(this.stutterSwing - prevSwing) > 0.0001) {
           this.lastSubdivPhase = -1.0;
           this.lastGridStep = -1;
         }
@@ -339,7 +345,8 @@ class DjFxProcessor extends AudioWorkletProcessor {
     const validHistory = Math.min(this.samplesSinceTransportStart, this.bufferLength - 1);
 
     // 1. If targeting a specific instrument (fallbackSlice provided), always populate stutterSliceL/R
-    // from its clean studio one-shot buffer so sample 0 is guaranteed to be the exact transient attack
+    // from its clean studio one-shot buffer so sample 0 is guaranteed to be the exact transient attack.
+    // Set stutterFirstPass = true so pressing STUTTER or HOLD waits for the next grid boundary instead of firing immediately on click.
     if (this.fallbackSlice && this.fallbackSlice.length > 0) {
       const fbLen = Math.min(this.fallbackSlice.length, this.maxStutterLength);
       const tailFade = Math.min(256, fbLen >> 2);
@@ -360,35 +367,8 @@ class DjFxProcessor extends AudioWorkletProcessor {
       }
       this.stutterCaptureCount = this.stutterSliceMaxSamples;
       this.stutterHasAudio = true;
-
-      // Check if that instrument is currently mid-hit in inBufferL/R so we don't double-attack (flam)
-      const recentScan = Math.min(stepSamples, validHistory);
-      let recentPeak = 0;
-      for (let i = 1; i <= recentScan; i++) {
-        const idx = (this.writeIndex - i + this.bufferLength) % this.bufferLength;
-        const p = Math.max(Math.abs(this.inBufferL[idx]), Math.abs(this.inBufferR[idx]));
-        if (p > recentPeak) recentPeak = p;
-      }
-      if (recentPeak > 0.025) {
-        const threshold = recentPeak * 0.22;
-        let onsetBack = recentScan;
-        for (let i = recentScan; i >= 1; i--) {
-          const idx = (this.writeIndex - i + this.bufferLength) % this.bufferLength;
-          const p = Math.max(Math.abs(this.inBufferL[idx]), Math.abs(this.inBufferR[idx]));
-          if (p >= threshold) {
-            onsetBack = Math.min(recentScan, i + 48);
-            break;
-          }
-        }
-        if (onsetBack < this.loopSamples) {
-          this.stutterFirstPass = true;
-          this.stutterPlayOffset = onsetBack;
-          return;
-        }
-      }
-
-      this.stutterFirstPass = false;
-      this.stutterPlayOffset = this.getFlamGuardStartOffset();
+      this.stutterFirstPass = true;
+      this.stutterPlayOffset = 0;
       return;
     }
 
@@ -425,13 +405,8 @@ class DjFxProcessor extends AudioWorkletProcessor {
       }
       this.stutterCaptureCount = copyCount;
       this.stutterHasAudio = true;
-      if (copyCount < this.loopSamples) {
-        this.stutterFirstPass = true;
-        this.stutterPlayOffset = copyCount;
-      } else {
-        this.stutterFirstPass = false;
-        this.stutterPlayOffset = this.getFlamGuardStartOffset();
-      }
+      this.stutterFirstPass = true;
+      this.stutterPlayOffset = 0;
       return;
     }
 
@@ -476,15 +451,15 @@ class DjFxProcessor extends AudioWorkletProcessor {
           }
         }
         this.stutterCaptureCount = this.stutterSliceMaxSamples;
-        this.stutterFirstPass = false;
-        this.stutterPlayOffset = this.getFlamGuardStartOffset();
+        this.stutterFirstPass = true;
+        this.stutterPlayOffset = 0;
         this.stutterHasAudio = true;
         return;
       }
     }
 
     this.stutterHasAudio = false;
-    this.stutterFirstPass = false;
+    this.stutterFirstPass = true;
     this.stutterPlayOffset = 0;
     this.stutterCaptureCount = 0;
   }
@@ -678,7 +653,7 @@ class DjFxProcessor extends AudioWorkletProcessor {
       }
 
       // --- 1. STUTTER STAGE ---
-      if (this.stutterActive && (this.transportPlaying || !this.stutterHeld)) {
+      if (this.stutterActive && this.transportPlaying) {
         if (!this.stutterHasAudio) {
           const peak = Math.max(Math.abs(rawL), Math.abs(rawR));
           if (peak > 0.02) {
@@ -694,7 +669,7 @@ class DjFxProcessor extends AudioWorkletProcessor {
               }
             }
             this.stutterCaptureCount = preRoll;
-            this.stutterPlayOffset = preRoll;
+            this.stutterPlayOffset = 0;
             this.stutterFirstPass = true;
             this.stutterHasAudio = true;
           }
@@ -720,8 +695,13 @@ class DjFxProcessor extends AudioWorkletProcessor {
           const minPlayBeforeRetrigger = Math.min(Math.floor(sampleRate * 0.032), curLoopLen >> 1);
           if (crossedGridBoundary) {
             const minInitialCapture = Math.min(384, curLoopLen >> 2);
-            if ((!this.stutterFirstPass || this.stutterCaptureCount >= minInitialCapture) && this.stutterPlayOffset >= minPlayBeforeRetrigger) {
-              this.stutterFirstPass = false;
+            if (this.stutterFirstPass) {
+              if (this.stutterCaptureCount >= minInitialCapture) {
+                this.stutterFirstPass = false;
+                this.stutterRetriggerFade = 64;
+                this.stutterPlayOffset = 0;
+              }
+            } else if (this.stutterPlayOffset >= minPlayBeforeRetrigger) {
               this.stutterRetriggerFade = 64;
               this.stutterPlayOffset = 0;
             }
@@ -764,11 +744,12 @@ class DjFxProcessor extends AudioWorkletProcessor {
           this.stutterPrevSampleL = procL;
           this.stutterPrevSampleR = procR;
 
-          this.stutterPlayOffset++;
-          if ((!this.transportPlaying && this.stutterPlayOffset >= curLoopLen) || this.stutterPlayOffset >= curLoopLen + minPlayBeforeRetrigger + 128) {
-            this.stutterFirstPass = false;
-            this.stutterRetriggerFade = 64;
-            this.stutterPlayOffset = 0;
+          if (!this.stutterFirstPass) {
+            this.stutterPlayOffset++;
+            if (this.stutterPlayOffset >= curLoopLen + minPlayBeforeRetrigger + 128) {
+              this.stutterRetriggerFade = 64;
+              this.stutterPlayOffset = 0;
+            }
           }
         }
       }

@@ -408,13 +408,13 @@ const Note: React.FC<{
             {isVisible && displayLabel && (
                 <text
                     x={x}
-                    y={y + 17}
+                    y={y + 18.5}
                     fill={NOTE_COLOR}
-                    opacity="0.92"
-                    fontSize="10.5"
+                    opacity="0.96"
+                    fontSize="13.5"
                     fontWeight="700"
                     textAnchor="middle"
-                    letterSpacing="0.02em"
+                    letterSpacing="0.01em"
                 >
                     {displayLabel}
                 </text>
@@ -699,7 +699,7 @@ const NotationVisualizer: React.FC<NotationVisualizerProps> = ({
                             type="button"
                             onClick={() => handleSetTextMode('subdivisions')}
                             aria-pressed={currentTextMode === 'subdivisions'}
-                            className={`px-2.5 py-1 text-[11px] font-mono font-bold rounded transition-colors cursor-pointer ${
+                            className={`px-2.5 py-1 text-xs font-mono font-bold rounded transition-colors cursor-pointer ${
                                 currentTextMode === 'subdivisions'
                                     ? 'bg-blue-600 text-white shadow-sm'
                                     : 'text-gray-400 hover:text-gray-200'
@@ -711,7 +711,7 @@ const NotationVisualizer: React.FC<NotationVisualizerProps> = ({
                             type="button"
                             onClick={() => handleSetTextMode('syllables')}
                             aria-pressed={currentTextMode === 'syllables'}
-                            className={`px-2.5 py-1 text-[11px] font-mono font-bold rounded transition-colors cursor-pointer ${
+                            className={`px-2.5 py-1 text-xs font-mono font-bold rounded transition-colors cursor-pointer ${
                                 currentTextMode === 'syllables'
                                     ? 'bg-blue-600 text-white shadow-sm'
                                     : 'text-gray-400 hover:text-gray-200'
@@ -723,7 +723,7 @@ const NotationVisualizer: React.FC<NotationVisualizerProps> = ({
                             type="button"
                             onClick={() => handleSetTextMode('off')}
                             aria-pressed={currentTextMode === 'off'}
-                            className={`px-2.5 py-1 text-[11px] font-mono font-bold rounded transition-colors cursor-pointer ${
+                            className={`px-2.5 py-1 text-xs font-mono font-bold rounded transition-colors cursor-pointer ${
                                 currentTextMode === 'off'
                                     ? 'bg-gray-700 text-gray-200 shadow-sm'
                                     : 'text-gray-400 hover:text-gray-200'
@@ -735,12 +735,12 @@ const NotationVisualizer: React.FC<NotationVisualizerProps> = ({
                 </div>
 
                 {currentTextMode === 'syllables' && (
-                    <span className="hidden sm:inline-block text-[11px] font-mono text-gray-400">
+                    <span className="hidden sm:inline-block text-xs font-mono text-gray-300">
                         quarter = ta · eighth = ti · dotted quarter = ta-i · sixteenth = ti-ki
                     </span>
                 )}
                 {currentTextMode === 'subdivisions' && (
-                    <span className="hidden sm:inline-block text-[11px] font-mono text-gray-400">
+                    <span className="hidden sm:inline-block text-xs font-mono text-gray-300">
                         subdivisions = 1 e &amp; a · 2 e &amp; a · 3 e &amp; a · 4 e &amp; a
                     </span>
                 )}
@@ -765,8 +765,8 @@ const NotationVisualizer: React.FC<NotationVisualizerProps> = ({
                                 x={beatNumberX}
                                 y={17}
                                 fill={NOTE_COLOR}
-                                opacity="0.55"
-                                fontSize="11"
+                                opacity="0.65"
+                                fontSize="11.5"
                                 fontWeight="700"
                                 textAnchor="middle"
                                 letterSpacing="0.08em"
@@ -819,8 +819,8 @@ const NotationVisualizer: React.FC<NotationVisualizerProps> = ({
                                 x={START_X - 10}
                                 y={staffY + 4}
                                 fill={NOTE_COLOR}
-                                opacity="0.85"
-                                fontSize="11"
+                                opacity="0.9"
+                                fontSize="11.5"
                                 fontWeight="700"
                                 textAnchor="end"
                                 letterSpacing="0.05em"

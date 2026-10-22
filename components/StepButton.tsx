@@ -179,15 +179,15 @@ const StepButton: React.FC<StepButtonProps> = ({
                         : 'border-[#fae39c] translate-y-[1px]'
                 }`;
             case 'default':
-                // Clean, simplified single-frame square combining Color Block & Slow Computer with dark blue gradients
-                return `relative overflow-hidden w-full h-12 sm:h-14 rounded-none cursor-pointer border flex items-center justify-center ${
+                // Modern Minimal Gallery Masterpiece: tactile rounded keycaps with luminous pastel active states
+                return `relative overflow-hidden w-full h-12 sm:h-14 rounded-xl cursor-pointer border transition-all duration-150 active:scale-[0.97] flex items-center justify-center ${
                     !isActive
                         ? `${
                             isDownbeat
-                                ? 'border-[#3b6ca8] hover:border-[#a8dcff]'
-                                : 'border-[#1d3b66] hover:border-[#78b8f0]'
+                                ? 'border-[#5a94d6]/55 hover:border-[#a8dcff] shadow-[0_2px_6px_rgba(3,10,24,0.3),inset_0_1px_0_rgba(214,238,255,0.18)]'
+                                : 'border-[#28518a]/60 hover:border-[#78b8f0] shadow-[0_2px_5px_rgba(3,10,24,0.25),inset_0_1px_0_rgba(214,238,255,0.1)]'
                           }`
-                        : 'border-[#e3f3ff]'
+                        : 'border-white/85 shadow-[0_4px_12px_rgba(4,12,26,0.35),inset_0_1.5px_0_rgba(255,255,255,0.8)]'
                 }`;
             case 'classic607':
             default:
@@ -205,7 +205,7 @@ const StepButton: React.FC<StepButtonProps> = ({
             case 'bauhaus': return 'outline outline-2 outline-offset-1 outline-[#d62828] z-20';
             case 'nagra': return 'outline outline-2 outline-offset-1 outline-[#ff5e4d] z-20';
             case 'koto': return 'outline outline-2 outline-offset-1 outline-[#d4af37] z-20';
-            case 'default': return 'outline outline-2 outline-offset-0 outline-white z-20';
+            case 'default': return 'outline outline-2 outline-offset-1 outline-white z-20';
             case 'classic607':
             default: return 'outline outline-2 outline-offset-2 outline-cyan-300 z-20';
         }
@@ -292,12 +292,12 @@ const StepButton: React.FC<StepButtonProps> = ({
             case 'koto':
                 return `${base} font-['Cormorant_Garamond'] text-sm sm:text-base ${isActive ? 'text-[#fff9eb]' : 'text-[#b5a692]/75'}`;
             case 'default':
-                return `relative z-10 text-xs font-['IBM_Plex_Mono'] pointer-events-none ${
+                return `relative z-10 text-xs font-['Plus_Jakarta_Sans'] pointer-events-none ${
                     isActive
-                        ? 'text-[#061224] font-semibold'
+                        ? 'text-[#061224] font-bold'
                         : isDownbeat
-                        ? 'text-[#cde6ff] font-medium'
-                        : 'text-[#638ec2]'
+                        ? 'text-[#d8edff] font-semibold'
+                        : 'text-[#7aa5d6] font-medium'
                 }`;
             case 'classic607':
             default:
@@ -315,26 +315,12 @@ const StepButton: React.FC<StepButtonProps> = ({
             aria-pressed={isActive}
         >
             {/* Style-Specific Tactile Hardware Details */}
-            {visualizerStyle === 'default' && (
-                <>
-                    {/* Minimal Color-Block Corner Triangle on Downbeats */}
-                    {isDownbeat && (
-                        <span
-                            className="absolute top-0 left-0 w-0 h-0 pointer-events-none"
-                            style={{
-                                borderTop: `7px solid ${isActive ? '#071428' : '#ffc4d6'}`,
-                                borderRight: '7px solid transparent',
-                            }}
-                        />
-                    )}
-                    {/* Clean Bottom Pastel Rainbow Accent Bar when Active */}
-                    {isActive && (
-                        <span
-                            className="absolute bottom-0 left-0 right-0 h-[3px] pointer-events-none"
-                            style={{ backgroundColor: pastelCoolSlot.accent }}
-                        />
-                    )}
-                </>
+            {visualizerStyle === 'default' && isActive && (
+                /* Clean Rounded Pastel Horizon Bar when Active */
+                <span
+                    className="absolute bottom-1 inset-x-2 h-[2.5px] rounded-full pointer-events-none"
+                    style={{ backgroundColor: pastelCoolSlot.accent }}
+                />
             )}
 
             {visualizerStyle === 'braun' && (
