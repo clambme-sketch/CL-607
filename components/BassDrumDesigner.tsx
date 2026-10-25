@@ -1,3 +1,4 @@
+// CL-607 Kick Drum Designer (v1.1.0)
 import React, { useState, useCallback } from 'react';
 import { KickDesignerParams, VisualizerStyle } from '../types';
 import Tooltip from './Tooltip';

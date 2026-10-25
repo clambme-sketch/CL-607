@@ -1,3 +1,4 @@
+// CL-607 Instrument Settings & Mute/Solo Controls (v1.1.0)
 import React, { useState, useCallback } from 'react';
 import { Instrument, AllInstrumentParams, InstrumentParams, KickDesignerParams, VisualizerStyle } from '../types';
 import { INSTRUMENTS, INSTRUMENT_LABELS, MIN_FILTER_FREQ, MAX_FILTER_FREQ } from '../constants';

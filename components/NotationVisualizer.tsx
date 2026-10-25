@@ -1,3 +1,4 @@
+// CL-607 Rhythmic Notation Score (v1.1.0)
 import React, { useMemo, useState } from 'react';
 import { Grid, NotationTextMode } from '../types';
 import { INSTRUMENTS, INSTRUMENT_LABELS } from '../constants';

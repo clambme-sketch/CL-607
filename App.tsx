@@ -1,3 +1,4 @@
+// CL-607 Drum Machine v1.1.0
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import Sequencer from './components/Sequencer';
 import Controls from './components/Controls';

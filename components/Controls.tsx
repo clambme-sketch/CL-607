@@ -1,3 +1,4 @@
+// CL-607 Transport, Pattern Bank & Themed Cat/Disco Visualizer (v1.1.0)
 import React, { useRef, useCallback, useState, useEffect } from 'react';
 import { MIN_TEMPO, MAX_TEMPO } from '../constants';
 import { SavedPattern, VisualizerStyle, LiveRecording } from '../types';

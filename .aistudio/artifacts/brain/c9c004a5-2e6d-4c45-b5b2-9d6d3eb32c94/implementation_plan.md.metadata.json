@@ -1,6 +1,0 @@
-{
-  "summary": "Implementation plan for upgrading the Sample Recorder component with a cleaner, theme-aligned aesthetic, high-contrast oscilloscope waveform display with time ruler, clustered icon+label editing toolbar, and dedicated Tone & Envelope parameter cards across all visual themes (Sunset, Virtual, Domino, Braun, Koto, Minimal, Default).",
-  "updatedAt": "2026-10-17T22:07:59.842172865Z",
-  "requestFeedback": true,
-  "userFacing": true
-}

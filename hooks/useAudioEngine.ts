@@ -1,3 +1,4 @@
+// CL-607 Web Audio Synthesis & Effects Engine (v1.1.0)
 import { useRef, useCallback } from 'react';
 import { MAX_FILTER_FREQ, MIN_FILTER_FREQ, INSTRUMENTS } from '../constants';
 import { Grid, Instrument, AllInstrumentParams, InstrumentParams, KickDesignerParams, StutterDivision, BeatRepeatDivision, ReverbType } from '../types';

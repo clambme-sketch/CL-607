@@ -1,3 +1,4 @@
+// CL-607 System & Sequencer Settings (v1.1.0)
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Instrument, VisualizerType, VisualizerStyle, PadLabelMode } from '../types';
 import { INSTRUMENTS, INSTRUMENT_LABELS } from '../constants';
