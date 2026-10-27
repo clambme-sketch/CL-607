@@ -488,3 +488,244 @@ export const safeRemoveItem = (key: string): void => {
         console.warn(`Could not remove from localStorage (key: ${key}).`);
     }
 };
+
+// --- Recorded Vocal Sample Persistence (IndexedDB with Int16 Base64 localStorage fallback) ---
+const SAMPLE_DB_NAME = 'cl607-audio-db';
+const SAMPLE_STORE_NAME = 'recorded-samples';
+const SAMPLE_RECORD_KEY = 'vocal-sample-v1';
+const SAMPLE_FALLBACK_LS_KEY = 'cl607-vocal-sample-fallback-v1';
+
+export interface SampleTrimRange {
+    start: number;
+    end: number;
+    fadeIn?: number;
+    fadeOut?: number;
+}
+
+export interface StoredVocalSample {
+    fullAudioData: Float32Array;
+    originalAudioData: Float32Array;
+    trimRange: SampleTrimRange;
+}
+
+export const applyTrimAndFades = (
+    fullAudioData: Float32Array,
+    trimRange: SampleTrimRange
+): Float32Array => {
+    if (fullAudioData.length === 0) return new Float32Array(0);
+    const startIndex = Math.max(0, Math.min(fullAudioData.length, Math.floor(trimRange.start * fullAudioData.length)));
+    const endIndex = Math.max(startIndex, Math.min(fullAudioData.length, Math.floor(trimRange.end * fullAudioData.length)));
+    const trimmed = fullAudioData.subarray(startIndex, endIndex);
+    if (trimmed.length === 0) return new Float32Array(0);
+
+    const fadeInRatio = Math.max(0, Math.min(1, trimRange.fadeIn ?? 0));
+    const fadeOutRatio = Math.max(0, Math.min(1 - fadeInRatio, trimRange.fadeOut ?? 0));
+
+    if (fadeInRatio <= 0.001 && fadeOutRatio <= 0.001) {
+        return trimmed;
+    }
+
+    const result = new Float32Array(trimmed);
+    const fadeInSamples = Math.floor(result.length * fadeInRatio);
+    const fadeOutSamples = Math.floor(result.length * fadeOutRatio);
+
+    if (fadeInSamples > 0) {
+        for (let i = 0; i < fadeInSamples; i++) {
+            result[i] *= i / fadeInSamples;
+        }
+    }
+    if (fadeOutSamples > 0) {
+        const fadeOutStart = result.length - fadeOutSamples;
+        for (let i = 0; i < fadeOutSamples; i++) {
+            result[fadeOutStart + i] *= 1 - i / fadeOutSamples;
+        }
+    }
+
+    return result;
+};
+
+const openSampleDb = (): Promise<IDBDatabase> => {
+    return new Promise((resolve, reject) => {
+        if (typeof indexedDB === 'undefined') {
+            reject(new Error('IndexedDB not supported'));
+            return;
+        }
+        try {
+            const request = indexedDB.open(SAMPLE_DB_NAME, 1);
+            request.onupgradeneeded = () => {
+                const db = request.result;
+                if (!db.objectStoreNames.contains(SAMPLE_STORE_NAME)) {
+                    db.createObjectStore(SAMPLE_STORE_NAME);
+                }
+            };
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error || new Error('IndexedDB open error'));
+        } catch (err) {
+            reject(err);
+        }
+    });
+};
+
+const encodeFloat32ToBase64Int16 = (floatData: Float32Array): string => {
+    const int16 = new Int16Array(floatData.length);
+    for (let i = 0; i < floatData.length; i++) {
+        const s = Math.max(-1, Math.min(1, floatData[i]));
+        int16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+    }
+    const bytes = new Uint8Array(int16.buffer);
+    let binary = '';
+    const chunkSize = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+        const sub = bytes.subarray(i, i + chunkSize);
+        binary += String.fromCharCode.apply(null, Array.from(sub));
+    }
+    return btoa(binary);
+};
+
+const decodeBase64Int16ToFloat32 = (base64: string): Float32Array => {
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+    }
+    const int16 = new Int16Array(bytes.buffer);
+    const floatData = new Float32Array(int16.length);
+    for (let i = 0; i < int16.length; i++) {
+        floatData[i] = int16[i] / (int16[i] < 0 ? 0x8000 : 0x7fff);
+    }
+    return floatData;
+};
+
+export const saveRecordedSampleToStorage = async (sample: StoredVocalSample): Promise<void> => {
+    const fullCopy = new Float32Array(sample.fullAudioData);
+    const origCopy = new Float32Array(
+        sample.originalAudioData && sample.originalAudioData.length > 0
+            ? sample.originalAudioData
+            : sample.fullAudioData
+    );
+    const trimRange: SampleTrimRange = {
+        start: Number.isFinite(sample.trimRange?.start) ? sample.trimRange.start : 0,
+        end: Number.isFinite(sample.trimRange?.end) ? sample.trimRange.end : 1,
+        fadeIn: Number.isFinite(sample.trimRange?.fadeIn) ? sample.trimRange.fadeIn : 0,
+        fadeOut: Number.isFinite(sample.trimRange?.fadeOut) ? sample.trimRange.fadeOut : 0,
+    };
+
+    try {
+        const db = await openSampleDb();
+        await new Promise<void>((resolve, reject) => {
+            const tx = db.transaction(SAMPLE_STORE_NAME, 'readwrite');
+            const store = tx.objectStore(SAMPLE_STORE_NAME);
+            store.put(
+                {
+                    fullBuffer: fullCopy.buffer,
+                    originalBuffer: origCopy.buffer,
+                    trimRange,
+                    updatedAt: Date.now(),
+                },
+                SAMPLE_RECORD_KEY
+            );
+            tx.oncomplete = () => {
+                db.close();
+                resolve();
+            };
+            tx.onerror = () => {
+                db.close();
+                reject(tx.error || new Error('IndexedDB write failed'));
+            };
+        });
+        return;
+    } catch {
+        // Fallback to compact Int16 Base64 in localStorage if IndexedDB is unavailable
+        try {
+            const payload = JSON.stringify({
+                fullB64: encodeFloat32ToBase64Int16(fullCopy),
+                origB64: encodeFloat32ToBase64Int16(origCopy),
+                trimRange,
+            });
+            safeSetItem(SAMPLE_FALLBACK_LS_KEY, payload);
+        } catch {}
+    }
+};
+
+export const loadRecordedSampleFromStorage = async (): Promise<StoredVocalSample | null> => {
+    try {
+        const db = await openSampleDb();
+        const record = await new Promise<any>((resolve, reject) => {
+            const tx = db.transaction(SAMPLE_STORE_NAME, 'readonly');
+            const store = tx.objectStore(SAMPLE_STORE_NAME);
+            const req = store.get(SAMPLE_RECORD_KEY);
+            req.onsuccess = () => {
+                db.close();
+                resolve(req.result || null);
+            };
+            req.onerror = () => {
+                db.close();
+                reject(req.error || new Error('IndexedDB read failed'));
+            };
+        });
+
+        if (record && record.fullBuffer) {
+            const fullAudioData =
+                record.fullBuffer instanceof Float32Array
+                    ? new Float32Array(record.fullBuffer)
+                    : new Float32Array(record.fullBuffer);
+            const originalAudioData = record.originalBuffer
+                ? record.originalBuffer instanceof Float32Array
+                    ? new Float32Array(record.originalBuffer)
+                    : new Float32Array(record.originalBuffer)
+                : new Float32Array(fullAudioData);
+            if (fullAudioData.length > 0) {
+                return {
+                    fullAudioData,
+                    originalAudioData: originalAudioData.length > 0 ? originalAudioData : new Float32Array(fullAudioData),
+                    trimRange: record.trimRange || { start: 0, end: 1 },
+                };
+            }
+        }
+    } catch {}
+
+    // Fallback check in localStorage
+    try {
+        const raw = safeGetItem(SAMPLE_FALLBACK_LS_KEY);
+        if (raw) {
+            const parsed = JSON.parse(raw);
+            if (parsed && typeof parsed.fullB64 === 'string' && parsed.fullB64.length > 0) {
+                const fullAudioData = decodeBase64Int16ToFloat32(parsed.fullB64);
+                const originalAudioData =
+                    typeof parsed.origB64 === 'string' && parsed.origB64.length > 0
+                        ? decodeBase64Int16ToFloat32(parsed.origB64)
+                        : new Float32Array(fullAudioData);
+                if (fullAudioData.length > 0) {
+                    return {
+                        fullAudioData,
+                        originalAudioData,
+                        trimRange: parsed.trimRange || { start: 0, end: 1 },
+                    };
+                }
+            }
+        }
+    } catch {}
+
+    return null;
+};
+
+export const clearRecordedSampleFromStorage = async (): Promise<void> => {
+    safeRemoveItem(SAMPLE_FALLBACK_LS_KEY);
+    try {
+        const db = await openSampleDb();
+        await new Promise<void>((resolve) => {
+            const tx = db.transaction(SAMPLE_STORE_NAME, 'readwrite');
+            const store = tx.objectStore(SAMPLE_STORE_NAME);
+            store.delete(SAMPLE_RECORD_KEY);
+            tx.oncomplete = () => {
+                db.close();
+                resolve();
+            };
+            tx.onerror = () => {
+                db.close();
+                resolve();
+            };
+        });
+    } catch {}
+};
+

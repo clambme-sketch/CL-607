@@ -1126,7 +1126,7 @@ const DEFAULT_PARAMS: AllInstrumentParams = {
     snap: { pitch: 1, decay: 1, attack: 0 },
     clave: { pitch: 1, decay: 1 },
     cowbell: { pitch: 1, decay: 1, attack: 0 },
-    sample: { pitch: 1, decay: 1, highPass: MIN_FILTER_FREQ, lowPass: MAX_FILTER_FREQ },
+    sample: { pitch: 1, decay: 2, overlap: 0, highPass: MIN_FILTER_FREQ, lowPass: MAX_FILTER_FREQ },
 };
 
 const RAMP_TIME = 0.01; // 10ms ramp for all parameter changes to prevent clicks
@@ -1196,6 +1196,7 @@ export const useAudioEngine = () => {
     const kickSidechainThresholdRef = useRef<number>(-20);
     const kickSidechainRatioRef = useRef<number>(4);
     const sampleSourceRef = useRef<AudioBufferSourceNode | null>(null);
+    const activeSampleSourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
     
     // Refs for effect analysers
     const masterAnalyserRef = useRef<AnalyserNode | null>(null);
@@ -2441,27 +2442,41 @@ export const useAudioEngine = () => {
         source.buffer = bufferToPlay;
 
         // Apply real-time pitch shift for sample playback
-        if (instrument === 'sample' && params?.pitch) {
-            source.playbackRate.setValueAtTime(params.pitch, playTime);
+        const samplePitch = instrument === 'sample' ? (params?.pitch ?? instrumentParamsRef.current.sample?.pitch ?? 1) : 1;
+        if (instrument === 'sample' && samplePitch) {
+            source.playbackRate.setValueAtTime(samplePitch, playTime);
         }
 
         if (instrument === 'sample') {
-            if (sampleSourceRef.current) {
-                try {
-                    sampleSourceRef.current.stop(playTime);
-                } catch (e) {
-                    // Ignore error if already stopped
+            const allowOverlap = Boolean((params?.overlap ?? instrumentParamsRef.current.sample?.overlap ?? 0) > 0.5);
+            if (!allowOverlap) {
+                if (sampleSourceRef.current) {
+                    try {
+                        sampleSourceRef.current.stop(playTime);
+                    } catch (e) {
+                        // Ignore error if already stopped
+                    }
                 }
+                activeSampleSourcesRef.current.forEach(prevSource => {
+                    try {
+                        prevSource.stop(playTime);
+                    } catch (e) {
+                        // Ignore error if already stopped
+                    }
+                });
+                activeSampleSourcesRef.current.clear();
             }
             sampleSourceRef.current = source;
+            activeSampleSourcesRef.current.add(source);
         }
 
         const gain = context.createGain();
         if (instrument === 'sample') {
-            if (params?.decay && params.decay < 2) {
+            const sampleDecay = params?.decay ?? instrumentParamsRef.current.sample?.decay ?? 2;
+            if (sampleDecay < 1.99) {
                 gain.gain.setValueAtTime(0, playTime);
                 gain.gain.linearRampToValueAtTime(volume, playTime + 0.002);
-                gain.gain.exponentialRampToValueAtTime(0.001, playTime + params.decay * 2.5);
+                gain.gain.exponentialRampToValueAtTime(0.001, playTime + sampleDecay * 2.5);
             } else {
                 gain.gain.setValueAtTime(0, playTime);
                 gain.gain.linearRampToValueAtTime(volume, playTime + 0.002);
@@ -2477,8 +2492,11 @@ export const useAudioEngine = () => {
         source.onended = () => {
             source.disconnect();
             gain.disconnect();
-            if (instrument === 'sample' && sampleSourceRef.current === source) {
-                sampleSourceRef.current = null;
+            if (instrument === 'sample') {
+                activeSampleSourcesRef.current.delete(source);
+                if (sampleSourceRef.current === source) {
+                    sampleSourceRef.current = null;
+                }
             }
         };
         source.start(playTime);
@@ -3179,7 +3197,8 @@ export const useAudioEngine = () => {
                 if (instrumentParamsRef.current.sample.pitch) {
                     source.playbackRate.setValueAtTime(instrumentParamsRef.current.sample.pitch, time);
                 }
-                if (lastSampleSource) {
+                const allowOverlap = Boolean((instrumentParamsRef.current.sample.overlap ?? 0) > 0.5);
+                if (!allowOverlap && lastSampleSource) {
                     try {
                         lastSampleSource.stop(time);
                     } catch {
@@ -3191,10 +3210,11 @@ export const useAudioEngine = () => {
 
             const gain = offlineCtx.createGain();
             if (instrument === 'sample') {
-                if (instrumentParamsRef.current.sample.decay && instrumentParamsRef.current.sample.decay < 2) {
+                const sampleDecay = instrumentParamsRef.current.sample.decay ?? 2;
+                if (sampleDecay < 1.99) {
                     gain.gain.setValueAtTime(0, time);
                     gain.gain.linearRampToValueAtTime(volumes[instIndex], time + 0.002);
-                    gain.gain.exponentialRampToValueAtTime(0.001, time + instrumentParamsRef.current.sample.decay * 2.5);
+                    gain.gain.exponentialRampToValueAtTime(0.001, time + sampleDecay * 2.5);
                 } else {
                     gain.gain.setValueAtTime(0, time);
                     gain.gain.linearRampToValueAtTime(volumes[instIndex], time + 0.002);
@@ -3415,7 +3435,7 @@ export const useAudioEngine = () => {
         const paramsForInstrument = instrumentParamsRef.current[instrument];
         if (paramsForInstrument && param in paramsForInstrument) {
             (paramsForInstrument as any)[param] = value;
-        } else if (instrument === 'sample' && (param === 'highPass' || param === 'lowPass')) {
+        } else if (instrument === 'sample' && (param === 'highPass' || param === 'lowPass' || param === 'decay' || param === 'pitch' || param === 'overlap')) {
              (paramsForInstrument as any)[param] = value;
         } else {
             return;

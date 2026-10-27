@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import SampleVisualizer from './SampleVisualizer';
 import { Instrument, InstrumentParams, VisualizerStyle } from '../types';
-import { getButtonStyle, getThemeSurface } from '../utils';
+import { getButtonStyle, getThemeSurface, SampleTrimRange, applyTrimAndFades } from '../utils';
 import { MIN_FILTER_FREQ, MAX_FILTER_FREQ } from '../constants';
 
 const EMPTY_VISUALIZER_DATA = new Float32Array(256);
@@ -226,8 +226,8 @@ interface SampleRecorderMenuProps {
     setFullAudioData: React.Dispatch<React.SetStateAction<Float32Array>>;
     originalAudioData: Float32Array;
     setOriginalAudioData: React.Dispatch<React.SetStateAction<Float32Array>>;
-    trimRange: { start: number; end: number };
-    setTrimRange: React.Dispatch<React.SetStateAction<{ start: number; end: number }>>;
+    trimRange: SampleTrimRange;
+    setTrimRange: React.Dispatch<React.SetStateAction<SampleTrimRange>>;
     sampleParams: InstrumentParams;
     onParamChange: (instrument: Instrument, param: keyof InstrumentParams, value: number) => void;
     playSample: (volume: number, time?: number, params?: Partial<InstrumentParams>) => void;
@@ -260,21 +260,28 @@ const SampleRecorderMenu: React.FC<SampleRecorderMenuProps> = ({
     const previewRafRef = useRef<number | null>(null);
 
     const pitch = sampleParams.pitch ?? 1;
-    const decay = sampleParams.decay ?? 1;
+    const decay = sampleParams.decay ?? 2;
     const highPass = sampleParams.highPass ?? MIN_FILTER_FREQ;
     const lowPass = sampleParams.lowPass ?? MAX_FILTER_FREQ;
+    const isOverlapEnabled = (sampleParams.overlap ?? 0) > 0.5;
 
     const sampleRate = audioContext?.sampleRate || 44100;
     const hasSample = fullAudioData.length > 0;
     const totalSeconds = hasSample ? fullAudioData.length / sampleRate : 0;
     const selectedSeconds = hasSample ? (trimRange.end - trimRange.start) * totalSeconds : 0;
-    const isTrimmedSubregion = hasSample && (trimRange.start > 0.005 || trimRange.end < 0.995);
+    const isTrimmedSubregion =
+        hasSample &&
+        (trimRange.start > 0.005 ||
+            trimRange.end < 0.995 ||
+            (trimRange.fadeIn ?? 0) > 0.005 ||
+            (trimRange.fadeOut ?? 0) > 0.005);
 
     const areParamsModified =
         Math.abs(pitch - 1) > 0.005 ||
-        Math.abs(decay - 1) > 0.005 ||
+        Math.abs(decay - 2) > 0.005 ||
         highPass > MIN_FILTER_FREQ + 2 ||
-        lowPass < MAX_FILTER_FREQ - 50;
+        lowPass < MAX_FILTER_FREQ - 50 ||
+        isOverlapEnabled;
 
     const showStatusMessage = useCallback((msg: string) => {
         setMessage(msg);
@@ -323,7 +330,7 @@ const SampleRecorderMenu: React.FC<SampleRecorderMenuProps> = ({
             const data = new Float32Array(channelData);
             setFullAudioData(data);
             setOriginalAudioData(data);
-            setTrimRange({ start: 0, end: 1 });
+            setTrimRange({ start: 0, end: 1, fadeIn: 0, fadeOut: 0 });
             showStatusMessage(`Loaded "${file.name.replace(/\.[^/.]+$/, '')}" (${audioBuffer.duration.toFixed(2)}s)`);
         } catch (err) {
             console.error("Error decoding audio:", err);
@@ -366,15 +373,13 @@ const SampleRecorderMenu: React.FC<SampleRecorderMenuProps> = ({
         onToggleRecording();
     };
 
-    const handleTrim = useCallback((start: number, end: number) => {
-        setTrimRange({ start, end });
+    const handleTrim = useCallback((start: number, end: number, fadeIn: number = 0, fadeOut: number = 0) => {
+        setTrimRange({ start, end, fadeIn, fadeOut });
     }, [setTrimRange]);
 
     const getTrimmedData = useCallback(() => {
         if (fullAudioData.length === 0) return EMPTY_SAMPLE_DATA;
-        const startIndex = Math.floor(trimRange.start * fullAudioData.length);
-        const endIndex = Math.floor(trimRange.end * fullAudioData.length);
-        return fullAudioData.subarray(startIndex, endIndex);
+        return applyTrimAndFades(fullAudioData, trimRange);
     }, [fullAudioData, trimRange]);
 
     const handlePreview = useCallback(() => {
@@ -407,7 +412,7 @@ const SampleRecorderMenu: React.FC<SampleRecorderMenuProps> = ({
         const trimmed = getTrimmedData();
         if (trimmed.length === 0) return;
         setFullAudioData(new Float32Array(trimmed));
-        setTrimRange({ start: 0, end: 1 });
+        setTrimRange({ start: 0, end: 1, fadeIn: 0, fadeOut: 0 });
         showStatusMessage("Cropped to selection.");
     };
 
@@ -425,7 +430,7 @@ const SampleRecorderMenu: React.FC<SampleRecorderMenuProps> = ({
             normalized[i] = trimmed[i] * factor;
         }
         setFullAudioData(normalized);
-        setTrimRange({ start: 0, end: 1 });
+        setTrimRange({ start: 0, end: 1, fadeIn: 0, fadeOut: 0 });
         showStatusMessage("Normalized to 0 dBFS.");
     };
 
@@ -434,57 +439,41 @@ const SampleRecorderMenu: React.FC<SampleRecorderMenuProps> = ({
         if (trimmed.length === 0) return;
         const reversed = new Float32Array(trimmed).reverse();
         setFullAudioData(reversed);
-        setTrimRange({ start: 0, end: 1 });
+        setTrimRange({ start: 0, end: 1, fadeIn: 0, fadeOut: 0 });
         showStatusMessage("Sample reversed.");
-    };
-
-    const handleFadeIn = () => {
-        const trimmed = getTrimmedData();
-        if (trimmed.length === 0) return;
-        const faded = new Float32Array(trimmed);
-        const fadeLength = Math.floor(faded.length * 0.2);
-        for (let i = 0; i < fadeLength; i++) {
-            faded[i] *= i / fadeLength;
-        }
-        setFullAudioData(faded);
-        setTrimRange({ start: 0, end: 1 });
-        showStatusMessage("20% fade-in applied.");
-    };
-
-    const handleFadeOut = () => {
-        const trimmed = getTrimmedData();
-        if (trimmed.length === 0) return;
-        const faded = new Float32Array(trimmed);
-        const fadeLength = Math.floor(faded.length * 0.25);
-        const fadeStart = faded.length - fadeLength;
-        for (let i = 0; i < fadeLength; i++) {
-            faded[fadeStart + i] *= 1 - i / fadeLength;
-        }
-        setFullAudioData(faded);
-        setTrimRange({ start: 0, end: 1 });
-        showStatusMessage("25% fade-out applied.");
     };
 
     const handleRevert = () => {
         if (originalAudioData.length === 0) return;
         setFullAudioData(originalAudioData);
-        setTrimRange({ start: 0, end: 1 });
+        setTrimRange({ start: 0, end: 1, fadeIn: 0, fadeOut: 0 });
         showStatusMessage("Restored original sample.");
     };
 
     const handleClear = () => {
         setFullAudioData(new Float32Array(0));
-        setTrimRange({ start: 0, end: 1 });
+        setTrimRange({ start: 0, end: 1, fadeIn: 0, fadeOut: 0 });
         setPreviewProgress(null);
         showStatusMessage("Sample cleared.");
     };
 
     const handleResetParams = () => {
         onParamChange('sample', 'pitch', 1);
-        onParamChange('sample', 'decay', 1);
+        onParamChange('sample', 'decay', 2);
         onParamChange('sample', 'highPass', MIN_FILTER_FREQ);
         onParamChange('sample', 'lowPass', MAX_FILTER_FREQ);
+        onParamChange('sample', 'overlap', 0);
         showStatusMessage("Sample parameters reset.");
+    };
+
+    const handleToggleOverlap = () => {
+        const nextOverlap = isOverlapEnabled ? 0 : 1;
+        onParamChange('sample', 'overlap', nextOverlap);
+        showStatusMessage(
+            nextOverlap === 1
+                ? "Overlap ON (Poly): Samples layer over each other."
+                : "Overlap OFF (Choke): New sample cuts off previous."
+        );
     };
 
     const handleApplyProcessing = async () => {
@@ -536,11 +525,11 @@ const SampleRecorderMenu: React.FC<SampleRecorderMenuProps> = ({
             const processedData = new Float32Array(renderedBuffer.getChannelData(0));
 
             setFullAudioData(processedData);
-            setTrimRange({ start: 0, end: 1 });
+            setTrimRange({ start: 0, end: 1, fadeIn: 0, fadeOut: 0 });
 
             // Reset shared sample parameters so they don't double-apply in either tab
             onParamChange('sample', 'pitch', 1);
-            onParamChange('sample', 'decay', 1);
+            onParamChange('sample', 'decay', 2);
             onParamChange('sample', 'highPass', MIN_FILTER_FREQ);
             onParamChange('sample', 'lowPass', MAX_FILTER_FREQ);
 
@@ -644,6 +633,40 @@ const SampleRecorderMenu: React.FC<SampleRecorderMenuProps> = ({
                         </svg>
                         <span>LOAD FILE</span>
                     </button>
+
+                    {/* Overlap (Poly) vs Cut (Choke) Voice Mode Toggle */}
+                    <button
+                        type="button"
+                        onClick={handleToggleOverlap}
+                        disabled={isRecording}
+                        aria-pressed={isOverlapEnabled}
+                        title={
+                            isOverlapEnabled
+                                ? "Overlap / Poly Mode (Active): Samples ring out and overlap each other. Click to switch to Cut / Choke Mode."
+                                : "Cut / Choke Mode (Default): Starting a sample cuts off the previous sample. Click to allow samples to overlap (Poly Mode)."
+                        }
+                        className={getButtonStyle(
+                            visualizerStyle,
+                            isOverlapEnabled ? 'success' : 'secondary',
+                            isOverlapEnabled,
+                            isRecording,
+                            'h-9 px-3.5 text-xs gap-1.5'
+                        )}
+                    >
+                        {isOverlapEnabled ? (
+                            <svg className="w-3.5 h-3.5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                <polygon points="12 2 2 7 12 12 22 7 12 2" />
+                                <polyline points="2 12 12 17 22 12" />
+                                <polyline points="2 17 12 22 22 17" />
+                            </svg>
+                        ) : (
+                            <svg className="w-3.5 h-3.5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M18 6L6 18" />
+                                <path d="M6 6l12 12" />
+                            </svg>
+                        )}
+                        <span>{isOverlapEnabled ? 'OVERLAP: ON (POLY)' : 'OVERLAP: OFF (CUT)'}</span>
+                    </button>
                 </div>
 
                 {/* Unboxed Telemetry & Status Feedback */}
@@ -663,9 +686,7 @@ const SampleRecorderMenu: React.FC<SampleRecorderMenuProps> = ({
                             <span aria-hidden="true" className="opacity-50">·</span>
                             <span>{(sampleRate / 1000).toFixed(1)} kHz</span>
                         </>
-                    ) : (
-                        <span>Max window: 5.0s · Drop WAV/MP3 or capture mic</span>
-                    )}
+                    ) : null}
                 </div>
             </div>
 
@@ -708,9 +729,9 @@ const SampleRecorderMenu: React.FC<SampleRecorderMenuProps> = ({
                         </button>
                         <button
                             type="button"
-                            onClick={() => setTrimRange({ start: 0, end: 1 })}
+                            onClick={() => setTrimRange({ start: 0, end: 1, fadeIn: 0, fadeOut: 0 })}
                             disabled={!isTrimmedSubregion || isRecording}
-                            title="Expand trim handles to full sample length"
+                            title="Expand trim handles to full sample length and reset fades"
                             className={getButtonStyle(visualizerStyle, 'secondary', false, !isTrimmedSubregion || isRecording, 'h-8 px-2.5 text-[11px] gap-1.5')}
                         >
                             <svg className="w-3.5 h-3.5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -757,30 +778,6 @@ const SampleRecorderMenu: React.FC<SampleRecorderMenuProps> = ({
                             </svg>
                             <span>REVERSE</span>
                         </button>
-                        <button
-                            type="button"
-                            onClick={handleFadeIn}
-                            disabled={!hasSample || isRecording}
-                            title="Apply a smooth 20% fade-in ramp"
-                            className={getButtonStyle(visualizerStyle, 'secondary', false, !hasSample || isRecording, 'h-8 px-2.5 text-[11px] gap-1.5')}
-                        >
-                            <svg className="w-3.5 h-3.5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round">
-                                <path d="M3 19L21 5v14H3z" />
-                            </svg>
-                            <span>FADE IN</span>
-                        </button>
-                        <button
-                            type="button"
-                            onClick={handleFadeOut}
-                            disabled={!hasSample || isRecording}
-                            title="Apply a smooth 25% fade-out ramp"
-                            className={getButtonStyle(visualizerStyle, 'secondary', false, !hasSample || isRecording, 'h-8 px-2.5 text-[11px] gap-1.5')}
-                        >
-                            <svg className="w-3.5 h-3.5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round">
-                                <path d="M3 5l18 14H3V5z" />
-                            </svg>
-                            <span>FADE OUT</span>
-                        </button>
                     </div>
                 </div>
 
@@ -822,9 +819,6 @@ const SampleRecorderMenu: React.FC<SampleRecorderMenuProps> = ({
                         <h5 className={tokens.sectionTitle}>
                             Tone &amp; Envelope Shaping
                         </h5>
-                        <span className={`hidden sm:inline ${tokens.sectionHint}`}>
-                            · Double-click any parameter slider to reset
-                        </span>
                     </div>
 
                     <div className="flex items-center gap-2">
@@ -894,7 +888,7 @@ const SampleRecorderMenu: React.FC<SampleRecorderMenuProps> = ({
                         </div>
                     </div>
 
-                    {/* Card 2: Decay Envelope */}
+                    {/* Card 2: Sustain / Decay Envelope */}
                     <div className={tokens.paramCard}>
                         <div className="flex items-center justify-between gap-1">
                             <label htmlFor="sample-rec-decay" className={`flex items-center gap-1.5 ${tokens.paramLabel}`}>
@@ -903,7 +897,7 @@ const SampleRecorderMenu: React.FC<SampleRecorderMenuProps> = ({
                                     <line x1="3" y1="19" x2="21" y2="19" />
                                     <line x1="3" y1="5" x2="3" y2="19" />
                                 </svg>
-                                <span>Decay</span>
+                                <span>Sustain / Decay</span>
                             </label>
                             <div className="flex items-baseline gap-1.5">
                                 <span className={tokens.paramValuePrimary}>
@@ -929,7 +923,7 @@ const SampleRecorderMenu: React.FC<SampleRecorderMenuProps> = ({
                                 step="0.01"
                                 value={decay}
                                 onChange={(e) => onParamChange('sample', 'decay', parseFloat(e.target.value))}
-                                onDoubleClick={() => onParamChange('sample', 'decay', 1)}
+                                onDoubleClick={() => onParamChange('sample', 'decay', 2)}
                                 className={`w-full h-1.5 bg-transparent appearance-none cursor-pointer ${tokens.sliderAccent}`}
                             />
                         </div>

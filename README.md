@@ -2,7 +2,7 @@
 <img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
 </div>
 
-# CL-607 Drum Machine (v1.1.0)
+# CL-607
 
 An interactive Web Audio API drum machine, synthesizer, and live DJ performance deck with 808, 909, and 727 kits, custom Kick Drum Designer, real-time audio effects, live sample recording, rhythmic notation score, and multiple hardware-inspired visual themes.
 

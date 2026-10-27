@@ -291,10 +291,18 @@ const SampleVisualizer: React.FC<SampleVisualizerProps> = ({
         height: 160,
         dpr: 1,
     });
-    const [trimRange, setTrimRange] = useState(externalTrimRange ?? { start: 0, end: 1 });
-    const [dragging, setDragging] = useState<'start' | 'end' | 'region' | null>(null);
-    const [hoverZone, setHoverZone] = useState<'handle' | 'region' | 'outside' | null>(null);
-    const dragOriginRef = useRef<{ x: number; start: number; end: number }>({ x: 0, start: 0, end: 1 });
+    const [trimRange, setTrimRange] = useState<SampleTrimRange>(
+        externalTrimRange ?? { start: 0, end: 1, fadeIn: 0, fadeOut: 0 }
+    );
+    const [dragging, setDragging] = useState<'start' | 'end' | 'region' | 'fadeIn' | 'fadeOut' | null>(null);
+    const [hoverZone, setHoverZone] = useState<'handle' | 'fadeHandle' | 'region' | 'outside' | null>(null);
+    const dragOriginRef = useRef<{ x: number; start: number; end: number; fadeIn: number; fadeOut: number }>({
+        x: 0,
+        start: 0,
+        end: 1,
+        fadeIn: 0,
+        fadeOut: 0,
+    });
 
     const hasRealSample = audioData.length > 256;
     const totalDurationSec = hasRealSample ? audioData.length / sampleRate : 0;
@@ -332,7 +340,12 @@ const SampleVisualizer: React.FC<SampleVisualizerProps> = ({
     useEffect(() => {
         if (!dragging && externalTrimRange) {
             const clampedEnd = Math.min(externalTrimRange.end, externalTrimRange.start + maxSelectionRatio);
-            setTrimRange({ start: externalTrimRange.start, end: clampedEnd });
+            setTrimRange({
+                start: externalTrimRange.start,
+                end: clampedEnd,
+                fadeIn: externalTrimRange.fadeIn ?? 0,
+                fadeOut: externalTrimRange.fadeOut ?? 0,
+            });
         }
     }, [externalTrimRange, maxSelectionRatio, dragging]);
 
@@ -442,7 +455,15 @@ const SampleVisualizer: React.FC<SampleVisualizerProps> = ({
             return;
         }
 
-        // 4. Compute min/max envelope per pixel column
+        const startX = Math.round(trimRange.start * width);
+        const endX = Math.round(trimRange.end * width);
+        const selWidth = Math.max(2, endX - startX);
+        const fadeInRatio = Math.max(0, Math.min(1, trimRange.fadeIn ?? 0));
+        const fadeOutRatio = Math.max(0, Math.min(1 - fadeInRatio, trimRange.fadeOut ?? 0));
+        const fadeInX = Math.round(startX + fadeInRatio * selWidth);
+        const fadeOutX = Math.round(endX - fadeOutRatio * selWidth);
+
+        // 4. Compute min/max envelope per pixel column (applying real-time fade taper inside selection)
         const samplesPerCol = Math.max(1, Math.floor(audioData.length / width));
         const mins = new Float32Array(width);
         const maxs = new Float32Array(width);
@@ -462,8 +483,17 @@ const SampleVisualizer: React.FC<SampleVisualizerProps> = ({
                 min = 0;
                 max = 0;
             }
-            mins[i] = min;
-            maxs[i] = max;
+            let fadeGain = 1.0;
+            if (!isRecording && i >= startX && i <= endX) {
+                if (fadeInX > startX && i < fadeInX) {
+                    fadeGain *= (i - startX) / Math.max(1, fadeInX - startX);
+                }
+                if (fadeOutX < endX && i > fadeOutX) {
+                    fadeGain *= (endX - i) / Math.max(1, endX - fadeOutX);
+                }
+            }
+            mins[i] = min * fadeGain;
+            maxs[i] = max * fadeGain;
         }
 
         // 5. Dual-layer Waveform Rendering
@@ -523,12 +553,8 @@ const SampleVisualizer: React.FC<SampleVisualizerProps> = ({
         ctx.stroke();
         ctx.restore();
 
-        // 6. Trim Overlay, Out-of-Bounds Mask & Tactile Bracket Handles
+        // 6. Trim Overlay, Out-of-Bounds Mask, Fade Taper Curves & Tactile Handles
         if (!isRecording) {
-            const startX = Math.round(trimRange.start * width);
-            const endX = Math.round(trimRange.end * width);
-            const selWidth = Math.max(2, endX - startX);
-
             // Dim unselected left & right zones
             ctx.fillStyle = theme.maskFill;
             if (startX > 0) {
@@ -536,6 +562,45 @@ const SampleVisualizer: React.FC<SampleVisualizerProps> = ({
             }
             if (endX < width) {
                 ctx.fillRect(endX, waveTop, width - endX, waveHeight);
+            }
+
+            // Shaded Fade-In & Fade-Out Taper Wedges + Slope Lines
+            if (fadeInX > startX) {
+                ctx.save();
+                ctx.fillStyle = theme.maskFill;
+                ctx.beginPath();
+                ctx.moveTo(startX, waveTop);
+                ctx.lineTo(fadeInX, waveTop);
+                ctx.lineTo(startX, height);
+                ctx.closePath();
+                ctx.fill();
+
+                ctx.strokeStyle = theme.handleTextBg;
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(startX, height - 2);
+                ctx.lineTo(fadeInX, waveTop + 2);
+                ctx.stroke();
+                ctx.restore();
+            }
+
+            if (fadeOutX < endX) {
+                ctx.save();
+                ctx.fillStyle = theme.maskFill;
+                ctx.beginPath();
+                ctx.moveTo(fadeOutX, waveTop);
+                ctx.lineTo(endX, waveTop);
+                ctx.lineTo(endX, height);
+                ctx.closePath();
+                ctx.fill();
+
+                ctx.strokeStyle = theme.handleTextBg;
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(fadeOutX, waveTop + 2);
+                ctx.lineTo(endX, height - 2);
+                ctx.stroke();
+                ctx.restore();
             }
 
             // Active region top & bottom border rails
@@ -552,17 +617,49 @@ const SampleVisualizer: React.FC<SampleVisualizerProps> = ({
             // Left (IN) Handle Bracket
             ctx.fillStyle = theme.handleColor;
             ctx.fillRect(startX, waveTop, 2.5, waveHeight);
-            ctx.fillRect(startX, waveTop, 10, 4);
             ctx.fillRect(startX, height - 4, 10, 4);
             // Left handle center grip pill
             ctx.fillRect(startX, midY - 12, 6, 24);
 
             // Right (OUT) Handle Bracket
             ctx.fillRect(Math.max(0, endX - 2.5), waveTop, 2.5, waveHeight);
-            ctx.fillRect(Math.max(0, endX - 10), waveTop, 10, 4);
             ctx.fillRect(Math.max(0, endX - 10), height - 4, 10, 4);
             // Right handle center grip pill
             ctx.fillRect(Math.max(0, endX - 6), midY - 12, 6, 24);
+
+            // Top-Left (Fade-In) & Top-Right (Fade-Out) Draggable Fader Handles
+            const drawFadeHandle = (xPos: number, isLeft: boolean, isActiveDrag: boolean) => {
+                const clampedX = isLeft
+                    ? Math.max(startX + 6, Math.min(endX - 6, xPos))
+                    : Math.max(startX + 6, Math.min(endX - 6, xPos));
+                const handleY = waveTop + 10;
+                const r = isActiveDrag ? 7 : 6;
+
+                ctx.save();
+                ctx.fillStyle = theme.handleTextBg;
+                ctx.strokeStyle = theme.bgTop;
+                ctx.lineWidth = 1.5;
+
+                // Diamond / Flag Fade Handle
+                ctx.beginPath();
+                ctx.moveTo(clampedX, handleY - r);
+                ctx.lineTo(clampedX + r, handleY);
+                ctx.lineTo(clampedX, handleY + r);
+                ctx.lineTo(clampedX - r, handleY);
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+
+                // Inner center dot
+                ctx.fillStyle = theme.handleTextColor;
+                ctx.beginPath();
+                ctx.arc(clampedX, handleY, 2, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            };
+
+            drawFadeHandle(fadeInX, true, dragging === 'fadeIn');
+            drawFadeHandle(fadeOutX, false, dragging === 'fadeOut');
 
             // Animated playhead during Preview
             if (previewProgress !== null && previewProgress >= 0 && previewProgress <= 1) {
@@ -601,77 +698,120 @@ const SampleVisualizer: React.FC<SampleVisualizerProps> = ({
         previewProgress,
         visualizerStyle,
         canvasSize,
+        dragging,
     ]);
 
-    const getNormalizedX = useCallback((clientX: number): number => {
+    const getPointerCoords = useCallback((clientX: number, clientY: number): { x: number; yPx: number } => {
         const rect = canvasRef.current?.getBoundingClientRect();
-        if (!rect || rect.width <= 0) return 0;
-        return Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+        if (!rect || rect.width <= 0) return { x: 0, yPx: 0 };
+        return {
+            x: Math.max(0, Math.min(1, (clientX - rect.left) / rect.width)),
+            yPx: clientY - rect.top,
+        };
     }, []);
 
-    const updateHoverCursor = useCallback((clientX: number) => {
+    const updateHoverCursor = useCallback((clientX: number, clientY: number) => {
         if (disabled || !hasRealSample) {
             setHoverZone(null);
             return;
         }
-        const x = getNormalizedX(clientX);
-        const handleHitRadius = 0.035;
-        const distStart = Math.abs(x - trimRange.start);
-        const distEnd = Math.abs(x - trimRange.end);
+        const { x, yPx } = getPointerCoords(clientX, clientY);
+        const selSpan = Math.max(0.01, trimRange.end - trimRange.start);
+        const fadeInNormX = trimRange.start + (trimRange.fadeIn ?? 0) * selSpan;
+        const fadeOutNormX = trimRange.end - (trimRange.fadeOut ?? 0) * selSpan;
 
-        if (distStart <= handleHitRadius || distEnd <= handleHitRadius) {
+        const isTopFadeBand = yPx >= 14 && yPx <= 48;
+        const fadeHitRadius = 0.038;
+        const handleHitRadius = 0.035;
+
+        if (isTopFadeBand && (Math.abs(x - fadeInNormX) <= fadeHitRadius || Math.abs(x - fadeOutNormX) <= fadeHitRadius)) {
+            setHoverZone('fadeHandle');
+        } else if (Math.abs(x - trimRange.start) <= handleHitRadius || Math.abs(x - trimRange.end) <= handleHitRadius) {
             setHoverZone('handle');
         } else if (x > trimRange.start && x < trimRange.end) {
             setHoverZone('region');
         } else {
             setHoverZone('outside');
         }
-    }, [disabled, hasRealSample, getNormalizedX, trimRange.start, trimRange.end]);
+    }, [disabled, hasRealSample, getPointerCoords, trimRange]);
 
-    const beginPointerDrag = useCallback((clientX: number) => {
+    const beginPointerDrag = useCallback((clientX: number, clientY: number) => {
         if (disabled || !hasRealSample) return;
-        const x = getNormalizedX(clientX);
+        const { x, yPx } = getPointerCoords(clientX, clientY);
+        const selSpan = Math.max(0.01, trimRange.end - trimRange.start);
+        const fadeInVal = trimRange.fadeIn ?? 0;
+        const fadeOutVal = trimRange.fadeOut ?? 0;
+        const fadeInNormX = trimRange.start + fadeInVal * selSpan;
+        const fadeOutNormX = trimRange.end - fadeOutVal * selSpan;
+
+        const isTopFadeBand = yPx >= 12 && yPx <= 48;
+        const fadeHitRadius = 0.042;
         const handleHitRadius = 0.04;
 
+        const distFadeIn = Math.abs(x - fadeInNormX);
+        const distFadeOut = Math.abs(x - fadeOutNormX);
         const distStart = Math.abs(x - trimRange.start);
         const distEnd = Math.abs(x - trimRange.end);
 
+        // Check top fade handles first when clicking in the upper fade band
+        if (isTopFadeBand && (distFadeIn <= fadeHitRadius || distFadeOut <= fadeHitRadius)) {
+            if (distFadeIn <= distFadeOut) {
+                setDragging('fadeIn');
+            } else {
+                setDragging('fadeOut');
+            }
+            dragOriginRef.current = { x, start: trimRange.start, end: trimRange.end, fadeIn: fadeInVal, fadeOut: fadeOutVal };
+            return;
+        }
+
         if (distStart <= handleHitRadius && distStart <= distEnd) {
             setDragging('start');
-            dragOriginRef.current = { x, start: trimRange.start, end: trimRange.end };
+            dragOriginRef.current = { x, start: trimRange.start, end: trimRange.end, fadeIn: fadeInVal, fadeOut: fadeOutVal };
         } else if (distEnd <= handleHitRadius) {
             setDragging('end');
-            dragOriginRef.current = { x, start: trimRange.start, end: trimRange.end };
+            dragOriginRef.current = { x, start: trimRange.start, end: trimRange.end, fadeIn: fadeInVal, fadeOut: fadeOutVal };
         } else if (x > trimRange.start && x < trimRange.end) {
             setDragging('region');
-            dragOriginRef.current = { x, start: trimRange.start, end: trimRange.end };
+            dragOriginRef.current = { x, start: trimRange.start, end: trimRange.end, fadeIn: fadeInVal, fadeOut: fadeOutVal };
         } else if (x < trimRange.start) {
             const newStart = Math.max(0, Math.min(x, trimRange.end - 0.01));
             const clampedStart = trimRange.end - newStart > maxSelectionRatio ? trimRange.end - maxSelectionRatio : newStart;
-            const next = { start: clampedStart, end: trimRange.end };
+            const next: SampleTrimRange = { start: clampedStart, end: trimRange.end, fadeIn: fadeInVal, fadeOut: fadeOutVal };
             setTrimRange(next);
-            onTrim(next.start, next.end);
+            onTrim(next.start, next.end, next.fadeIn, next.fadeOut);
             setDragging('start');
-            dragOriginRef.current = { x, start: next.start, end: next.end };
+            dragOriginRef.current = { x, start: next.start, end: next.end, fadeIn: fadeInVal, fadeOut: fadeOutVal };
         } else {
             const newEnd = Math.min(1, Math.max(x, trimRange.start + 0.01));
             const clampedEnd = newEnd - trimRange.start > maxSelectionRatio ? trimRange.start + maxSelectionRatio : newEnd;
-            const next = { start: trimRange.start, end: clampedEnd };
+            const next: SampleTrimRange = { start: trimRange.start, end: clampedEnd, fadeIn: fadeInVal, fadeOut: fadeOutVal };
             setTrimRange(next);
-            onTrim(next.start, next.end);
+            onTrim(next.start, next.end, next.fadeIn, next.fadeOut);
             setDragging('end');
-            dragOriginRef.current = { x, start: next.start, end: next.end };
+            dragOriginRef.current = { x, start: next.start, end: next.end, fadeIn: fadeInVal, fadeOut: fadeOutVal };
         }
-    }, [disabled, hasRealSample, getNormalizedX, trimRange, maxSelectionRatio, onTrim]);
+    }, [disabled, hasRealSample, getPointerCoords, trimRange, maxSelectionRatio, onTrim]);
 
-    const movePointerDrag = useCallback((clientX: number) => {
+    const movePointerDrag = useCallback((clientX: number, clientY: number) => {
         if (!dragging) {
-            updateHoverCursor(clientX);
+            updateHoverCursor(clientX, clientY);
             return;
         }
-        const x = getNormalizedX(clientX);
+        const { x } = getPointerCoords(clientX, clientY);
 
-        if (dragging === 'start') {
+        if (dragging === 'fadeIn') {
+            const selSpan = Math.max(0.01, trimRange.end - trimRange.start);
+            const maxFadeIn = Math.max(0, Math.min(0.95, 1 - (trimRange.fadeOut ?? 0)));
+            let nextFadeIn = Math.max(0, Math.min(maxFadeIn, (x - trimRange.start) / selSpan));
+            if (nextFadeIn < 0.008) nextFadeIn = 0;
+            setTrimRange(prev => ({ ...prev, fadeIn: nextFadeIn }));
+        } else if (dragging === 'fadeOut') {
+            const selSpan = Math.max(0.01, trimRange.end - trimRange.start);
+            const maxFadeOut = Math.max(0, Math.min(0.95, 1 - (trimRange.fadeIn ?? 0)));
+            let nextFadeOut = Math.max(0, Math.min(maxFadeOut, (trimRange.end - x) / selSpan));
+            if (nextFadeOut < 0.008) nextFadeOut = 0;
+            setTrimRange(prev => ({ ...prev, fadeOut: nextFadeOut }));
+        } else if (dragging === 'start') {
             let newStart = Math.min(x, trimRange.end - 0.01);
             if (trimRange.end - newStart > maxSelectionRatio) {
                 newStart = trimRange.end - maxSelectionRatio;
@@ -696,16 +836,35 @@ const SampleVisualizer: React.FC<SampleVisualizerProps> = ({
                 newEnd = 1;
                 newStart = Math.max(0, 1 - width);
             }
-            setTrimRange({ start: newStart, end: newEnd });
+            setTrimRange(prev => ({ ...prev, start: newStart, end: newEnd }));
         }
-    }, [dragging, updateHoverCursor, getNormalizedX, trimRange.start, trimRange.end, maxSelectionRatio]);
+    }, [dragging, updateHoverCursor, getPointerCoords, trimRange, maxSelectionRatio]);
 
     const endPointerDrag = useCallback(() => {
         if (dragging) {
             setDragging(null);
-            onTrim(trimRange.start, trimRange.end);
+            onTrim(trimRange.start, trimRange.end, trimRange.fadeIn ?? 0, trimRange.fadeOut ?? 0);
         }
-    }, [dragging, onTrim, trimRange.start, trimRange.end]);
+    }, [dragging, onTrim, trimRange]);
+
+    const handleDoubleClick = useCallback((clientX: number, clientY: number) => {
+        if (disabled || !hasRealSample) return;
+        const { x, yPx } = getPointerCoords(clientX, clientY);
+        const selSpan = Math.max(0.01, trimRange.end - trimRange.start);
+        const fadeInNormX = trimRange.start + (trimRange.fadeIn ?? 0) * selSpan;
+        const fadeOutNormX = trimRange.end - (trimRange.fadeOut ?? 0) * selSpan;
+        if (yPx <= 52) {
+            if (Math.abs(x - fadeInNormX) <= 0.05) {
+                const next = { ...trimRange, fadeIn: 0 };
+                setTrimRange(next);
+                onTrim(next.start, next.end, 0, next.fadeOut ?? 0);
+            } else if (Math.abs(x - fadeOutNormX) <= 0.05) {
+                const next = { ...trimRange, fadeOut: 0 };
+                setTrimRange(next);
+                onTrim(next.start, next.end, next.fadeIn ?? 0, 0);
+            }
+        }
+    }, [disabled, hasRealSample, getPointerCoords, trimRange, onTrim]);
 
     const startSec = trimRange.start * totalDurationSec;
     const endSec = trimRange.end * totalDurationSec;
@@ -716,7 +875,7 @@ const SampleVisualizer: React.FC<SampleVisualizerProps> = ({
         ? 'cursor-default'
         : dragging === 'region'
         ? 'cursor-grabbing'
-        : dragging === 'start' || dragging === 'end' || hoverZone === 'handle'
+        : dragging === 'start' || dragging === 'end' || dragging === 'fadeIn' || dragging === 'fadeOut' || hoverZone === 'handle' || hoverZone === 'fadeHandle'
         ? 'cursor-ew-resize'
         : hoverZone === 'region'
         ? 'cursor-grab'
@@ -730,34 +889,29 @@ const SampleVisualizer: React.FC<SampleVisualizerProps> = ({
             <canvas
                 ref={canvasRef}
                 className="w-full h-full block"
-                onMouseDown={(e) => beginPointerDrag(e.clientX)}
-                onMouseMove={(e) => movePointerDrag(e.clientX)}
+                onMouseDown={(e) => beginPointerDrag(e.clientX, e.clientY)}
+                onMouseMove={(e) => movePointerDrag(e.clientX, e.clientY)}
                 onMouseUp={endPointerDrag}
+                onDoubleClick={(e) => handleDoubleClick(e.clientX, e.clientY)}
                 onMouseLeave={() => {
                     setHoverZone(null);
                     endPointerDrag();
                 }}
                 onTouchStart={(e) => {
-                    if (e.touches.length > 0) beginPointerDrag(e.touches[0].clientX);
+                    if (e.touches.length > 0) beginPointerDrag(e.touches[0].clientX, e.touches[0].clientY);
                 }}
                 onTouchMove={(e) => {
-                    if (e.touches.length > 0) movePointerDrag(e.touches[0].clientX);
+                    if (e.touches.length > 0) movePointerDrag(e.touches[0].clientX, e.touches[0].clientY);
                 }}
                 onTouchEnd={endPointerDrag}
             />
 
             {/* Empty State Overlay */}
             {!hasRealSample && !isRecording && (
-                <div className="absolute inset-x-0 top-5 bottom-0 flex flex-col items-center justify-center pointer-events-none px-4 text-center gap-1.5">
-                    <div className={`flex items-center gap-2 text-xs font-bold uppercase tracking-wider ${theme.emptyTitleClass}`}>
-                        <svg className={`w-4 h-4 ${theme.emptyAccentClass}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M2 12h3l2.5-7 4 14 3.5-10 2 3H22" />
-                        </svg>
-                        <span>No Sample Loaded</span>
-                    </div>
-                    <p className={`text-[11px] max-w-md ${theme.emptySubClass}`}>
-                        Press <span className={`font-bold ${theme.emptyAccentClass}`}>REC MIC</span> to capture live audio, or <span className={`font-bold ${theme.emptyAccentClass}`}>LOAD FILE</span> / drop a WAV or MP3 clip here
-                    </p>
+                <div className="absolute inset-x-0 top-5 bottom-0 flex items-center justify-center pointer-events-none px-4 text-center">
+                    <span className={`text-xs font-bold uppercase tracking-wider ${theme.emptyTitleClass}`}>
+                        No Sample Loaded
+                    </span>
                 </div>
             )}
 

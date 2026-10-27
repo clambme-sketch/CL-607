@@ -20,6 +20,7 @@ export type InstrumentParams = {
     compression: number;
     highPass: number;
     lowPass: number;
+    overlap: number;
 };
 
 export type KickDesignerParams = {

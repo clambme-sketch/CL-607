@@ -1,4 +1,4 @@
-// CL-607 Drum Machine v1.1.0
+// CL-607 v1.1.0
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import Sequencer from './components/Sequencer';
 import Controls from './components/Controls';
@@ -14,7 +14,7 @@ import XYFilterPad from './components/XYFilterPad';
 import LoFiRadio from './components/LoFiRadio';
 import Settings from './components/Settings';
 import Tooltip from './components/Tooltip';
-import { getButtonStyle, getThemeSurface, safeGetItem, safeSetItem, safeRemoveItem } from './utils';
+import { getButtonStyle, getThemeSurface, safeGetItem, safeSetItem, safeRemoveItem, saveRecordedSampleToStorage, loadRecordedSampleFromStorage, clearRecordedSampleFromStorage, SampleTrimRange, applyTrimAndFades } from './utils';
 
 const createInitialGrid = (numSteps: number): Grid => {
     return Array(INSTRUMENTS.length).fill(null).map(() => Array(numSteps).fill(false));
@@ -40,7 +40,7 @@ const DEFAULT_INSTRUMENT_PARAMS: AllInstrumentParams = {
     snap: { pitch: 1, decay: 1, attack: 0 },
     clave: { pitch: 1, decay: 1 },
     cowbell: { pitch: 1, decay: 1, attack: 0 },
-    sample: { pitch: 1, highPass: MIN_FILTER_FREQ, lowPass: MAX_FILTER_FREQ },
+    sample: { pitch: 1, decay: 2, overlap: 0, highPass: MIN_FILTER_FREQ, lowPass: MAX_FILTER_FREQ },
 };
 
 const DEFAULT_KICK_DESIGNER_PARAMS: KickDesignerParams = {
@@ -380,7 +380,8 @@ const App: React.FC = () => {
     const liveRecordingCounterRef = useRef<number>(1);
     const [fullAudioData, setFullAudioData] = useState<Float32Array>(() => new Float32Array(0));
     const [originalAudioData, setOriginalAudioData] = useState<Float32Array>(() => new Float32Array(0));
-    const [trimRange, setTrimRange] = useState<{ start: number; end: number }>({ start: 0, end: 1 });
+    const [trimRange, setTrimRange] = useState<SampleTrimRange>({ start: 0, end: 1, fadeIn: 0, fadeOut: 0 });
+    const [isSampleStorageLoaded, setIsSampleStorageLoaded] = useState<boolean>(false);
     const [isRendering, setIsRendering] = useState<boolean>(false);
     const [instrumentAnalyserNodes, setInstrumentAnalyserNodes] = useState<Record<Instrument, AnalyserNode | null>>({ kick: null, snare: null, hihat: null, snap: null, clave: null, cowbell: null, sample: null });
     const [effectAnalysers, setEffectAnalysers] = useState<Omit<AllAnalyserNodes, 'instrumentAnalysers'>>(initialEffectAnalysers);
@@ -534,7 +535,7 @@ const App: React.FC = () => {
 
     // --- Cappuccino Mode & Editable Header Title State ---
     const [isCappuccinoMode, setIsCappuccinoMode] = useState(false);
-    const [customTitle, setCustomTitle] = useState<string>('CL-607 Drum Machine');
+    const [customTitle, setCustomTitle] = useState<string>('CL-607');
     const [isEditingTitle, setIsEditingTitle] = useState<boolean>(false);
     const titleInputRef = useRef<HTMLInputElement | null>(null);
     const titleClickRef = useRef({ count: 0, lastTime: 0 });
@@ -675,7 +676,7 @@ const App: React.FC = () => {
         }
 
         const savedTitle = safeGetItem('cl607-customTitle');
-        if (savedTitle && savedTitle.trim()) {
+        if (savedTitle && savedTitle.trim() && savedTitle.trim() !== 'CL-607 Drum Machine') {
             setCustomTitle(savedTitle);
         }
 
@@ -814,14 +815,33 @@ const App: React.FC = () => {
         }
 
         // Load patterns
+        const needsSustainFullMigration = !safeGetItem('cl607-sampleSustainFullMigrated-v1');
         const loadedPatterns: (SavedPattern | null)[] = [];
         for (let i = 0; i < 4; i++) {
             try {
                 const savedData = safeGetItem(`cl607-pattern-${i}`);
                 if (savedData) {
                     const parsedData = JSON.parse(savedData) as any;
+                    const mergedInstParams: AllInstrumentParams = {
+                        ...JSON.parse(JSON.stringify(DEFAULT_INSTRUMENT_PARAMS)),
+                        ...(parsedData.instrumentParams || {}),
+                        sample: {
+                            ...DEFAULT_INSTRUMENT_PARAMS.sample,
+                            ...(parsedData.instrumentParams?.sample || {}),
+                        },
+                    };
+                    if (
+                        needsSustainFullMigration ||
+                        parsedData.instrumentParams?.sample?.decay === undefined
+                    ) {
+                        mergedInstParams.sample.decay = 2;
+                    }
+                    if (mergedInstParams.sample.overlap === undefined) {
+                        mergedInstParams.sample.overlap = 0;
+                    }
                     const finalPattern: SavedPattern = {
                         ...parsedData,
+                        instrumentParams: mergedInstParams,
                         grids: parsedData.grids || { a: parsedData.grid, b: createInitialGrid( (parsedData.beatsPerMeasure || 4) * 4) }, // Migration
                         beatsPerMeasure: parsedData.beatsPerMeasure || 4, // Default to 4
                         swing: parsedData.swing ?? 0,
@@ -834,6 +854,9 @@ const App: React.FC = () => {
                 console.error(`Failed to load pattern from slot ${i}`, e);
                 loadedPatterns.push(null);
             }
+        }
+        if (needsSustainFullMigration) {
+            safeSetItem('cl607-sampleSustainFullMigrated-v1', 'true');
         }
 
         const initialPattern = loadedPatterns[savedSlotIndex] || loadedPatterns[0];
@@ -863,6 +886,40 @@ const App: React.FC = () => {
 
         setSavedPatterns(loadedPatterns);
         setIsAppLoaded(true);
+
+        // Load autosaved vocal sample from IndexedDB / storage
+        let isMounted = true;
+        loadRecordedSampleFromStorage()
+            .then((savedSample) => {
+                if (!isMounted) return;
+                if (savedSample && savedSample.fullAudioData.length > 0) {
+                    setFullAudioData(savedSample.fullAudioData);
+                    setOriginalAudioData(
+                        savedSample.originalAudioData && savedSample.originalAudioData.length > 0
+                            ? savedSample.originalAudioData
+                            : savedSample.fullAudioData
+                    );
+                    if (
+                        savedSample.trimRange &&
+                        typeof savedSample.trimRange.start === 'number' &&
+                        typeof savedSample.trimRange.end === 'number'
+                    ) {
+                        setTrimRange(savedSample.trimRange);
+                    }
+                }
+            })
+            .catch((err) => {
+                console.warn('Could not load saved vocal sample:', err);
+            })
+            .finally(() => {
+                if (isMounted) {
+                    setIsSampleStorageLoaded(true);
+                }
+            });
+
+        return () => {
+            isMounted = false;
+        };
     }, []);
     
     // Autosave effect: when working pattern state changes, update savedPatterns array and localStorage
@@ -1037,6 +1094,25 @@ const App: React.FC = () => {
         sectionOrder,
         customTitle,
     ]);
+
+    // Autosave recorded/loaded vocal sample and trim range to IndexedDB storage
+    useEffect(() => {
+        if (!isAppLoaded || !isSampleStorageLoaded || isRecording) return;
+
+        const timer = window.setTimeout(() => {
+            if (fullAudioData.length > 0) {
+                saveRecordedSampleToStorage({
+                    fullAudioData,
+                    originalAudioData: originalAudioData.length > 0 ? originalAudioData : fullAudioData,
+                    trimRange,
+                });
+            } else {
+                clearRecordedSampleFromStorage();
+            }
+        }, 200);
+
+        return () => window.clearTimeout(timer);
+    }, [isAppLoaded, isSampleStorageLoaded, isRecording, fullAudioData, originalAudioData, trimRange]);
 
 
     const { 
@@ -1499,10 +1575,7 @@ const App: React.FC = () => {
             setSampleAudioData(new Float32Array(0));
             return;
         }
-        const startIndex = Math.floor(trimRange.start * fullAudioData.length);
-        const endIndex = Math.floor(trimRange.end * fullAudioData.length);
-        const trimmed = fullAudioData.subarray(startIndex, endIndex);
-        setSampleAudioData(trimmed);
+        setSampleAudioData(applyTrimAndFades(fullAudioData, trimRange));
     }, [fullAudioData, trimRange, isRecording, isAudioEngineReady, setSampleAudioData]);
 
     const finalizeRecording = useCallback(() => {
@@ -1511,7 +1584,7 @@ const App: React.FC = () => {
         setIsRecording(false);
         setFullAudioData(data);
         setOriginalAudioData(data);
-        setTrimRange({ start: 0, end: 1 });
+        setTrimRange({ start: 0, end: 1, fadeIn: 0, fadeOut: 0 });
         if (recordingTimeoutRef.current) {
             window.clearTimeout(recordingTimeoutRef.current);
             recordingTimeoutRef.current = null;
@@ -2606,6 +2679,7 @@ const App: React.FC = () => {
         safeRemoveItem('cl607-keyboardDrummingEnabled');
         safeRemoveItem('cl607-sixSevenSpeed');
         safeRemoveItem('cl607-sessionState');
+        clearRecordedSampleFromStorage();
     
         // 2. Reset all state to defaults
         const freshInstParams: AllInstrumentParams = JSON.parse(JSON.stringify(DEFAULT_INSTRUMENT_PARAMS));
@@ -2691,7 +2765,7 @@ const App: React.FC = () => {
         setSixSevenSpeed(1);
         sixSevenSpeedRef.current = 1;
         setIsCappuccinoMode(false);
-        setCustomTitle('CL-607 Drum Machine');
+        setCustomTitle('CL-607');
         setIsEditingTitle(false);
         setFullAudioData(new Float32Array(0));
         setOriginalAudioData(new Float32Array(0));
@@ -2742,10 +2816,14 @@ const App: React.FC = () => {
         setFullAudioData(new Float32Array(0));
         setOriginalAudioData(new Float32Array(0));
         setTrimRange({ start: 0, end: 1 });
+        clearRecordedSampleFromStorage();
         if (isAudioEngineReady) {
             setSampleAudioData(new Float32Array(0));
         }
         if (updateInstrumentParameter) {
+            updateInstrumentParameter('sample', 'pitch', 1, drumKitRef.current);
+            updateInstrumentParameter('sample', 'decay', 2, drumKitRef.current);
+            updateInstrumentParameter('sample', 'overlap', 0, drumKitRef.current);
             updateInstrumentParameter('sample', 'highPass', MIN_FILTER_FREQ, drumKitRef.current);
             updateInstrumentParameter('sample', 'lowPass', MAX_FILTER_FREQ, drumKitRef.current);
         }
@@ -2966,11 +3044,13 @@ const App: React.FC = () => {
     const isSampleRecorderChanged = useMemo(() => {
         if (fullAudioData && fullAudioData.length > 0) return true;
         if (originalAudioData && originalAudioData.length > 0) return true;
-        if (trimRange.start !== 0 || trimRange.end !== 1) return true;
+        if (trimRange.start !== 0 || trimRange.end !== 1 || (trimRange.fadeIn ?? 0) !== 0 || (trimRange.fadeOut ?? 0) !== 0) return true;
         const sampleParam = instrumentParams.sample;
         const defaultSample = DEFAULT_INSTRUMENT_PARAMS.sample;
         if (sampleParam && defaultSample) {
-            if (sampleParam.pitch !== defaultSample.pitch) return true;
+            if ((sampleParam.pitch ?? 1) !== (defaultSample.pitch ?? 1)) return true;
+            if (Math.abs((sampleParam.decay ?? 2) - (defaultSample.decay ?? 2)) > 0.005) return true;
+            if ((sampleParam.overlap ?? 0) !== (defaultSample.overlap ?? 0)) return true;
             if (sampleParam.highPass !== defaultSample.highPass) return true;
             if (sampleParam.lowPass !== defaultSample.lowPass) return true;
         }
@@ -3037,7 +3117,7 @@ const App: React.FC = () => {
         setIsEditingTitle(false);
         setCustomTitle(prev => {
             const trimmed = prev.trim();
-            return trimmed ? prev : 'CL-607 Drum Machine';
+            return trimmed ? prev : 'CL-607';
         });
     }, []);
 
@@ -4069,7 +4149,7 @@ const App: React.FC = () => {
                             <span className="absolute -top-4 right-10 w-24 h-10 rounded-full bg-gradient-to-b from-white via-[#fff7f2] to-transparent border-t-2 border-white shadow-[0_-4px_12px_rgba(255,255,255,0.75)]" />
                         </div>
                     )}
-                    <h1 className={startTitleClass}>CL-607 Drum Machine</h1>
+                    <h1 className={startTitleClass}>CL-607</h1>
                     <p className={startSubtitleClass}>by Clark Lambert</p>
                     <Tooltip text="Initialize the audio engine">
                         <button
