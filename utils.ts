@@ -566,10 +566,20 @@ const openSampleDb = (): Promise<IDBDatabase> => {
     });
 };
 
+const sanitizePcmArray = (input: Float32Array): Float32Array => {
+    const out = new Float32Array(input.length);
+    for (let i = 0; i < input.length; i++) {
+        const v = input[i];
+        out[i] = Number.isFinite(v) ? Math.max(-1.5, Math.min(1.5, v)) : 0;
+    }
+    return out;
+};
+
 const encodeFloat32ToBase64Int16 = (floatData: Float32Array): string => {
     const int16 = new Int16Array(floatData.length);
     for (let i = 0; i < floatData.length; i++) {
-        const s = Math.max(-1, Math.min(1, floatData[i]));
+        const raw = floatData[i];
+        const s = Number.isFinite(raw) ? Math.max(-1, Math.min(1, raw)) : 0;
         int16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
     }
     const bytes = new Uint8Array(int16.buffer);
@@ -597,17 +607,19 @@ const decodeBase64Int16ToFloat32 = (base64: string): Float32Array => {
 };
 
 export const saveRecordedSampleToStorage = async (sample: StoredVocalSample): Promise<void> => {
-    const fullCopy = new Float32Array(sample.fullAudioData);
-    const origCopy = new Float32Array(
+    const fullCopy = sanitizePcmArray(sample.fullAudioData);
+    const origCopy = sanitizePcmArray(
         sample.originalAudioData && sample.originalAudioData.length > 0
             ? sample.originalAudioData
             : sample.fullAudioData
     );
+    const rawStart = Number.isFinite(sample.trimRange?.start) ? Math.max(0, Math.min(0.99, sample.trimRange.start)) : 0;
+    const rawEnd = Number.isFinite(sample.trimRange?.end) ? Math.max(rawStart + 0.01, Math.min(1, sample.trimRange.end)) : 1;
     const trimRange: SampleTrimRange = {
-        start: Number.isFinite(sample.trimRange?.start) ? sample.trimRange.start : 0,
-        end: Number.isFinite(sample.trimRange?.end) ? sample.trimRange.end : 1,
-        fadeIn: Number.isFinite(sample.trimRange?.fadeIn) ? sample.trimRange.fadeIn : 0,
-        fadeOut: Number.isFinite(sample.trimRange?.fadeOut) ? sample.trimRange.fadeOut : 0,
+        start: rawStart,
+        end: rawEnd,
+        fadeIn: Number.isFinite(sample.trimRange?.fadeIn) ? Math.max(0, Math.min(1, sample.trimRange.fadeIn!)) : 0,
+        fadeOut: Number.isFinite(sample.trimRange?.fadeOut) ? Math.max(0, Math.min(1, sample.trimRange.fadeOut!)) : 0,
     };
 
     try {
@@ -665,20 +677,30 @@ export const loadRecordedSampleFromStorage = async (): Promise<StoredVocalSample
         });
 
         if (record && record.fullBuffer) {
-            const fullAudioData =
+            const rawFull =
                 record.fullBuffer instanceof Float32Array
                     ? new Float32Array(record.fullBuffer)
                     : new Float32Array(record.fullBuffer);
-            const originalAudioData = record.originalBuffer
+            const fullAudioData = sanitizePcmArray(rawFull);
+            const rawOrig = record.originalBuffer
                 ? record.originalBuffer instanceof Float32Array
                     ? new Float32Array(record.originalBuffer)
                     : new Float32Array(record.originalBuffer)
-                : new Float32Array(fullAudioData);
+                : fullAudioData;
+            const originalAudioData = sanitizePcmArray(rawOrig);
             if (fullAudioData.length > 0) {
+                const tr = record.trimRange || { start: 0, end: 1 };
+                const start = Number.isFinite(tr.start) ? Math.max(0, Math.min(0.99, tr.start)) : 0;
+                const end = Number.isFinite(tr.end) ? Math.max(start + 0.01, Math.min(1, tr.end)) : 1;
                 return {
                     fullAudioData,
                     originalAudioData: originalAudioData.length > 0 ? originalAudioData : new Float32Array(fullAudioData),
-                    trimRange: record.trimRange || { start: 0, end: 1 },
+                    trimRange: {
+                        start,
+                        end,
+                        fadeIn: Number.isFinite(tr.fadeIn) ? Math.max(0, Math.min(1, tr.fadeIn)) : 0,
+                        fadeOut: Number.isFinite(tr.fadeOut) ? Math.max(0, Math.min(1, tr.fadeOut)) : 0,
+                    },
                 };
             }
         }
@@ -690,16 +712,24 @@ export const loadRecordedSampleFromStorage = async (): Promise<StoredVocalSample
         if (raw) {
             const parsed = JSON.parse(raw);
             if (parsed && typeof parsed.fullB64 === 'string' && parsed.fullB64.length > 0) {
-                const fullAudioData = decodeBase64Int16ToFloat32(parsed.fullB64);
+                const fullAudioData = sanitizePcmArray(decodeBase64Int16ToFloat32(parsed.fullB64));
                 const originalAudioData =
                     typeof parsed.origB64 === 'string' && parsed.origB64.length > 0
-                        ? decodeBase64Int16ToFloat32(parsed.origB64)
+                        ? sanitizePcmArray(decodeBase64Int16ToFloat32(parsed.origB64))
                         : new Float32Array(fullAudioData);
                 if (fullAudioData.length > 0) {
+                    const tr = parsed.trimRange || { start: 0, end: 1 };
+                    const start = Number.isFinite(tr.start) ? Math.max(0, Math.min(0.99, tr.start)) : 0;
+                    const end = Number.isFinite(tr.end) ? Math.max(start + 0.01, Math.min(1, tr.end)) : 1;
                     return {
                         fullAudioData,
                         originalAudioData,
-                        trimRange: parsed.trimRange || { start: 0, end: 1 },
+                        trimRange: {
+                            start,
+                            end,
+                            fadeIn: Number.isFinite(tr.fadeIn) ? Math.max(0, Math.min(1, tr.fadeIn)) : 0,
+                            fadeOut: Number.isFinite(tr.fadeOut) ? Math.max(0, Math.min(1, tr.fadeOut)) : 0,
+                        },
                     };
                 }
             }

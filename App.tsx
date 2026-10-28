@@ -694,7 +694,11 @@ const App: React.FC = () => {
                     setActivePattern(s.activePattern);
                     activePatternRef.current = s.activePattern;
                 }
-                if (typeof s.masterVolume === 'number') setMasterVolume(s.masterVolume);
+                if (typeof s.masterVolume === 'number' && Number.isFinite(s.masterVolume)) {
+                    const safeMasterVol = Math.max(0, Math.min(1.5, s.masterVolume));
+                    // Prevent starting with a completely silent master volume from a previous student's session
+                    setMasterVolume(safeMasterVol <= 0.02 ? 0.5 : safeMasterVol);
+                }
                 if (s.drumKit === '808' || s.drumKit === '909' || s.drumKit === '727') {
                     setDrumKit(s.drumKit);
                 }
@@ -709,7 +713,9 @@ const App: React.FC = () => {
                     setShowMuteSoloButtons(s.showMuteSoloButtons);
                     if (s.showMuteSoloButtons) {
                         if (Array.isArray(s.instrumentMuted) && s.instrumentMuted.length === INSTRUMENTS.length) {
-                            setInstrumentMuted(s.instrumentMuted);
+                            // If all instruments were left muted, unmute them on fresh page load so audio isn't unexpectedly silent
+                            const allMuted = s.instrumentMuted.every(Boolean);
+                            setInstrumentMuted(allMuted ? new Array(INSTRUMENTS.length).fill(false) : s.instrumentMuted);
                         }
                         if (Array.isArray(s.instrumentSoloed) && s.instrumentSoloed.length === INSTRUMENTS.length) {
                             setInstrumentSoloed(s.instrumentSoloed);
@@ -723,38 +729,42 @@ const App: React.FC = () => {
                 if (typeof s.exportMeasures === 'number') setExportMeasures(s.exportMeasures);
                 if (typeof s.exportIncludeTail === 'boolean') setExportIncludeTail(s.exportIncludeTail);
 
-                // Restore all Effects settings
-                if (typeof s.lowPassFreq === 'number') setLowPassFreq(s.lowPassFreq);
-                if (typeof s.highPassFreq === 'number') setHighPassFreq(s.highPassFreq);
-                if (typeof s.reverbMix === 'number') setReverbMix(s.reverbMix);
-                if (typeof s.reverbDecay === 'number') setReverbDecay(s.reverbDecay);
+                // Restore all Effects settings with finite & non-silencing bounds
+                if (typeof s.lowPassFreq === 'number' && Number.isFinite(s.lowPassFreq)) {
+                    setLowPassFreq(Math.max(80, Math.min(MAX_FILTER_FREQ, s.lowPassFreq)));
+                }
+                if (typeof s.highPassFreq === 'number' && Number.isFinite(s.highPassFreq)) {
+                    setHighPassFreq(Math.max(MIN_FILTER_FREQ, Math.min(12000, s.highPassFreq)));
+                }
+                if (typeof s.reverbMix === 'number' && Number.isFinite(s.reverbMix)) setReverbMix(Math.max(0, Math.min(1, s.reverbMix)));
+                if (typeof s.reverbDecay === 'number' && Number.isFinite(s.reverbDecay)) setReverbDecay(Math.max(0.1, Math.min(10, s.reverbDecay)));
                 if (s.reverbType === 'room' || s.reverbType === 'plate' || s.reverbType === 'hall') {
                     setReverbType(s.reverbType);
                 }
-                if (typeof s.reverbTone === 'number') setReverbTone(s.reverbTone);
+                if (typeof s.reverbTone === 'number' && Number.isFinite(s.reverbTone)) setReverbTone(Math.max(200, Math.min(20000, s.reverbTone)));
                 if (s.reverbSource) setReverbSource(s.reverbSource);
-                if (typeof s.delayMix === 'number') setDelayMix(s.delayMix);
-                if (typeof s.delayTime === 'number') setDelayTime(s.delayTime);
-                if (typeof s.delayFeedback === 'number') setDelayFeedback(s.delayFeedback);
+                if (typeof s.delayMix === 'number' && Number.isFinite(s.delayMix)) setDelayMix(Math.max(0, Math.min(1, s.delayMix)));
+                if (typeof s.delayTime === 'number' && Number.isFinite(s.delayTime)) setDelayTime(Math.max(0.01, Math.min(2.0, s.delayTime)));
+                if (typeof s.delayFeedback === 'number' && Number.isFinite(s.delayFeedback)) setDelayFeedback(Math.max(0, Math.min(0.92, s.delayFeedback)));
                 if (s.delaySource) setDelaySource(s.delaySource);
                 if (s.delaySyncDivision !== undefined) setDelaySyncDivision(s.delaySyncDivision);
-                if (typeof s.kickSidechainAmount === 'number') setKickSidechainAmount(s.kickSidechainAmount);
-                if (typeof s.kickSidechainThreshold === 'number') setKickSidechainThreshold(s.kickSidechainThreshold);
-                if (typeof s.kickSidechainRatio === 'number') setKickSidechainRatio(s.kickSidechainRatio);
-                if (typeof s.crushAmount === 'number') setCrushAmount(s.crushAmount);
-                if (typeof s.tapeSaturationMix === 'number') setTapeSaturationMix(s.tapeSaturationMix);
-                if (typeof s.tapeSaturationAmount === 'number') setTapeSaturationAmount(s.tapeSaturationAmount);
-                if (typeof s.tapeSaturationTone === 'number') setTapeSaturationTone(s.tapeSaturationTone);
-                if (typeof s.envelopeFilterMix === 'number') setEnvelopeFilterMix(s.envelopeFilterMix);
-                if (typeof s.envelopeFilterAmount === 'number') setEnvelopeFilterAmount(s.envelopeFilterAmount);
-                if (typeof s.envelopeFilterBaseFreq === 'number') setEnvelopeFilterBaseFreq(s.envelopeFilterBaseFreq);
-                if (typeof s.envelopeFilterQ === 'number') setEnvelopeFilterQ(s.envelopeFilterQ);
+                if (typeof s.kickSidechainAmount === 'number' && Number.isFinite(s.kickSidechainAmount)) setKickSidechainAmount(Math.max(0, Math.min(1, s.kickSidechainAmount)));
+                if (typeof s.kickSidechainThreshold === 'number' && Number.isFinite(s.kickSidechainThreshold)) setKickSidechainThreshold(s.kickSidechainThreshold);
+                if (typeof s.kickSidechainRatio === 'number' && Number.isFinite(s.kickSidechainRatio)) setKickSidechainRatio(s.kickSidechainRatio);
+                if (typeof s.crushAmount === 'number' && Number.isFinite(s.crushAmount)) setCrushAmount(Math.max(0, Math.min(1, s.crushAmount)));
+                if (typeof s.tapeSaturationMix === 'number' && Number.isFinite(s.tapeSaturationMix)) setTapeSaturationMix(Math.max(0, Math.min(1, s.tapeSaturationMix)));
+                if (typeof s.tapeSaturationAmount === 'number' && Number.isFinite(s.tapeSaturationAmount)) setTapeSaturationAmount(Math.max(0, Math.min(1, s.tapeSaturationAmount)));
+                if (typeof s.tapeSaturationTone === 'number' && Number.isFinite(s.tapeSaturationTone)) setTapeSaturationTone(Math.max(200, Math.min(20000, s.tapeSaturationTone)));
+                if (typeof s.envelopeFilterMix === 'number' && Number.isFinite(s.envelopeFilterMix)) setEnvelopeFilterMix(Math.max(0, Math.min(1, s.envelopeFilterMix)));
+                if (typeof s.envelopeFilterAmount === 'number' && Number.isFinite(s.envelopeFilterAmount)) setEnvelopeFilterAmount(Math.max(0, Math.min(1, s.envelopeFilterAmount)));
+                if (typeof s.envelopeFilterBaseFreq === 'number' && Number.isFinite(s.envelopeFilterBaseFreq)) setEnvelopeFilterBaseFreq(Math.max(40, Math.min(10000, s.envelopeFilterBaseFreq)));
+                if (typeof s.envelopeFilterQ === 'number' && Number.isFinite(s.envelopeFilterQ)) setEnvelopeFilterQ(Math.max(0, Math.min(1, s.envelopeFilterQ)));
                 if (s.effectsEnabled && typeof s.effectsEnabled === 'object') {
                     setEffectsEnabled(prev => ({ ...prev, ...s.effectsEnabled }));
                 }
 
                 // Restore all Live DJ settings
-                if (typeof s.randomizeIntensity === 'number') {
+                if (typeof s.randomizeIntensity === 'number' && Number.isFinite(s.randomizeIntensity)) {
                     setRandomizeIntensity(s.randomizeIntensity);
                     randomizeIntensityRef.current = s.randomizeIntensity;
                 }
@@ -763,9 +773,17 @@ const App: React.FC = () => {
                     chainModeRef.current = s.chainMode;
                 }
                 if (s.isolatorGains && typeof s.isolatorGains === 'object') {
-                    setIsolatorGains(prev => ({ ...prev, ...s.isolatorGains }));
+                    const low = Number.isFinite(s.isolatorGains.low) ? Math.max(0, Math.min(1.5, s.isolatorGains.low)) : 1;
+                    const mid = Number.isFinite(s.isolatorGains.mid) ? Math.max(0, Math.min(1.5, s.isolatorGains.mid)) : 1;
+                    const high = Number.isFinite(s.isolatorGains.high) ? Math.max(0, Math.min(1.5, s.isolatorGains.high)) : 1;
+                    // If all 3 isolator bands were left killed (0 gain), reset them to unity (1.0) on load so master audio isn't muted
+                    if (low <= 0.02 && mid <= 0.02 && high <= 0.02) {
+                        setIsolatorGains({ low: 1, mid: 1, high: 1 });
+                    } else {
+                        setIsolatorGains({ low, mid, high });
+                    }
                 }
-                if (typeof s.lofiMix === 'number') setLofiMix(s.lofiMix);
+                if (typeof s.lofiMix === 'number' && Number.isFinite(s.lofiMix)) setLofiMix(Math.max(0, Math.min(1, s.lofiMix)));
                 if (s.stutterDivision) {
                     setStutterDivision(s.stutterDivision);
                     stutterDivisionRef.current = s.stutterDivision;
@@ -861,10 +879,27 @@ const App: React.FC = () => {
 
         const initialPattern = loadedPatterns[savedSlotIndex] || loadedPatterns[0];
         if (initialPattern) {
+            const safeVolumes = Array.isArray(initialPattern.volumes) && initialPattern.volumes.length === INSTRUMENTS.length
+                ? initialPattern.volumes.map((v, idx) => (typeof v === 'number' && Number.isFinite(v)) ? Math.max(0, Math.min(1.5, v)) : DEFAULT_VOLUMES[idx])
+                : DEFAULT_VOLUMES;
+            const safeTempo = typeof initialPattern.tempo === 'number' && Number.isFinite(initialPattern.tempo)
+                ? Math.max(40, Math.min(240, initialPattern.tempo))
+                : DEFAULT_TEMPO;
+            if (initialPattern.instrumentParams?.sample) {
+                const sp = initialPattern.instrumentParams.sample;
+                sp.pitch = (typeof sp.pitch === 'number' && Number.isFinite(sp.pitch)) ? Math.max(0.25, Math.min(2, sp.pitch)) : 1;
+                sp.decay = (typeof sp.decay === 'number' && Number.isFinite(sp.decay)) ? Math.max(0.05, Math.min(2, sp.decay)) : 2;
+                sp.highPass = (typeof sp.highPass === 'number' && Number.isFinite(sp.highPass)) ? Math.max(MIN_FILTER_FREQ, Math.min(8000, sp.highPass)) : MIN_FILTER_FREQ;
+                sp.lowPass = (typeof sp.lowPass === 'number' && Number.isFinite(sp.lowPass)) ? Math.max(200, Math.min(MAX_FILTER_FREQ, sp.lowPass)) : MAX_FILTER_FREQ;
+                if (sp.highPass >= sp.lowPass) {
+                    sp.highPass = MIN_FILTER_FREQ;
+                    sp.lowPass = MAX_FILTER_FREQ;
+                }
+            }
             setGrids(initialPattern.grids);
-            setVolumes(initialPattern.volumes);
-            setTempo(initialPattern.tempo);
-            tempoRef.current = initialPattern.tempo;
+            setVolumes(safeVolumes);
+            setTempo(safeTempo);
+            tempoRef.current = safeTempo;
             setInstrumentParams(initialPattern.instrumentParams);
             instrumentParamsRef.current = initialPattern.instrumentParams;
             setSwing(initialPattern.swing ?? 0);
@@ -935,13 +970,12 @@ const App: React.FC = () => {
             beatsPerMeasure,
         };
 
-        try {
-            safeSetItem(`cl607-pattern-${currentPatternIndex}`, JSON.stringify(patternData));
-        } catch (e) {
-            console.error(`Failed to save pattern to slot ${currentPatternIndex}`, e);
-        }
-
         const debounceSave = setTimeout(() => {
+            try {
+                safeSetItem(`cl607-pattern-${currentPatternIndex}`, JSON.stringify(patternData));
+            } catch (e) {
+                console.error(`Failed to save pattern to slot ${currentPatternIndex}`, e);
+            }
             setSavedPatterns(prev => {
                 const newPatterns = [...prev];
                 if (JSON.stringify(newPatterns[currentPatternIndex]) !== JSON.stringify(patternData)) {
@@ -950,85 +984,89 @@ const App: React.FC = () => {
                 }
                 return prev;
             });
-        }, 150);
+        }, 200);
 
         return () => clearTimeout(debounceSave);
 
     }, [isAppLoaded, grids, volumes, tempo, instrumentParams, swing, beatsPerMeasure, currentPatternIndex]);
 
-    // Comprehensive autosave effect for all Effects, Live DJ controls, Instrument Designer, and UI Settings
+    // Comprehensive debounced autosave effect for all Effects, Live DJ controls, Instrument Designer, and UI Settings
     useEffect(() => {
         if (!isAppLoaded) return;
 
-        const sessionState = {
-            currentPatternIndex,
-            activePattern,
-            masterVolume,
-            drumKit,
-            kickDesignerParams,
-            instrumentVisibility,
-            instrumentMuted,
-            instrumentSoloed,
-            showMuteSoloButtons,
-            quantizePatternSwitch,
-            exportMeasures,
-            exportIncludeTail,
-            // Effects
-            lowPassFreq,
-            highPassFreq,
-            reverbMix,
-            reverbDecay,
-            reverbType,
-            reverbTone,
-            reverbSource,
-            delayMix,
-            delayTime,
-            delayFeedback,
-            delaySource,
-            delaySyncDivision,
-            kickSidechainAmount,
-            kickSidechainThreshold,
-            kickSidechainRatio,
-            crushAmount,
-            tapeSaturationMix,
-            tapeSaturationAmount,
-            tapeSaturationTone,
-            envelopeFilterMix,
-            envelopeFilterAmount,
-            envelopeFilterBaseFreq,
-            envelopeFilterQ,
-            effectsEnabled,
-            // Live DJ
-            randomizeIntensity,
-            chainMode,
-            isolatorGains,
-            lofiMix,
-            stutterDivision,
-            stutterSource,
-            isStutterSwingLocked,
-            beatRepeatDivision,
-            tapeStopDuration,
-            tapeStopPauseAfter: isTapeStopPauseAfter,
-            djShortcutEffects,
-            // Settings & UI
-            visualizerType,
-            visualizerStyle,
-            isPerformanceMode,
-            isSlowComputerMode,
-            tooltipsEnabled,
-            padLabelMode,
-            notationTextMode,
-            isInvertColors,
-            isCappuccinoMode,
-            hueRotate,
-            sixSevenSpeed,
-            keyboardDrummingEnabled,
-            keyboardMap,
-            sectionOrder,
-            customTitle,
-        };
+        const debounceSessionSave = setTimeout(() => {
+            const sessionState = {
+                currentPatternIndex,
+                activePattern,
+                masterVolume,
+                drumKit,
+                kickDesignerParams,
+                instrumentVisibility,
+                instrumentMuted,
+                instrumentSoloed,
+                showMuteSoloButtons,
+                quantizePatternSwitch,
+                exportMeasures,
+                exportIncludeTail,
+                // Effects
+                lowPassFreq,
+                highPassFreq,
+                reverbMix,
+                reverbDecay,
+                reverbType,
+                reverbTone,
+                reverbSource,
+                delayMix,
+                delayTime,
+                delayFeedback,
+                delaySource,
+                delaySyncDivision,
+                kickSidechainAmount,
+                kickSidechainThreshold,
+                kickSidechainRatio,
+                crushAmount,
+                tapeSaturationMix,
+                tapeSaturationAmount,
+                tapeSaturationTone,
+                envelopeFilterMix,
+                envelopeFilterAmount,
+                envelopeFilterBaseFreq,
+                envelopeFilterQ,
+                effectsEnabled,
+                // Live DJ
+                randomizeIntensity,
+                chainMode,
+                isolatorGains,
+                lofiMix,
+                stutterDivision,
+                stutterSource,
+                isStutterSwingLocked,
+                beatRepeatDivision,
+                tapeStopDuration,
+                tapeStopPauseAfter: isTapeStopPauseAfter,
+                djShortcutEffects,
+                // Settings & UI
+                visualizerType,
+                visualizerStyle,
+                isPerformanceMode,
+                isSlowComputerMode,
+                tooltipsEnabled,
+                padLabelMode,
+                notationTextMode,
+                isInvertColors,
+                isCappuccinoMode,
+                hueRotate,
+                sixSevenSpeed,
+                keyboardDrummingEnabled,
+                keyboardMap,
+                sectionOrder,
+                customTitle,
+            };
 
-        safeSetItem('cl607-sessionState', JSON.stringify(sessionState));
+            safeSetItem('cl607-sessionState', JSON.stringify(sessionState));
+        }, 200);
+
+        return () => clearTimeout(debounceSessionSave);
     }, [
         isAppLoaded,
         currentPatternIndex,
@@ -1150,31 +1188,75 @@ const App: React.FC = () => {
         setStutterState,
         updateStutterParams,
         syncStutterTransport,
+        healAudioEngine,
+        rebuildAudioEngine,
     } = useAudioEngine();
+
+    const [audioNeedsAttention, setAudioNeedsAttention] = useState(false);
+    const [isFixingAudio, setIsFixingAudio] = useState(false);
+    const lastAudibleTriggerTimeRef = useRef<number>(0);
+    const hasSampleDataRef = useRef<boolean>(false);
+    useEffect(() => {
+        hasSampleDataRef.current = fullAudioData.length > 0;
+    }, [fullAudioData]);
+
+    const applyEngineResult = useCallback((result: NonNullable<Awaited<ReturnType<typeof setup>>>) => {
+        setIsAudioEngineReady(true);
+        setInstrumentAnalyserNodes(result.analysers.instrumentAnalysers);
+        setEffectAnalysers({
+            masterAnalyser: result.analysers.masterAnalyser,
+            postFilterAnalyser: result.analysers.postFilterAnalyser,
+            reverbAnalyser: result.analysers.reverbAnalyser,
+            delayAnalyser: result.analysers.delayAnalyser,
+            sidechainVisualiserAnalyser: result.analysers.sidechainVisualiserAnalyser,
+            crushAnalyser: result.analysers.crushAnalyser,
+            tapeSaturationAnalyser: result.analysers.tapeSaturationAnalyser,
+            envelopeFilterAnalyser: result.analysers.envelopeFilterAnalyser,
+            lofiDryAnalyser: result.analysers.lofiDryAnalyser,
+            lofiWetAnalyser: result.analysers.lofiWetAnalyser,
+        });
+        setAudioContext(result.context);
+        setIsInitialized(true);
+    }, []);
 
     const handleStart = useCallback(async () => {
         setIsLoading(true);
         const result = await setup(kickDesignerParams, drumKit, instrumentParams);
         if (result) {
-            setIsAudioEngineReady(true);
-            setInstrumentAnalyserNodes(result.analysers.instrumentAnalysers);
-            setEffectAnalysers({
-                masterAnalyser: result.analysers.masterAnalyser,
-                postFilterAnalyser: result.analysers.postFilterAnalyser,
-                reverbAnalyser: result.analysers.reverbAnalyser,
-                delayAnalyser: result.analysers.delayAnalyser,
-                sidechainVisualiserAnalyser: result.analysers.sidechainVisualiserAnalyser,
-                crushAnalyser: result.analysers.crushAnalyser,
-                tapeSaturationAnalyser: result.analysers.tapeSaturationAnalyser,
-                envelopeFilterAnalyser: result.analysers.envelopeFilterAnalyser,
-                lofiDryAnalyser: result.analysers.lofiDryAnalyser,
-                lofiWetAnalyser: result.analysers.lofiWetAnalyser,
-            });
-            setAudioContext(result.context);
-            setIsInitialized(true);
+            applyEngineResult(result);
+            setAudioNeedsAttention(false);
         }
         setIsLoading(false);
-    }, [setup, kickDesignerParams, drumKit, instrumentParams]);
+    }, [setup, kickDesignerParams, drumKit, instrumentParams, applyEngineResult]);
+
+    const handleRebuildAudioEngine = useCallback(async () => {
+        setIsFixingAudio(true);
+        try {
+            // Reset any stuck performance holds first
+            setIsTapeStopActive(false);
+            setIsStutterActive(false);
+            setIsStutterHeld(false);
+            if (tapeStopReleaseTimerRef.current) {
+                clearTimeout(tapeStopReleaseTimerRef.current);
+                tapeStopReleaseTimerRef.current = null;
+            }
+            const result = await rebuildAudioEngine(
+                kickDesignerParamsRef.current,
+                drumKitRef.current,
+                instrumentParamsRef.current
+            );
+            if (result) {
+                nextNoteTime.current = result.context.currentTime;
+                applyEngineResult(result);
+                if (fullAudioData.length > 0) {
+                    setSampleAudioData(applyTrimAndFades(fullAudioData, trimRange));
+                }
+                setAudioNeedsAttention(false);
+            }
+        } finally {
+            setIsFixingAudio(false);
+        }
+    }, [rebuildAudioEngine, applyEngineResult, fullAudioData, trimRange, setSampleAudioData]);
     
     const playSoundAtTime = useCallback((instrument: Instrument, volume: number, time: number, params: Partial<InstrumentParams>) => {
         switch (instrument) {
@@ -1370,6 +1452,9 @@ const App: React.FC = () => {
                     for (let instrumentIndex = 0; instrumentIndex < INSTRUMENTS.length; instrumentIndex++) {
                         if (audibility[instrumentIndex] && grid[instrumentIndex]?.[stepToPlay] && currentVolumes[instrumentIndex] > 0) {
                             const instrument = INSTRUMENTS[instrumentIndex];
+                            if (instrument !== 'sample' || hasSampleDataRef.current) {
+                                lastAudibleTriggerTimeRef.current = performance.now();
+                            }
                             playSoundAtTime(instrument, currentVolumes[instrumentIndex], scheduledTime, allParams[instrument]);
                         }
                     }
@@ -1575,8 +1660,122 @@ const App: React.FC = () => {
             setSampleAudioData(new Float32Array(0));
             return;
         }
-        setSampleAudioData(applyTrimAndFades(fullAudioData, trimRange));
-    }, [fullAudioData, trimRange, isRecording, isAudioEngineReady, setSampleAudioData]);
+        const timerId = window.setTimeout(() => {
+            setSampleAudioData(applyTrimAndFades(fullAudioData, trimRange));
+        }, 35);
+        return () => window.clearTimeout(timerId);
+    }, [fullAudioData, trimRange, isRecording, isAudioEngineReady, setSampleAudioData, audioContext]);
+
+    const watchdogParamsRef = useRef({
+        isRecording,
+        isTapeStopActive,
+        masterVolume,
+        lowPassEnabled: effectsEnabled.lowPass,
+        highPassEnabled: effectsEnabled.highPass,
+        lowPassFreq,
+        highPassFreq,
+    });
+    useEffect(() => {
+        watchdogParamsRef.current = {
+            isRecording,
+            isTapeStopActive,
+            masterVolume,
+            lowPassEnabled: effectsEnabled.lowPass,
+            highPassEnabled: effectsEnabled.highPass,
+            lowPassFreq,
+            highPassFreq,
+        };
+    }, [isRecording, isTapeStopActive, masterVolume, effectsEnabled.lowPass, effectsEnabled.highPass, lowPassFreq, highPassFreq]);
+
+    const handleRebuildAudioEngineRef = useRef(handleRebuildAudioEngine);
+    useEffect(() => {
+        handleRebuildAudioEngineRef.current = handleRebuildAudioEngine;
+    }, [handleRebuildAudioEngine]);
+
+    // Lightweight 1.5s Audio Health Watchdog (runs ONLY during active playback; ~64 float checks = <0.001ms CPU)
+    useEffect(() => {
+        if (!isInitialized || !audioContext || !isPlaying) return;
+        const sampleBuf = new Float32Array(256);
+        let silentCheckCount = 0;
+        let isHealing = false;
+
+        const intervalId = window.setInterval(async () => {
+            if (isHealing) return;
+            const state = audioContext.state as string;
+            if (state === 'suspended' || state === 'interrupted') {
+                isHealing = true;
+                await healAudioEngine(false);
+                isHealing = false;
+            }
+
+            const wp = watchdogParamsRef.current;
+            if (wp.isRecording || wp.isTapeStopActive) {
+                silentCheckCount = 0;
+                return;
+            }
+            const masterAnalyser = effectAnalysers.masterAnalyser;
+            if (!masterAnalyser) return;
+
+            masterAnalyser.getFloatTimeDomainData(sampleBuf);
+            let hasNonFinite = false;
+            let peak = 0;
+            // Stride by 4 (64 checks per 1.5s) for negligible CPU cost while catching any NaN/Infinity or signal presence
+            for (let i = 0; i < 256; i += 4) {
+                const v = sampleBuf[i];
+                if (!Number.isFinite(v)) {
+                    hasNonFinite = true;
+                    break;
+                }
+                const abs = v < 0 ? -v : v;
+                if (abs > peak) peak = abs;
+            }
+
+            if (hasNonFinite) {
+                // BiquadFilterNode internal C++ registers cannot be cleared once poisoned by NaN without rebuilding the AudioContext
+                isHealing = true;
+                await handleRebuildAudioEngineRef.current();
+                silentCheckCount = 0;
+                isHealing = false;
+                return;
+            }
+
+            if (peak > 1e-5) {
+                silentCheckCount = 0;
+                setAudioNeedsAttention(prev => (prev ? false : prev));
+                return;
+            }
+
+            // Only count silence if an audible drum/sample hit was triggered within the last 1500ms
+            const timeSinceTrigger = performance.now() - lastAudibleTriggerTimeRef.current;
+            const filtersAllowAudio = (!wp.lowPassEnabled || wp.lowPassFreq > 70) && (!wp.highPassEnabled || wp.highPassFreq < 12000);
+            if (timeSinceTrigger < 1500 && wp.masterVolume > 0.04 && filtersAllowAudio) {
+                silentCheckCount++;
+                if (silentCheckCount === 1) {
+                    isHealing = true;
+                    await healAudioEngine(true);
+                    isHealing = false;
+                } else if (silentCheckCount === 2) {
+                    // Auto-rebuild the AudioContext in place (equivalent to page refresh without losing work)
+                    isHealing = true;
+                    await handleRebuildAudioEngineRef.current();
+                    isHealing = false;
+                } else if (silentCheckCount >= 3) {
+                    // Only show the compact Fix Audio button if the browser requires a fresh user click gesture
+                    setAudioNeedsAttention(true);
+                }
+            } else {
+                silentCheckCount = 0;
+            }
+        }, 1500);
+
+        return () => window.clearInterval(intervalId);
+    }, [
+        isInitialized,
+        audioContext,
+        isPlaying,
+        effectAnalysers.masterAnalyser,
+        healAudioEngine,
+    ]);
 
     const finalizeRecording = useCallback(() => {
         const data = getRecordedAudioData();
@@ -2262,6 +2461,23 @@ const App: React.FC = () => {
         }
     }, [setTapeStop, tapeStopDuration]);
 
+    useEffect(() => {
+        if (!isTapeStopActive || isTapeStopPauseAfter) return;
+        const onGlobalTapeRelease = () => {
+            handleTapeStopEnd();
+        };
+        window.addEventListener('mouseup', onGlobalTapeRelease);
+        window.addEventListener('touchend', onGlobalTapeRelease);
+        window.addEventListener('touchcancel', onGlobalTapeRelease);
+        window.addEventListener('blur', onGlobalTapeRelease);
+        return () => {
+            window.removeEventListener('mouseup', onGlobalTapeRelease);
+            window.removeEventListener('touchend', onGlobalTapeRelease);
+            window.removeEventListener('touchcancel', onGlobalTapeRelease);
+            window.removeEventListener('blur', onGlobalTapeRelease);
+        };
+    }, [isTapeStopActive, isTapeStopPauseAfter, handleTapeStopEnd]);
+
     const handleTapeStopDurationChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
         const nextDur = Number(e.target.value);
         setTapeStopDuration(nextDur);
@@ -2705,16 +2921,16 @@ const App: React.FC = () => {
         kickDesignerParamsRef.current = freshKickParams;
         prevKickDesignerParamsRef.current = freshKickParams;
 
-        // Immediately re-render audio engine instrument buffers to default 808 kit & params
-        if (isInitialized && rerenderAllInstruments) {
-            rerenderAllInstruments(freshKickParams, '808', freshInstParams);
-            if (updateInstrumentParameter) {
-                updateInstrumentParameter('sample', 'highPass', MIN_FILTER_FREQ, '808');
-                updateInstrumentParameter('sample', 'lowPass', MAX_FILTER_FREQ, '808');
-            }
-        }
-        if (isAudioEngineReady) {
-            setSampleAudioData(new Float32Array(0));
+        // Rebuild a fresh AudioContext so Factory Reset also recovers from any poisoned Web Audio nodes or driver lockups
+        if (isInitialized) {
+            rebuildAudioEngine(freshKickParams, '808', freshInstParams).then(result => {
+                if (result) {
+                    nextNoteTime.current = result.context.currentTime;
+                    applyEngineResult(result);
+                    setSampleAudioData(new Float32Array(0));
+                    setAudioNeedsAttention(false);
+                }
+            });
         }
 
         // Effects state
@@ -2790,8 +3006,8 @@ const App: React.FC = () => {
             safeSetItem('cl607-pattern-0', JSON.stringify(defaultPattern));
         } catch {}
     }, [
-        isPlaying, isInitialized, isAudioEngineReady, rerenderAllInstruments,
-        updateInstrumentParameter, setSampleAudioData, handleResetEffectsSettings, handleResetDjSettings
+        isPlaying, isInitialized, rebuildAudioEngine, applyEngineResult,
+        setSampleAudioData, handleResetEffectsSettings, handleResetDjSettings
     ]);
 
     const handleResetInstrumentSettings = useCallback(() => {
@@ -2929,46 +3145,46 @@ const App: React.FC = () => {
         onTouchStart: handleSliderInteractionStart,
     }), [handleSliderInteractionStart]);
 
-    useEffect(() => { setLowPassFrequency(effectsEnabled.lowPass ? lowPassFreq : MAX_FILTER_FREQ) }, [lowPassFreq, effectsEnabled.lowPass, setLowPassFrequency, isInitialized]);
-    useEffect(() => { setHighPassFrequency(effectsEnabled.highPass ? highPassFreq : MIN_FILTER_FREQ) }, [highPassFreq, effectsEnabled.highPass, setHighPassFrequency, isInitialized]);
-    useEffect(() => { setAudioEngineReverbMix(effectsEnabled.reverb ? reverbMix : 0) }, [reverbMix, effectsEnabled.reverb, setAudioEngineReverbMix, isInitialized]);
-    useEffect(() => { setAudioEngineReverbDecay(reverbDecay) }, [reverbDecay, setAudioEngineReverbDecay, isInitialized]);
-    useEffect(() => { if (setAudioEngineReverbType) setAudioEngineReverbType(reverbType) }, [reverbType, setAudioEngineReverbType, isInitialized]);
-    useEffect(() => { if (setAudioEngineReverbTone) setAudioEngineReverbTone(reverbTone) }, [reverbTone, setAudioEngineReverbTone, isInitialized]);
-    useEffect(() => { if (setAudioEngineReverbSource) setAudioEngineReverbSource(reverbSource) }, [reverbSource, setAudioEngineReverbSource, isInitialized]);
-    useEffect(() => { setAudioEngineDelayMix(effectsEnabled.delay ? delayMix : 0) }, [delayMix, effectsEnabled.delay, setAudioEngineDelayMix, isInitialized]);
-    useEffect(() => { setAudioEngineDelayTime(delayTime) }, [delayTime, setAudioEngineDelayTime, isInitialized]);
-    useEffect(() => { setAudioEngineDelayFeedback(delayFeedback) }, [delayFeedback, setAudioEngineDelayFeedback, isInitialized]);
-    useEffect(() => { if (setAudioEngineDelaySource) setAudioEngineDelaySource(delaySource) }, [delaySource, setAudioEngineDelaySource, isInitialized]);
-    useEffect(() => { setAudioEngineKickSidechainAmount(effectsEnabled.sidechain ? kickSidechainAmount : 0) }, [kickSidechainAmount, effectsEnabled.sidechain, setAudioEngineKickSidechainAmount, isInitialized]);
-    useEffect(() => { if (setAudioEngineKickSidechainThreshold) setAudioEngineKickSidechainThreshold(kickSidechainThreshold) }, [kickSidechainThreshold, setAudioEngineKickSidechainThreshold, isInitialized]);
-    useEffect(() => { if (setAudioEngineKickSidechainRatio) setAudioEngineKickSidechainRatio(kickSidechainRatio) }, [kickSidechainRatio, setAudioEngineKickSidechainRatio, isInitialized]);
-    useEffect(() => { setAudioEngineMasterVolume(masterVolume) }, [masterVolume, setAudioEngineMasterVolume, isInitialized]);
-    useEffect(() => { setAudioEngineCrushAmount(effectsEnabled.crush ? crushAmount : 0) }, [crushAmount, effectsEnabled.crush, setAudioEngineCrushAmount, isInitialized]);
-    useEffect(() => { if (isInitialized) setAudioEngineTapeSaturationMix(effectsEnabled.tape ? tapeSaturationMix : 0) }, [tapeSaturationMix, effectsEnabled.tape, setAudioEngineTapeSaturationMix, isInitialized]);
-    useEffect(() => { if (isInitialized) setAudioEngineTapeSaturationAmount(tapeSaturationAmount) }, [tapeSaturationAmount, setAudioEngineTapeSaturationAmount, isInitialized]);
-    useEffect(() => { if (isInitialized) setAudioEngineTapeSaturationTone(tapeSaturationTone) }, [tapeSaturationTone, setAudioEngineTapeSaturationTone, isInitialized]);
-    useEffect(() => { setAudioEngineEnvelopeFilterMix(effectsEnabled.envelope ? envelopeFilterMix : 0) }, [envelopeFilterMix, effectsEnabled.envelope, setAudioEngineEnvelopeFilterMix, isInitialized]);
-    useEffect(() => { setAudioEngineEnvelopeFilterAmount(envelopeFilterAmount) }, [envelopeFilterAmount, setAudioEngineEnvelopeFilterAmount, isInitialized]);
-    useEffect(() => { setAudioEngineEnvelopeFilterBaseFreq(envelopeFilterBaseFreq) }, [envelopeFilterBaseFreq, setAudioEngineEnvelopeFilterBaseFreq, isInitialized]);
-    useEffect(() => { setAudioEngineEnvelopeFilterQ(envelopeFilterQ) }, [envelopeFilterQ, setAudioEngineEnvelopeFilterQ, isInitialized]);
+    useEffect(() => { setLowPassFrequency(effectsEnabled.lowPass ? lowPassFreq : MAX_FILTER_FREQ) }, [lowPassFreq, effectsEnabled.lowPass, setLowPassFrequency, isInitialized, audioContext]);
+    useEffect(() => { setHighPassFrequency(effectsEnabled.highPass ? highPassFreq : MIN_FILTER_FREQ) }, [highPassFreq, effectsEnabled.highPass, setHighPassFrequency, isInitialized, audioContext]);
+    useEffect(() => { setAudioEngineReverbMix(effectsEnabled.reverb ? reverbMix : 0) }, [reverbMix, effectsEnabled.reverb, setAudioEngineReverbMix, isInitialized, audioContext]);
+    useEffect(() => { setAudioEngineReverbDecay(reverbDecay) }, [reverbDecay, setAudioEngineReverbDecay, isInitialized, audioContext]);
+    useEffect(() => { if (setAudioEngineReverbType) setAudioEngineReverbType(reverbType) }, [reverbType, setAudioEngineReverbType, isInitialized, audioContext]);
+    useEffect(() => { if (setAudioEngineReverbTone) setAudioEngineReverbTone(reverbTone) }, [reverbTone, setAudioEngineReverbTone, isInitialized, audioContext]);
+    useEffect(() => { if (setAudioEngineReverbSource) setAudioEngineReverbSource(reverbSource) }, [reverbSource, setAudioEngineReverbSource, isInitialized, audioContext]);
+    useEffect(() => { setAudioEngineDelayMix(effectsEnabled.delay ? delayMix : 0) }, [delayMix, effectsEnabled.delay, setAudioEngineDelayMix, isInitialized, audioContext]);
+    useEffect(() => { setAudioEngineDelayTime(delayTime) }, [delayTime, setAudioEngineDelayTime, isInitialized, audioContext]);
+    useEffect(() => { setAudioEngineDelayFeedback(delayFeedback) }, [delayFeedback, setAudioEngineDelayFeedback, isInitialized, audioContext]);
+    useEffect(() => { if (setAudioEngineDelaySource) setAudioEngineDelaySource(delaySource) }, [delaySource, setAudioEngineDelaySource, isInitialized, audioContext]);
+    useEffect(() => { setAudioEngineKickSidechainAmount(effectsEnabled.sidechain ? kickSidechainAmount : 0) }, [kickSidechainAmount, effectsEnabled.sidechain, setAudioEngineKickSidechainAmount, isInitialized, audioContext]);
+    useEffect(() => { if (setAudioEngineKickSidechainThreshold) setAudioEngineKickSidechainThreshold(kickSidechainThreshold) }, [kickSidechainThreshold, setAudioEngineKickSidechainThreshold, isInitialized, audioContext]);
+    useEffect(() => { if (setAudioEngineKickSidechainRatio) setAudioEngineKickSidechainRatio(kickSidechainRatio) }, [kickSidechainRatio, setAudioEngineKickSidechainRatio, isInitialized, audioContext]);
+    useEffect(() => { setAudioEngineMasterVolume(masterVolume) }, [masterVolume, setAudioEngineMasterVolume, isInitialized, audioContext]);
+    useEffect(() => { setAudioEngineCrushAmount(effectsEnabled.crush ? crushAmount : 0) }, [crushAmount, effectsEnabled.crush, setAudioEngineCrushAmount, isInitialized, audioContext]);
+    useEffect(() => { if (isInitialized) setAudioEngineTapeSaturationMix(effectsEnabled.tape ? tapeSaturationMix : 0) }, [tapeSaturationMix, effectsEnabled.tape, setAudioEngineTapeSaturationMix, isInitialized, audioContext]);
+    useEffect(() => { if (isInitialized) setAudioEngineTapeSaturationAmount(tapeSaturationAmount) }, [tapeSaturationAmount, setAudioEngineTapeSaturationAmount, isInitialized, audioContext]);
+    useEffect(() => { if (isInitialized) setAudioEngineTapeSaturationTone(tapeSaturationTone) }, [tapeSaturationTone, setAudioEngineTapeSaturationTone, isInitialized, audioContext]);
+    useEffect(() => { setAudioEngineEnvelopeFilterMix(effectsEnabled.envelope ? envelopeFilterMix : 0) }, [envelopeFilterMix, effectsEnabled.envelope, setAudioEngineEnvelopeFilterMix, isInitialized, audioContext]);
+    useEffect(() => { setAudioEngineEnvelopeFilterAmount(envelopeFilterAmount) }, [envelopeFilterAmount, setAudioEngineEnvelopeFilterAmount, isInitialized, audioContext]);
+    useEffect(() => { setAudioEngineEnvelopeFilterBaseFreq(envelopeFilterBaseFreq) }, [envelopeFilterBaseFreq, setAudioEngineEnvelopeFilterBaseFreq, isInitialized, audioContext]);
+    useEffect(() => { setAudioEngineEnvelopeFilterQ(envelopeFilterQ) }, [envelopeFilterQ, setAudioEngineEnvelopeFilterQ, isInitialized, audioContext]);
     // FIX: Use the renamed `setLofiMix` function to avoid conflict with state setter
-    useEffect(() => { if (setAudioEngineLofiMix) setAudioEngineLofiMix(lofiMix); }, [lofiMix, setAudioEngineLofiMix, isInitialized]);
-    useEffect(() => { if (setIsoGain) setIsoGain('low', isolatorGains.low); }, [isolatorGains.low, setIsoGain, isInitialized]);
-    useEffect(() => { if (setIsoGain) setIsoGain('mid', isolatorGains.mid); }, [isolatorGains.mid, setIsoGain, isInitialized]);
-    useEffect(() => { if (setIsoGain) setIsoGain('high', isolatorGains.high); }, [isolatorGains.high, setIsoGain, isInitialized]);
+    useEffect(() => { if (setAudioEngineLofiMix) setAudioEngineLofiMix(lofiMix); }, [lofiMix, setAudioEngineLofiMix, isInitialized, audioContext]);
+    useEffect(() => { if (setIsoGain) setIsoGain('low', isolatorGains.low); }, [isolatorGains.low, setIsoGain, isInitialized, audioContext]);
+    useEffect(() => { if (setIsoGain) setIsoGain('mid', isolatorGains.mid); }, [isolatorGains.mid, setIsoGain, isInitialized, audioContext]);
+    useEffect(() => { if (setIsoGain) setIsoGain('high', isolatorGains.high); }, [isolatorGains.high, setIsoGain, isInitialized, audioContext]);
     useEffect(() => {
         if (updateTapeStopDuration) {
             updateTapeStopDuration(tapeStopDuration, tempo, isTapeStopPauseAfter);
         }
-    }, [tapeStopDuration, tempo, isTapeStopPauseAfter, updateTapeStopDuration, isInitialized]);
+    }, [tapeStopDuration, tempo, isTapeStopPauseAfter, updateTapeStopDuration, isInitialized, audioContext]);
     useEffect(() => {
         if (updateStutterParams) {
             const srcVol = stutterSource === 'all' ? 0.7 : (volumes[INSTRUMENTS.indexOf(stutterSource)] ?? 0.7);
             const effSwing = getEffectiveStutterSwing(stutterDivision, isStutterSwingLocked, swing);
             updateStutterParams(stutterDivision, tempo, stutterSource, srcVol, effSwing);
         }
-    }, [stutterDivision, tempo, stutterSource, volumes, isStutterSwingLocked, swing, updateStutterParams, getEffectiveStutterSwing, isInitialized]);
+    }, [stutterDivision, tempo, stutterSource, volumes, isStutterSwingLocked, swing, updateStutterParams, getEffectiveStutterSwing, isInitialized, audioContext]);
     useEffect(() => {
         if (delaySyncDivision !== null) {
             setDelayTime(getDelayDivisionTimeSeconds(delaySyncDivision, tempo));
@@ -3550,6 +3766,7 @@ const App: React.FC = () => {
                         onMouseLeave={() => { if (isTapeStopActive) handleTapeStopEnd(); }}
                         onTouchStart={(e) => { e.preventDefault(); handleTapeStopStart(); }}
                         onTouchEnd={handleTapeStopEnd}
+                        onTouchCancel={handleTapeStopEnd}
                         className={getButtonStyle(
                             visualizerStyle,
                             'danger',
@@ -4543,6 +4760,18 @@ const App: React.FC = () => {
                         </div>
                     )}
                 </header>
+                {audioNeedsAttention && (
+                    <div className="flex justify-end -my-2">
+                        <button
+                            type="button"
+                            onClick={handleRebuildAudioEngine}
+                            disabled={isFixingAudio}
+                            className="px-2.5 py-1 rounded-md bg-amber-500 text-slate-950 hover:bg-amber-400 font-mono font-bold text-[11px] uppercase tracking-wider shadow cursor-pointer transition-colors"
+                        >
+                            {isFixingAudio ? 'Fixing Audio...' : 'Fix Audio'}
+                        </button>
+                    </div>
+                )}
                 <main className="flex flex-col gap-6">
                     <div className={`relative ${visualizerStyle === 'nagra' ? 'p-4 sm:p-6 mt-2' : 'p-2 sm:p-4'} flex flex-col gap-4 ${surface.mainDeck}`}>
                         {visualizerStyle === 'cyberpunk' && (

@@ -494,10 +494,12 @@ const SampleRecorderMenu: React.FC<SampleRecorderMenuProps> = ({
 
             let lastNode: AudioNode = source;
 
+            const nyquistMax = Math.max(200, sampleRate * 0.46);
+
             if (highPass > MIN_FILTER_FREQ) {
                 const hpFilter = ctx.createBiquadFilter();
                 hpFilter.type = 'highpass';
-                hpFilter.frequency.value = highPass;
+                hpFilter.frequency.value = Math.max(MIN_FILTER_FREQ, Math.min(nyquistMax, highPass));
                 lastNode.connect(hpFilter);
                 lastNode = hpFilter;
             }
@@ -505,7 +507,7 @@ const SampleRecorderMenu: React.FC<SampleRecorderMenuProps> = ({
             if (lowPass < MAX_FILTER_FREQ) {
                 const lpFilter = ctx.createBiquadFilter();
                 lpFilter.type = 'lowpass';
-                lpFilter.frequency.value = lowPass;
+                lpFilter.frequency.value = Math.max(60, Math.min(nyquistMax, lowPass));
                 lastNode.connect(lpFilter);
                 lastNode = lpFilter;
             }

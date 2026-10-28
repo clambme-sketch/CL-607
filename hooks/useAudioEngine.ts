@@ -34,35 +34,46 @@ class BitcrusherProcessor extends AudioWorkletProcessor {
   process(inputs, outputs, parameters) {
     const input = inputs[0];
     const output = outputs[0];
-    if (!input || !output) return true;
+    if (!output || output.length === 0) return true;
+    if (!input || input.length === 0 || !input[0]) {
+      for (let c = 0; c < output.length; c++) {
+        if (output[c]) output[c].fill(0);
+      }
+      return true;
+    }
     const amountValues = parameters.amount;
 
-    for (let channel = 0; channel < input.length; channel++) {
-      const inputChannel = input[channel];
+    for (let channel = 0; channel < output.length; channel++) {
+      const inputChannel = input[channel] || input[0];
       const outputChannel = output[channel];
+      if (!inputChannel || !outputChannel) continue;
       if (this.phase_[channel] === undefined) {
         this.phase_[channel] = 0;
         this.lastSampleValue_[channel] = 0;
       }
-      for (let i = 0; i < inputChannel.length; i++) {
-        const amount = amountValues.length > 1 ? amountValues[i] : amountValues[0];
+      for (let i = 0; i < outputChannel.length; i++) {
+        const rawIn = inputChannel[i];
+        const cleanIn = Number.isFinite(rawIn) ? Math.max(-2.0, Math.min(2.0, rawIn)) : 0.0;
+        const rawAmt = amountValues.length > 1 ? amountValues[i] : amountValues[0];
+        const amount = Number.isFinite(rawAmt) ? Math.max(0.0, Math.min(1.0, rawAmt)) : 0.0;
         
-        if (amount <= 0) {
-          outputChannel[i] = inputChannel[i];
-          this.lastSampleValue_[channel] = inputChannel[i];
+        if (amount <= 0.0001) {
+          outputChannel[i] = cleanIn;
+          this.lastSampleValue_[channel] = cleanIn;
           continue;
         }
 
         const bitDepth = 16 - 14 * amount;
         const frequencyReduction = Math.max(0.02, 1.0 - amount * 0.92);
-        const step = Math.pow(0.5, bitDepth);
+        const step = Math.max(1e-6, Math.pow(0.5, bitDepth));
         
         this.phase_[channel] += frequencyReduction;
         if (this.phase_[channel] >= 1.0) {
           this.phase_[channel] -= 1.0;
-          this.lastSampleValue_[channel] = step * Math.floor(inputChannel[i] / step + 0.5);
+          const quantized = step * Math.floor(cleanIn / step + 0.5);
+          this.lastSampleValue_[channel] = Number.isFinite(quantized) ? quantized : 0.0;
         }
-        outputChannel[i] = this.lastSampleValue_[channel];
+        outputChannel[i] = Number.isFinite(this.lastSampleValue_[channel]) ? this.lastSampleValue_[channel] : 0.0;
       }
     }
     return true; // Keep processor alive
@@ -102,7 +113,7 @@ registerProcessor('live-recorder-processor', LiveRecorderProcessor);
 class DjFxProcessor extends AudioWorkletProcessor {
   constructor() {
     super();
-    this.bufferLength = Math.ceil(sampleRate * 4);
+    this.bufferLength = Math.ceil(sampleRate * 1.6);
     // Clean pre-stutter input ring buffer (never overwritten by processed output)
     this.inBufferL = new Float32Array(this.bufferLength);
     this.inBufferR = new Float32Array(this.bufferLength);
@@ -112,11 +123,14 @@ class DjFxProcessor extends AudioWorkletProcessor {
     this.tapeBufferL = new Float32Array(this.bufferLength);
     this.tapeBufferR = new Float32Array(this.bufferLength);
     this.writeIndex = 0;
+    this.reportedReady = false;
+    this.wasIdle = true;
 
-    // Dedicated slice buffer for Stutter (up to 4 seconds so even 1/4 at 40 BPM fits easily)
-    this.maxStutterLength = Math.ceil(sampleRate * 4);
+    // Dedicated slice buffer for Stutter (1.2 seconds fits all rhythmic divisions cleanly with low heap footprint)
+    this.maxStutterLength = Math.ceil(sampleRate * 1.2);
     this.stutterSliceL = new Float32Array(this.maxStutterLength);
     this.stutterSliceR = new Float32Array(this.maxStutterLength);
+    this.stutterSliceValidLen = 0;
     this.stutterActive = false;
     this.stutterHeld = false;
     this.loopSamples = Math.floor(sampleRate * 0.125);
@@ -152,6 +166,7 @@ class DjFxProcessor extends AudioWorkletProcessor {
     this.tapeReleasePending = false;
     this.tapeHoldPauseSamples = 0;
     this.tapePauseAfterStop = false;
+    this.stoppedHoldSamples = 0;
 
     // Variable-speed fractional delay line state
     this.tapeDelaySamples = 0.0;
@@ -177,6 +192,10 @@ class DjFxProcessor extends AudioWorkletProcessor {
     this.port.onmessage = (e) => {
       const data = e.data;
       if (!data) return;
+      if (data.type === 'flush') {
+        this.flushState(Boolean(data.resetTape ?? true));
+        return;
+      }
       if (data.type === 'transportSync') {
         const nextPlaying = Boolean(data.playing);
         if (data.beatSamples) {
@@ -186,10 +205,10 @@ class DjFxProcessor extends AudioWorkletProcessor {
         if (typeof data.beatDurationSec === 'number' && data.beatDurationSec > 0.05) {
           this.beatDurationSec = data.beatDurationSec;
         }
-        if (typeof data.beatAnchorTime === 'number') {
+        if (typeof data.beatAnchorTime === 'number' && Number.isFinite(data.beatAnchorTime)) {
           this.beatAnchorTime = data.beatAnchorTime;
         }
-        if (typeof data.stutterSwing === 'number') {
+        if (typeof data.stutterSwing === 'number' && Number.isFinite(data.stutterSwing)) {
           this.stutterSwing = Math.max(0, Math.min(1.0, data.stutterSwing));
         }
         if (data.fallbackSlice !== undefined) {
@@ -218,6 +237,7 @@ class DjFxProcessor extends AudioWorkletProcessor {
             this.tapeDelaySamples = 0.0;
             this.tapeReleasePending = false;
             this.tapeHoldPauseSamples = 0;
+            this.stoppedHoldSamples = 0;
           }
           if (data.reanchor || wasPaused) {
             const elapsedSinceAnchor = Math.max(0, Math.min(4096, Math.ceil((currentTime - this.beatAnchorTime) * sampleRate) + 64));
@@ -327,8 +347,10 @@ class DjFxProcessor extends AudioWorkletProcessor {
           this.tapeDelaySamples = 0.0;
           this.tapeReleasePending = false;
           this.tapeHoldPauseSamples = 0;
+          this.stoppedHoldSamples = 0;
         } else if (data.active) {
           this.tapeReleasePending = false;
+          this.stoppedHoldSamples = 0;
           if (this.tapeState !== 'stopping' && this.tapeState !== 'stopped') {
             this.anchorTapeStop();
             this.tapeState = 'stopping';
@@ -347,6 +369,7 @@ class DjFxProcessor extends AudioWorkletProcessor {
             this.tapeStartPhase = 0.0;
             this.tapeSpeed = 0.08;
             this.tapeDelaySamples = Math.floor(sampleRate * 0.065);
+            this.stoppedHoldSamples = 0;
           }
         }
       } else if (data.type === 'tapestopParams') {
@@ -360,6 +383,7 @@ class DjFxProcessor extends AudioWorkletProcessor {
             this.tapeSpeed = 1.0;
             this.tapePhase = 0.0;
             this.tapeDelaySamples = 0.0;
+            this.stoppedHoldSamples = 0;
           }
         }
         if (data.beatSamples) {
@@ -367,6 +391,30 @@ class DjFxProcessor extends AudioWorkletProcessor {
         }
       }
     };
+  }
+
+  flushState(resetTape) {
+    this.tapeLpL = 0.0;
+    this.tapeLpR = 0.0;
+    this.tapeEchoLpL = 0.0;
+    this.tapeEchoLpR = 0.0;
+    this.tapeEchoHpL = 0.0;
+    this.tapeEchoHpR = 0.0;
+    this.tapePrevOutL = 0.0;
+    this.tapePrevOutR = 0.0;
+    this.stutterPrevSampleL = 0.0;
+    this.stutterPrevSampleR = 0.0;
+    this.tapeLiveEnv = 0.0;
+    if (resetTape) {
+      this.tapeState = 'idle';
+      this.tapeSpeed = 1.0;
+      this.tapePhase = 0.0;
+      this.tapeStartPhase = 0.0;
+      this.tapeDelaySamples = 0.0;
+      this.tapeReleasePending = false;
+      this.tapeHoldPauseSamples = 0;
+      this.stoppedHoldSamples = 0;
+    }
   }
 
   getFlamGuardStartOffset() {
@@ -383,15 +431,17 @@ class DjFxProcessor extends AudioWorkletProcessor {
     // Set stutterFirstPass = true so pressing STUTTER or HOLD waits for the next grid boundary instead of firing immediately on click.
     if (this.fallbackSlice && this.fallbackSlice.length > 0) {
       const fbLen = Math.min(this.fallbackSlice.length, this.maxStutterLength);
+      const clearLimit = Math.min(this.maxStutterLength, Math.max(fbLen, this.stutterSliceValidLen, this.stutterSliceMaxSamples));
       const tailFade = Math.min(256, fbLen >> 2);
-      for (let k = 0; k < this.maxStutterLength; k++) {
+      for (let k = 0; k < clearLimit; k++) {
         if (k < fbLen) {
           let env = 1.0;
           const rem = fbLen - k;
           if (rem <= tailFade && tailFade > 0) {
             env = 0.5 * (1.0 - Math.cos(Math.PI * rem / tailFade));
           }
-          const val = this.fallbackSlice[k] * env;
+          const rawVal = this.fallbackSlice[k];
+          const val = Number.isFinite(rawVal) ? rawVal * env : 0.0;
           this.stutterSliceL[k] = val;
           this.stutterSliceR[k] = val;
         } else {
@@ -399,6 +449,7 @@ class DjFxProcessor extends AudioWorkletProcessor {
           this.stutterSliceR[k] = 0.0;
         }
       }
+      this.stutterSliceValidLen = fbLen;
       this.stutterCaptureCount = this.stutterSliceMaxSamples;
       this.stutterHasAudio = true;
       this.stutterFirstPass = true;
@@ -427,7 +478,8 @@ class DjFxProcessor extends AudioWorkletProcessor {
         }
       }
       const copyCount = Math.min(onsetBack, this.stutterSliceMaxSamples);
-      for (let k = 0; k < this.maxStutterLength; k++) {
+      const clearLimit = Math.min(this.maxStutterLength, Math.max(copyCount, this.stutterSliceValidLen, this.stutterSliceMaxSamples));
+      for (let k = 0; k < clearLimit; k++) {
         if (k < copyCount) {
           const ringIdx = (this.writeIndex - onsetBack + k + this.bufferLength) % this.bufferLength;
           this.stutterSliceL[k] = this.inBufferL[ringIdx];
@@ -437,6 +489,7 @@ class DjFxProcessor extends AudioWorkletProcessor {
           this.stutterSliceR[k] = 0.0;
         }
       }
+      this.stutterSliceValidLen = this.stutterSliceMaxSamples;
       this.stutterCaptureCount = copyCount;
       this.stutterHasAudio = true;
       this.stutterFirstPass = true;
@@ -468,8 +521,9 @@ class DjFxProcessor extends AudioWorkletProcessor {
           }
         }
         const copyCount = Math.min(onsetBack, this.stutterSliceMaxSamples);
+        const clearLimit = Math.min(this.maxStutterLength, Math.max(copyCount, this.stutterSliceValidLen, this.stutterSliceMaxSamples));
         const tailFade = Math.min(256, copyCount >> 2);
-        for (let k = 0; k < this.maxStutterLength; k++) {
+        for (let k = 0; k < clearLimit; k++) {
           if (k < copyCount) {
             let env = 1.0;
             const rem = copyCount - k;
@@ -484,6 +538,7 @@ class DjFxProcessor extends AudioWorkletProcessor {
             this.stutterSliceR[k] = 0.0;
           }
         }
+        this.stutterSliceValidLen = copyCount;
         this.stutterCaptureCount = this.stutterSliceMaxSamples;
         this.stutterFirstPass = true;
         this.stutterPlayOffset = 0;
@@ -500,8 +555,8 @@ class DjFxProcessor extends AudioWorkletProcessor {
 
   anchorTapeStop() {
     const prevIdx = (this.writeIndex - 1 + this.bufferLength) % this.bufferLength;
-    this.tapeLpL = this.postStutterBufL[prevIdx];
-    this.tapeLpR = this.postStutterBufR[prevIdx];
+    this.tapeLpL = Number.isFinite(this.postStutterBufL[prevIdx]) ? this.postStutterBufL[prevIdx] : 0.0;
+    this.tapeLpR = Number.isFinite(this.postStutterBufR[prevIdx]) ? this.postStutterBufR[prevIdx] : 0.0;
     this.tapeEchoLpL = 0.0;
     this.tapeEchoLpR = 0.0;
     this.tapeEchoHpL = 0.0;
@@ -573,35 +628,43 @@ class DjFxProcessor extends AudioWorkletProcessor {
   }
 
   readBufferCubic(buf, len, pos) {
+    if (!Number.isFinite(pos) || len <= 0) return 0.0;
     let wrapped = pos % len;
     if (wrapped < 0) wrapped += len;
-    const i1 = Math.floor(wrapped);
-    const frac = wrapped - i1;
+    const rawFloor = Math.floor(wrapped);
+    const i1 = ((rawFloor % len) + len) % len;
+    const frac = Math.max(0.0, Math.min(1.0, wrapped - rawFloor));
     const i0 = (i1 - 1 + len) % len;
     const i2 = (i1 + 1) % len;
     const i3 = (i1 + 2) % len;
 
-    const y0 = buf[i0];
-    const y1 = buf[i1];
-    const y2 = buf[i2];
-    const y3 = buf[i3];
+    const y0 = buf[i0] || 0.0;
+    const y1 = buf[i1] || 0.0;
+    const y2 = buf[i2] || 0.0;
+    const y3 = buf[i3] || 0.0;
 
     // 4-point Catmull-Rom cubic spline interpolation for smooth fractional delay reading
     const c0 = y1;
     const c1 = 0.5 * (y2 - y0);
     const c2 = y0 - 2.5 * y1 + 2.0 * y2 - 0.5 * y3;
     const c3 = 0.5 * (y3 - y0) + 1.5 * (y1 - y2);
-    return ((c3 * frac + c2) * frac + c1) * frac + c0;
+    const res = ((c3 * frac + c2) * frac + c1) * frac + c0;
+    return Number.isFinite(res) ? res : 0.0;
   }
 
   processTapeHead(inL, inR, speed) {
     // Non-resonant 1-pole (6dB/oct) analog tape head high-frequency rolloff coupled to tape speed
-    const speedClamped = Math.max(0.0, Math.min(1.0, speed));
+    const speedClamped = Number.isFinite(speed) ? Math.max(0.0, Math.min(1.0, speed)) : 1.0;
     const cutoff = 160.0 + 18500.0 * Math.pow(speedClamped, 1.15);
     const g = Math.min(0.96, 1.0 - Math.exp((-2.0 * Math.PI * cutoff) / sampleRate));
 
-    this.tapeLpL += g * (inL - this.tapeLpL);
-    this.tapeLpR += g * (inR - this.tapeLpR);
+    const cleanL = Number.isFinite(inL) ? inL : 0.0;
+    const cleanR = Number.isFinite(inR) ? inR : 0.0;
+
+    this.tapeLpL += g * (cleanL - this.tapeLpL);
+    this.tapeLpR += g * (cleanR - this.tapeLpR);
+    if (!Number.isFinite(this.tapeLpL) || Math.abs(this.tapeLpL) < 1e-18) this.tapeLpL = 0.0;
+    if (!Number.isFinite(this.tapeLpR) || Math.abs(this.tapeLpR) < 1e-18) this.tapeLpR = 0.0;
 
     // Subtle analog magnetic saturation without artificial oscillators or resonant bandpass coloration
     return [
@@ -615,18 +678,55 @@ class DjFxProcessor extends AudioWorkletProcessor {
     const output = outputs[0];
     if (!output || output.length === 0) return true;
 
+    if (!this.reportedReady) {
+      this.reportedReady = true;
+      this.port.postMessage({ type: 'ready' });
+    }
+
     const outL = output[0];
     const outR = output[1] || output[0];
     const inL = (input && input[0]) ? input[0] : null;
     const inR = (input && input[1]) ? input[1] : inL;
     const frames = outL.length;
 
+    const isCurrentlyIdle = !this.stutterActive && this.tapeState === 'idle';
+    if (isCurrentlyIdle !== this.wasIdle) {
+      this.wasIdle = isCurrentlyIdle;
+      this.port.postMessage({ type: 'idleState', idle: isCurrentlyIdle });
+    }
+
+    // Fast idle path: only record ring buffer history with zero per-sample DSP math
+    if (isCurrentlyIdle) {
+      for (let i = 0; i < frames; i++) {
+        const rawInL = inL ? inL[i] : 0.0;
+        const rawInR = inR ? inR[i] : 0.0;
+        const rawL = (Number.isFinite(rawInL) && Math.abs(rawInL) >= 1e-18) ? Math.max(-4.0, Math.min(4.0, rawInL)) : 0.0;
+        const rawR = (Number.isFinite(rawInR) && Math.abs(rawInR) >= 1e-18) ? Math.max(-4.0, Math.min(4.0, rawInR)) : 0.0;
+
+        this.inBufferL[this.writeIndex] = rawL;
+        this.inBufferR[this.writeIndex] = rawR;
+        this.postStutterBufL[this.writeIndex] = rawL;
+        this.postStutterBufR[this.writeIndex] = rawR;
+        this.tapeBufferL[this.writeIndex] = rawL;
+        this.tapeBufferR[this.writeIndex] = rawR;
+        if (this.transportPlaying && this.samplesSinceTransportStart < this.bufferLength) {
+          this.samplesSinceTransportStart++;
+        }
+        outL[i] = rawL;
+        if (output[1]) outR[i] = rawR;
+        this.writeIndex = (this.writeIndex + 1) % this.bufferLength;
+      }
+      return true;
+    }
+
     const stopPhaseStep = 1.0 / (sampleRate * Math.max(0.20, this.tapeStopDuration));
     const startPhaseStep = 1.0 / (sampleRate * Math.max(0.12, this.tapeStartDuration));
 
     for (let i = 0; i < frames; i++) {
-      const rawL = inL ? inL[i] : 0;
-      const rawR = inR ? inR[i] : 0;
+      const rawInL = inL ? inL[i] : 0.0;
+      const rawInR = inR ? inR[i] : 0.0;
+      const rawL = (Number.isFinite(rawInL) && Math.abs(rawInL) >= 1e-18) ? Math.max(-4.0, Math.min(4.0, rawInL)) : 0.0;
+      const rawR = (Number.isFinite(rawInR) && Math.abs(rawInR) >= 1e-18) ? Math.max(-4.0, Math.min(4.0, rawInR)) : 0.0;
 
       // Always write clean incoming audio into inBufferL/R
       this.inBufferL[this.writeIndex] = rawL;
@@ -692,7 +792,8 @@ class DjFxProcessor extends AudioWorkletProcessor {
           const peak = Math.max(Math.abs(rawL), Math.abs(rawR));
           if (peak > 0.02) {
             const preRoll = Math.min(48, curLoopLen >> 3, this.samplesSinceTransportStart);
-            for (let k = 0; k < this.maxStutterLength; k++) {
+            const clearLimit = Math.min(this.maxStutterLength, Math.max(preRoll, this.stutterSliceValidLen, this.stutterSliceMaxSamples));
+            for (let k = 0; k < clearLimit; k++) {
               if (k < preRoll) {
                 const ringIdx = (this.writeIndex - preRoll + k + this.bufferLength) % this.bufferLength;
                 this.stutterSliceL[k] = this.inBufferL[ringIdx];
@@ -702,6 +803,7 @@ class DjFxProcessor extends AudioWorkletProcessor {
                 this.stutterSliceR[k] = 0.0;
               }
             }
+            this.stutterSliceValidLen = this.stutterSliceMaxSamples;
             this.stutterCaptureCount = preRoll;
             this.stutterPlayOffset = 0;
             this.stutterFirstPass = true;
@@ -723,6 +825,9 @@ class DjFxProcessor extends AudioWorkletProcessor {
             this.stutterSliceL[this.stutterCaptureCount] = rawL * capEnv;
             this.stutterSliceR[this.stutterCaptureCount] = rawR * capEnv;
             this.stutterCaptureCount++;
+            if (this.stutterCaptureCount > this.stutterSliceValidLen) {
+              this.stutterSliceValidLen = this.stutterCaptureCount;
+            }
           }
 
           // Re-trigger stutterPlayOffset on exact master beat-grid subdivision boundaries
@@ -744,7 +849,7 @@ class DjFxProcessor extends AudioWorkletProcessor {
           if (this.stutterFirstPass) {
             procL = rawL;
             procR = rawR;
-          } else if (this.stutterPlayOffset < this.maxStutterLength) {
+          } else if (this.stutterPlayOffset < this.stutterSliceValidLen && this.stutterPlayOffset < this.maxStutterLength) {
             const readIdx = Math.min(this.stutterPlayOffset, this.maxStutterLength - 1);
             procL = this.stutterSliceL[readIdx];
             procR = this.stutterSliceR[readIdx];
@@ -788,6 +893,9 @@ class DjFxProcessor extends AudioWorkletProcessor {
         }
       }
 
+      if (!Number.isFinite(procL)) procL = 0.0;
+      if (!Number.isFinite(procR)) procR = 0.0;
+
       // Always store clean post-stutter signal into postStutterBufL/R
       this.postStutterBufL[this.writeIndex] = procL;
       this.postStutterBufR[this.writeIndex] = procR;
@@ -799,6 +907,7 @@ class DjFxProcessor extends AudioWorkletProcessor {
       } else {
         this.tapeLiveEnv += 0.0025 * (liveMag - this.tapeLiveEnv);
       }
+      if (!Number.isFinite(this.tapeLiveEnv) || this.tapeLiveEnv < 1e-18) this.tapeLiveEnv = 0.0;
 
       // --- 2. DELAY-BASED TAPE STOP STAGE ---
       if (this.tapeState === 'stopping') {
@@ -818,12 +927,16 @@ class DjFxProcessor extends AudioWorkletProcessor {
         const hpCoeff = 1.0 - Math.exp((-2.0 * Math.PI * 65.0) / sampleRate);
         this.tapeEchoHpL += hpCoeff * (rawEchoL - this.tapeEchoHpL);
         this.tapeEchoHpR += hpCoeff * (rawEchoR - this.tapeEchoHpR);
+        if (!Number.isFinite(this.tapeEchoHpL) || Math.abs(this.tapeEchoHpL) < 1e-18) this.tapeEchoHpL = 0.0;
+        if (!Number.isFinite(this.tapeEchoHpR) || Math.abs(this.tapeEchoHpR) < 1e-18) this.tapeEchoHpR = 0.0;
         const hpEchoL = rawEchoL - this.tapeEchoHpL;
         const hpEchoR = rawEchoR - this.tapeEchoHpR;
 
         const lpCoeff = 1.0 - Math.exp((-2.0 * Math.PI * 2200.0) / sampleRate);
         this.tapeEchoLpL += lpCoeff * (hpEchoL - this.tapeEchoLpL);
         this.tapeEchoLpR += lpCoeff * (hpEchoR - this.tapeEchoLpR);
+        if (!Number.isFinite(this.tapeEchoLpL) || Math.abs(this.tapeEchoLpL) < 1e-18) this.tapeEchoLpL = 0.0;
+        if (!Number.isFinite(this.tapeEchoLpR) || Math.abs(this.tapeEchoLpR) < 1e-18) this.tapeEchoLpR = 0.0;
 
         // Duck the echo whenever live drum audio is actively entering the delay line
         const liveDuck = Math.min(1.0, this.tapeLiveEnv * 4.0);
@@ -842,6 +955,7 @@ class DjFxProcessor extends AudioWorkletProcessor {
           procL = 0.0;
           procR = 0.0;
           this.tapeState = 'stopped';
+          this.stoppedHoldSamples = 0;
           this.tapeHoldPauseSamples = (!this.tapePauseAfterStop && this.tapeReleasePending) ? Math.floor(sampleRate * 0.035) : 0;
         } else {
           const readPos = this.writeIndex - this.tapeDelaySamples;
@@ -877,11 +991,13 @@ class DjFxProcessor extends AudioWorkletProcessor {
           this.tapeBufferR[this.writeIndex] = procR;
           procL = 0.0;
           procR = 0.0;
-          if (this.tapeReleasePending) {
+          this.stoppedHoldSamples++;
+          if (this.tapeReleasePending || this.stoppedHoldSamples > sampleRate * 2.5) {
             if (this.tapeHoldPauseSamples > 0) {
               this.tapeHoldPauseSamples--;
             } else {
               this.tapeReleasePending = false;
+              this.stoppedHoldSamples = 0;
               this.tapeState = 'starting';
               this.tapeStartPhase = 0.0;
               this.tapeSpeed = 0.08;
@@ -922,12 +1038,16 @@ class DjFxProcessor extends AudioWorkletProcessor {
           this.tapeSpeed = 1.0;
           this.tapePhase = 0.0;
           this.tapeDelaySamples = 0.0;
+          this.stoppedHoldSamples = 0;
           this.tapeState = 'idle';
         }
       } else {
         this.tapeBufferL[this.writeIndex] = procL;
         this.tapeBufferR[this.writeIndex] = procR;
       }
+
+      if (!Number.isFinite(procL) || Math.abs(procL) < 1e-18) procL = 0.0;
+      if (!Number.isFinite(procR) || Math.abs(procR) < 1e-18) procR = 0.0;
 
       this.tapePrevOutL = procL;
       this.tapePrevOutR = procR;
@@ -1131,6 +1251,12 @@ const DEFAULT_PARAMS: AllInstrumentParams = {
 
 const RAMP_TIME = 0.01; // 10ms ramp for all parameter changes to prevent clicks
 
+const clampFreqToNyquist = (freq: number, sampleRate: number, minFreq: number = 20): number => {
+    const nyquistSafeMax = Math.max(minFreq + 10, sampleRate * 0.46);
+    const safeVal = Number.isFinite(freq) ? freq : minFreq;
+    return Math.max(minFreq, Math.min(nyquistSafeMax, safeVal));
+};
+
 // --- RENDER AIRHORN FUNCTION ---
 const renderAirhorn = async (context: AudioContext | OfflineAudioContext): Promise<AudioBuffer> => {
     const duration = 1.0;
@@ -1189,6 +1315,8 @@ export const useAudioEngine = () => {
     const reverbTypeRef = useRef<ReverbType>('plate');
     const delayNodeRef = useRef<DelayNode | null>(null);
     const delayFeedbackGainRef = useRef<GainNode | null>(null);
+    const delayFeedbackFilterRef = useRef<BiquadFilterNode | null>(null);
+    const delaySaturationRef = useRef<WaveShaperNode | null>(null);
     const delayWetGainRef = useRef<GainNode | null>(null);
     const delaySendBusRef = useRef<GainNode | null>(null);
     const sidechainDuckNodeRef = useRef<GainNode | null>(null);
@@ -1196,7 +1324,7 @@ export const useAudioEngine = () => {
     const kickSidechainThresholdRef = useRef<number>(-20);
     const kickSidechainRatioRef = useRef<number>(4);
     const sampleSourceRef = useRef<AudioBufferSourceNode | null>(null);
-    const activeSampleSourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
+    const activeSampleVoicesRef = useRef<Set<{ source: AudioBufferSourceNode; gain: GainNode; startTime: number }>>(new Set());
     
     // Refs for effect analysers
     const masterAnalyserRef = useRef<AnalyserNode | null>(null);
@@ -1206,8 +1334,10 @@ export const useAudioEngine = () => {
     const sidechainVisualiserAnalyserRef = useRef<AnalyserNode | null>(null);
     const sidechainVisualiserGainRef = useRef<GainNode | null>(null);
 
-    // Bitcrusher Refs
+    // Bitcrusher Refs (with Native C++ Dry Bypass when crushAmount === 0)
     const crusherWorkletNodeRef = useRef<AudioWorkletNode | null>(null);
+    const crusherBypassGainRef = useRef<GainNode | null>(null);
+    const crusherWetGainRef = useRef<GainNode | null>(null);
     const crusherAnalyserRef = useRef<AnalyserNode | null>(null);
 
     // Tape Saturation Refs (as Insert)
@@ -1230,6 +1360,7 @@ export const useAudioEngine = () => {
     const envelopeFilterWetGainRef = useRef<GainNode | null>(null);
     const envelopeFilterAnalyserRef = useRef<AnalyserNode | null>(null);
     const envelopeFilterBaseFreqNodeRef = useRef<ConstantSourceNode | null>(null);
+    const envelopeWetConnectedRef = useRef<boolean>(false);
 
     // --- REFS FOR HIGH-QUALITY RECORDING ---
     const mediaStreamRef = useRef<MediaStream | null>(null);
@@ -1300,8 +1431,12 @@ export const useAudioEngine = () => {
     const airhornBufferRef = useRef<AudioBuffer | null>(null);
     const activeAirhornVoiceRef = useRef<{ source: AudioBufferSourceNode; gain: GainNode } | null>(null);
 
-    // Master DJ FX (Tape Stop + Beat Stutter) & Per-Instrument Stutter
+    // Master DJ FX (Tape Stop + Beat Stutter) & Per-Instrument Stutter (with Native C++ Dry Bypass when idle)
     const djFxWorkletNodeRef = useRef<AudioWorkletNode | null>(null);
+    const djFxBypassGainRef = useRef<GainNode | null>(null);
+    const djFxWetGainRef = useRef<GainNode | null>(null);
+    const djFxWorkletReadyRef = useRef<boolean>(false);
+    const tapeStopActiveRef = useRef<boolean>(false);
     const instrumentStutterWorkletNodeRef = useRef<AudioWorkletNode | null>(null);
     const instrumentPostStutterGainsRef = useRef<Record<Instrument, GainNode | null>>({
         kick: null,
@@ -1461,7 +1596,7 @@ export const useAudioEngine = () => {
         
                 const noiseFilter = offlineCtx.createBiquadFilter();
                 noiseFilter.type = 'lowpass';
-                noiseFilter.frequency.setValueAtTime(params.clickTone, time);
+                noiseFilter.frequency.setValueAtTime(clampFreqToNyquist(params.clickTone, offlineCtx.sampleRate, 40), time);
         
                 const clickGain = offlineCtx.createGain();
                 clickGain.gain.setValueAtTime(0, time);
@@ -1587,7 +1722,7 @@ export const useAudioEngine = () => {
 
             const noiseFilter = offlineCtx.createBiquadFilter();
             noiseFilter.type = 'highpass';
-            noiseFilter.frequency.setValueAtTime(1500 * params.tone, time);
+            noiseFilter.frequency.setValueAtTime(clampFreqToNyquist(1500 * params.tone, offlineCtx.sampleRate, 100), time);
 
             const noiseGain = offlineCtx.createGain();
             const noiseAttackTime = 0.001 + (params.attack * 0.01);
@@ -1625,12 +1760,12 @@ export const useAudioEngine = () => {
 
             const bandpass = offlineCtx.createBiquadFilter();
             bandpass.type = "bandpass";
-            bandpass.frequency.setValueAtTime(6000 * params.pitch, time);
+            bandpass.frequency.setValueAtTime(clampFreqToNyquist(6000 * params.pitch, offlineCtx.sampleRate, 200), time);
             bandpass.Q.setValueAtTime(1.5, time);
             
             const highpass = offlineCtx.createBiquadFilter();
             highpass.type = "highpass";
-            highpass.frequency.setValueAtTime(4000, time);
+            highpass.frequency.setValueAtTime(clampFreqToNyquist(4000, offlineCtx.sampleRate, 200), time);
             
             const gain = offlineCtx.createGain();
             gain.gain.setValueAtTime(0, time);
@@ -1658,12 +1793,12 @@ export const useAudioEngine = () => {
 
             const bandpass = offlineCtx.createBiquadFilter();
             bandpass.type = "bandpass";
-            bandpass.frequency.setValueAtTime(8000, time);
+            bandpass.frequency.setValueAtTime(clampFreqToNyquist(8000, offlineCtx.sampleRate, 200), time);
             bandpass.Q.setValueAtTime(1.2, time);
 
             const highpass = offlineCtx.createBiquadFilter();
             highpass.type = "highpass";
-            highpass.frequency.setValueAtTime(7000, time);
+            highpass.frequency.setValueAtTime(clampFreqToNyquist(7000, offlineCtx.sampleRate, 200), time);
 
             const gain = offlineCtx.createGain();
             gain.gain.setValueAtTime(0.8, time);
@@ -1694,12 +1829,12 @@ export const useAudioEngine = () => {
 
             const bandpass = offlineCtx.createBiquadFilter();
             bandpass.type = "bandpass";
-            bandpass.frequency.setValueAtTime(10000 * params.pitch, time);
+            bandpass.frequency.setValueAtTime(clampFreqToNyquist(10000 * params.pitch, offlineCtx.sampleRate, 200), time);
             bandpass.Q.setValueAtTime(0.5, time);
             
             const highpass = offlineCtx.createBiquadFilter();
             highpass.type = "highpass";
-            highpass.frequency.setValueAtTime(7000, time);
+            highpass.frequency.setValueAtTime(clampFreqToNyquist(7000, offlineCtx.sampleRate, 200), time);
             
             const gain = offlineCtx.createGain();
             gain.gain.setValueAtTime(0.8, time); // Reduced gain from 1
@@ -1741,8 +1876,8 @@ export const useAudioEngine = () => {
         bandpass.connect(gainNode);
         gainNode.connect(offlineCtx.destination);
         
-        bandpass.frequency.setValueAtTime(4000 * params.pitch, time);
-        bandpass.frequency.exponentialRampToValueAtTime(1500 * params.pitch, time + (0.03 * params.decay));
+        bandpass.frequency.setValueAtTime(clampFreqToNyquist(4000 * params.pitch, offlineCtx.sampleRate, 150), time);
+        bandpass.frequency.exponentialRampToValueAtTime(clampFreqToNyquist(1500 * params.pitch, offlineCtx.sampleRate, 100), time + (0.03 * params.decay));
         bandpass.Q.value = 3;
 
         gainNode.gain.setValueAtTime(0, time);
@@ -1927,32 +2062,53 @@ export const useAudioEngine = () => {
         if (initialInstrumentParams) {
             instrumentParamsRef.current = JSON.parse(JSON.stringify(initialInstrumentParams));
         }
+        if (audioContextRef.current && audioContextRef.current.state === 'closed') {
+            audioContextRef.current = null;
+        }
         if (!audioContextRef.current) {
+            let context: AudioContext | null = null;
             try {
                 const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-                const context = new AudioCtx({ latencyHint: 'interactive' });
-                audioContextRef.current = context;
+                context = new AudioCtx({ latencyHint: 'interactive' });
 
                 if (context.state === 'suspended') {
-                    const buffer = context.createBuffer(1, 1, 22050);
-                    const source = context.createBufferSource();
-                    source.buffer = buffer;
-                    source.connect(context.destination);
-                    source.start(0);
-                    await context.resume();
+                    try {
+                        const buffer = context.createBuffer(1, 1, 22050);
+                        const source = context.createBufferSource();
+                        source.buffer = buffer;
+                        source.connect(context.destination);
+                        source.start(0);
+                        await context.resume();
+                    } catch {
+                        // Continue setup even if resume resolves on next user gesture
+                    }
                 }
 
-                // --- Load Audio Worklets ---
-                const crusherBlob = new Blob([BITCRUSHER_PROCESSOR_CODE], { type: 'application/javascript' });
-                const crusherUrl = URL.createObjectURL(crusherBlob);
-                const recorderBlob = new Blob([RECORDER_PROCESSOR_CODE], { type: 'application/javascript' });
-                const recorderUrl = URL.createObjectURL(recorderBlob);
-                await Promise.all([
-                    context.audioWorklet.addModule(crusherUrl),
-                    context.audioWorklet.addModule(recorderUrl)
-                ]);
-                URL.revokeObjectURL(crusherUrl);
-                URL.revokeObjectURL(recorderUrl);
+                // --- Load Audio Worklets with Blob URL -> Data URI -> Native Fallback ---
+                let workletsLoaded = false;
+                if (context.audioWorklet) {
+                    const loadWorkletModuleWithFallback = async (code: string) => {
+                        const blob = new Blob([code], { type: 'application/javascript' });
+                        const blobUrl = URL.createObjectURL(blob);
+                        try {
+                            await context!.audioWorklet.addModule(blobUrl);
+                        } catch {
+                            const dataUri = 'data:application/javascript;base64,' + window.btoa(code);
+                            await context!.audioWorklet.addModule(dataUri);
+                        } finally {
+                            URL.revokeObjectURL(blobUrl);
+                        }
+                    };
+                    try {
+                        await Promise.all([
+                            loadWorkletModuleWithFallback(BITCRUSHER_PROCESSOR_CODE),
+                            loadWorkletModuleWithFallback(RECORDER_PROCESSOR_CODE),
+                        ]);
+                        workletsLoaded = true;
+                    } catch (workletErr) {
+                        console.warn('AudioWorklet loading failed on this device; falling back to standard Web Audio graph:', workletErr);
+                    }
+                }
                 
                 // --- Pre-generate noise for snare synthesis ---
                 const noiseDuration = 2; // seconds
@@ -2004,7 +2160,7 @@ export const useAudioEngine = () => {
 
                 const lowPass = context.createBiquadFilter();
                 lowPass.type = 'lowpass';
-                lowPass.frequency.value = MAX_FILTER_FREQ;
+                lowPass.frequency.value = clampFreqToNyquist(MAX_FILTER_FREQ, context.sampleRate, 60);
                 lowPassFilterRef.current = lowPass;
 
                 // --- Tape Saturation (Insert Effect) ---
@@ -2027,7 +2183,7 @@ export const useAudioEngine = () => {
 
                 const tapeToneFilter = context.createBiquadFilter();
                 tapeToneFilter.type = 'lowpass';
-                tapeToneFilter.frequency.value = MAX_FILTER_FREQ;
+                tapeToneFilter.frequency.value = clampFreqToNyquist(MAX_FILTER_FREQ, context.sampleRate, 200);
                 tapeToneFilterRef.current = tapeToneFilter;
 
                 tapeSaturationAnalyserRef.current = context.createAnalyser();
@@ -2071,7 +2227,7 @@ export const useAudioEngine = () => {
                 sidechainVisualiserGain.connect(sidechainVisualiserAnalyserRef.current);
                 osc.start();
 
-                // --- Envelope Filter (Insert with Dry/Wet Mix) ---
+                // --- Envelope Filter (Insert with Dry/Wet Mix & Hardware-Safe Isolation) ---
                 const envelopeFilterInput = context.createGain();
                 const envelopeFilterOutput = context.createGain();
                 const envelopeFilterDry = context.createGain();
@@ -2092,34 +2248,38 @@ export const useAudioEngine = () => {
                 envelopeFilterWetGainRef.current = envelopeFilterWet;
                 envelopeFilterBaseFreqNodeRef.current = envelopeFilterBaseFreq;
 
-                // Config
+                // Critically damped envelope smoother (Q = 0.5) prevents negative step-response ringing
+                // that previously drove envelopeFilterNode.frequency negative and poisoned the master bus with NaN!
                 envelopeFilterNode.type = 'lowpass';
-                envelopeFilterNode.frequency.value = 0; // Set intrinsic to 0 so ConstantSourceNode offset controls exact base frequency
+                envelopeFilterNode.frequency.value = 20;
                 envelopeFilterNode.Q.value = 5;
-                envelopeFilterBaseFreq.offset.value = 100; // Base frequency
-                envelopeAmount.gain.value = 4000; // Depth/Sensitivity (how many Hz the envelope adds)
-                envelopeFilterDry.gain.value = 1; // Dry mix
-                envelopeFilterWet.gain.value = 0; // Wet mix
+                envelopeFilterBaseFreq.offset.value = 100;
+                envelopeAmount.gain.value = 3500;
+                envelopeFilterDry.gain.value = 1;
+                envelopeFilterWet.gain.value = 0;
                 envelopeSmoother.type = 'lowpass';
-                envelopeSmoother.frequency.value = 10; // Attack/Release smoothing
+                envelopeSmoother.frequency.value = 10;
+                envelopeSmoother.Q.value = 0.5;
 
-                // Full-wave rectifier curve for the detector
+                // Strictly non-negative, soft-saturated full-wave rectifier curve for the detector
                 const n_samples_env = 256;
                 const envelopeCurve = new Float32Array(n_samples_env);
                 for (let i = 0; i < n_samples_env; i++) {
-                    const x = (i * 2 / n_samples_env) - 1;
-                    envelopeCurve[i] = Math.abs(x);
+                    const x = (i * 2 / (n_samples_env - 1)) - 1;
+                    envelopeCurve[i] = Math.min(0.95, Math.abs(x));
                 }
                 envelopeDetector.curve = envelopeCurve;
                 envelopeFilterBaseFreq.start();
 
                 // Routing for the Envelope Filter insert path
+                // Note: envelopeFilterAnalyser is only connected to envelopeFilterOutput when mix > 0
+                // so a bypassed Envelope Filter can never inject NaN * 0 === NaN into the master bus.
                 postFilterAnalyserRef.current.connect(envelopeFilterInput);
                 envelopeFilterInput.connect(envelopeFilterDry).connect(envelopeFilterOutput);
                 envelopeFilterInput.connect(envelopeFilterNode);
                 envelopeFilterNode.connect(envelopeFilterWet);
                 envelopeFilterWet.connect(envelopeFilterAnalyserRef.current);
-                envelopeFilterAnalyserRef.current.connect(envelopeFilterOutput);
+                envelopeWetConnectedRef.current = false;
 
                 // Routing for the envelope detector path
                 envelopeFilterInput.connect(envelopeDetector);
@@ -2163,11 +2323,26 @@ export const useAudioEngine = () => {
                 reverbPreDelay.connect(reverbLowCutFilter);
                 reverbLowCutFilter.connect(convolver);
                 
-                // --- Delay ---
+                // --- Delay (with DC-Blocker & Soft-Clip Feedback Protection) ---
                 const delaySendBus = context.createGain();
                 delaySendBusRef.current = delaySendBus;
                 const delay = context.createDelay(2.5);
                 const delayFeedbackGain = context.createGain();
+                const delayFeedbackFilter = context.createBiquadFilter();
+                delayFeedbackFilter.type = 'highpass';
+                delayFeedbackFilter.frequency.value = 25;
+                delayFeedbackFilter.Q.value = 0.707;
+                delayFeedbackFilterRef.current = delayFeedbackFilter;
+
+                const delayFeedbackSaturator = context.createWaveShaper();
+                const delayClipCurve = new Float32Array(512);
+                for (let i = 0; i < 512; i++) {
+                    const x = (i * 2) / 511 - 1;
+                    delayClipCurve[i] = Math.tanh(x * 1.15);
+                }
+                delayFeedbackSaturator.curve = delayClipCurve;
+                delaySaturationRef.current = delayFeedbackSaturator;
+
                 const delayWetGain = context.createGain();
                 delay.delayTime.value = 0.27;
                 delayFeedbackGain.gain.value = 0.3;
@@ -2189,17 +2364,35 @@ export const useAudioEngine = () => {
                 reverbAnalyserRef.current.connect(postEffectsBus);
 
                 delay.connect(delayFeedbackGain);
-                delayFeedbackGain.connect(delay);
+                delayFeedbackGain.connect(delayFeedbackFilter);
+                delayFeedbackFilter.connect(delayFeedbackSaturator);
+                delayFeedbackSaturator.connect(delay);
                 delay.connect(delayWetGain);
                 delayWetGain.connect(delayAnalyserRef.current);
                 delayAnalyserRef.current.connect(postEffectsBus);
 
-                // --- Bitcrusher ---
-                const crusherNode = new AudioWorkletNode(context, 'bitcrusher-processor');
-                crusherWorkletNodeRef.current = crusherNode;
+                // --- Bitcrusher (with Native C++ Dry Bypass when crushAmount === 0) ---
+                const crusherBypassGain = context.createGain();
+                crusherBypassGain.gain.value = 1; // Default 100% native C++ dry path when crushAmount === 0
+                crusherBypassGainRef.current = crusherBypassGain;
+
+                const crusherWetGain = context.createGain();
+                crusherWetGain.gain.value = 0;
+                crusherWetGainRef.current = crusherWetGain;
+
                 crusherAnalyserRef.current = context.createAnalyser();
-                postEffectsBus.connect(crusherNode);
-                crusherNode.connect(crusherAnalyserRef.current);
+                postEffectsBus.connect(crusherBypassGain);
+                crusherBypassGain.connect(crusherAnalyserRef.current);
+
+                if (workletsLoaded) {
+                    const cwNode = new AudioWorkletNode(context, 'bitcrusher-processor');
+                    crusherWorkletNodeRef.current = cwNode;
+                    postEffectsBus.connect(cwNode);
+                    cwNode.connect(crusherWetGain);
+                    crusherWetGain.connect(crusherAnalyserRef.current);
+                } else {
+                    crusherWorkletNodeRef.current = null;
+                }
 
                 // --- Isolator (3-Band EQ) ---
                 const isoLowF = context.createBiquadFilter();
@@ -2265,7 +2458,7 @@ export const useAudioEngine = () => {
 
                 const lofiDistortion = context.createWaveShaper();
                 const initialLofiCurve = new Float32Array(256);
-                 for (let i = 0; i < 256; i++) {
+                for (let i = 0; i < 256; i++) {
                     const x = i * 2 / 256 - 1;
                     initialLofiCurve[i] = Math.tanh(x * 1); // Start with mild distortion
                 }
@@ -2308,72 +2501,96 @@ export const useAudioEngine = () => {
                 xyFilterDry.gain.value = 1; // Default to bypassed
                 xyFilterWet.gain.value = 0;
                 xyFilterNode.type = 'bandpass';
-                xyFilterNode.frequency.value = MAX_FILTER_FREQ; // Default to high freq to be inaudible
+                xyFilterNode.frequency.value = clampFreqToNyquist(MAX_FILTER_FREQ, context.sampleRate, 60); // Default to high freq to be inaudible
                 xyFilterNode.Q.value = 5; // Fixed Q for a resonant sweep sound
                 xyFilterSaturator.curve = makeFilterDriveCurve(0);
                 xyFilterSaturator.oversample = '2x';
 
-                // Routing
-                const djFxNode = new AudioWorkletNode(context, 'dj-fx-processor', {
-                    outputChannelCount: [2],
-                });
-                djFxWorkletNodeRef.current = djFxNode;
+                // Master DJ FX (with Native C++ Dry Bypass when Tape Stop & Master Stutter are idle)
+                const djFxBypassGain = context.createGain();
+                djFxBypassGain.gain.value = 1; // 100% native C++ signal path during normal playback!
+                djFxBypassGainRef.current = djFxBypassGain;
 
-                const instStutterNode = new AudioWorkletNode(context, 'dj-fx-processor', {
-                    outputChannelCount: [2],
-                });
-                instrumentStutterWorkletNodeRef.current = instStutterNode;
+                const djFxWetGain = context.createGain();
+                djFxWetGain.gain.value = 0;
+                djFxWetGainRef.current = djFxWetGain;
+                djFxWorkletReadyRef.current = false;
+                tapeStopActiveRef.current = false;
 
                 lofiOutput.connect(xyFilterInput);
                 xyFilterInput.connect(xyFilterDry).connect(xyFilterOutput); // Dry path
                 xyFilterInput.connect(xyFilterNode).connect(xyFilterSaturator).connect(xyFilterWet).connect(xyFilterOutput); // Wet path
-                xyFilterOutput.connect(djFxNode);
-                djFxNode.connect(masterCompressor);
+
+                // Always connect native C++ dry bypass from xyFilterOutput -> masterCompressor
+                xyFilterOutput.connect(djFxBypassGain);
+                djFxBypassGain.connect(masterCompressor);
+
+                if (workletsLoaded) {
+                    const masterDjWorklet = new AudioWorkletNode(context, 'dj-fx-processor', {
+                        outputChannelCount: [2],
+                    });
+                    djFxWorkletNodeRef.current = masterDjWorklet;
+                    masterDjWorklet.port.onmessage = (ev) => {
+                        const msg = ev.data;
+                        if (!msg) return;
+                        if (msg.type === 'ready') {
+                            djFxWorkletReadyRef.current = true;
+                        } else if (msg.type === 'idleState') {
+                            const isIdle = Boolean(msg.idle);
+                            const ctx = audioContextRef.current;
+                            if (ctx && djFxBypassGainRef.current && djFxWetGainRef.current) {
+                                if (isIdle && !tapeStopActiveRef.current && !(stutterActiveRef.current && stutterSourceRef.current === 'all')) {
+                                    djFxBypassGainRef.current.gain.setTargetAtTime(1, ctx.currentTime, 0.005);
+                                    djFxWetGainRef.current.gain.setTargetAtTime(0, ctx.currentTime, 0.005);
+                                }
+                            }
+                        }
+                    };
+                    xyFilterOutput.connect(masterDjWorklet);
+                    masterDjWorklet.connect(djFxWetGain);
+                    djFxWetGain.connect(masterCompressor);
+
+                    const instDjWorklet = new AudioWorkletNode(context, 'dj-fx-processor', {
+                        outputChannelCount: [2],
+                    });
+                    instrumentStutterWorkletNodeRef.current = instDjWorklet;
+                } else {
+                    djFxWorkletNodeRef.current = null;
+                    instrumentStutterWorkletNodeRef.current = null;
+                }
 
                 // --- Sample Channel Filters ---
                 const sampleHP = context.createBiquadFilter();
                 sampleHP.type = 'highpass';
-                sampleHP.frequency.value = instrumentParamsRef.current.sample?.highPass ?? MIN_FILTER_FREQ;
+                const initSampleHP = instrumentParamsRef.current.sample?.highPass ?? MIN_FILTER_FREQ;
+                sampleHP.frequency.value = clampFreqToNyquist(Number.isFinite(initSampleHP) ? Math.max(MIN_FILTER_FREQ, Math.min(18000, initSampleHP)) : MIN_FILTER_FREQ, context.sampleRate, MIN_FILTER_FREQ);
                 sampleHighPassRef.current = sampleHP;
 
                 const sampleLP = context.createBiquadFilter();
                 sampleLP.type = 'lowpass';
-                sampleLP.frequency.value = instrumentParamsRef.current.sample?.lowPass ?? MAX_FILTER_FREQ;
+                const initSampleLP = instrumentParamsRef.current.sample?.lowPass ?? MAX_FILTER_FREQ;
+                sampleLP.frequency.value = clampFreqToNyquist(Number.isFinite(initSampleLP) ? Math.max(60, Math.min(MAX_FILTER_FREQ, initSampleLP)) : MAX_FILTER_FREQ, context.sampleRate, 60);
                 sampleLowPassRef.current = sampleLP;
                 
-                // Create instrument analysers (for small scopes) and post-stutter routing nodes
+                // Create instrument analysers (for small scopes) and post-stutter routing nodes.
+                // By default (when Stutter is not active), all instruments route 100% through native C++ nodes!
                 Object.keys(instrumentAnalysersRef.current).forEach(key => {
                     const instrument = key as Instrument;
-                    const analyser = context.createAnalyser();
+                    const analyser = context!.createAnalyser();
                     instrumentAnalysersRef.current[instrument] = analyser;
-                    const postStutterGain = context.createGain();
+                    const postStutterGain = context!.createGain();
                     instrumentPostStutterGainsRef.current[instrument] = postStutterGain;
                     
                     if (instrument === 'kick') {
-                        if (stutterSourceRef.current === 'kick') {
-                            analyser.connect(instStutterNode);
-                            instStutterNode.connect(postStutterGain);
-                        } else {
-                            analyser.connect(postStutterGain);
-                        }
+                        analyser.connect(postStutterGain);
                         postStutterGain.connect(highPass);
                     } else if (instrument === 'sample') {
                         analyser.connect(sampleHP);
                         sampleHP.connect(sampleLP);
-                        if (stutterSourceRef.current === 'sample') {
-                            sampleLP.connect(instStutterNode);
-                            instStutterNode.connect(postStutterGain);
-                        } else {
-                            sampleLP.connect(postStutterGain);
-                        }
+                        sampleLP.connect(postStutterGain);
                         postStutterGain.connect(sidechainDuckNode);
                     } else {
-                        if (stutterSourceRef.current === instrument) {
-                            analyser.connect(instStutterNode);
-                            instStutterNode.connect(postStutterGain);
-                        } else {
-                            analyser.connect(postStutterGain);
-                        }
+                        analyser.connect(postStutterGain);
                         postStutterGain.connect(sidechainDuckNode);
                     }
                 });
@@ -2402,8 +2619,15 @@ export const useAudioEngine = () => {
                 instrumentBuffersRef.current.clave = claveBuffer;
                 instrumentBuffersRef.current.cowbell = cowbellBuffer;
 
+                // Commit audioContextRef ONLY after the entire audio graph and buffers are ready
+                audioContextRef.current = context;
+
             } catch (e) {
-                console.error("Web Audio API is not supported in this browser or worklet setup failed", e);
+                console.error("Web Audio API setup failed", e);
+                if (context) {
+                    try { context.close(); } catch {}
+                }
+                audioContextRef.current = null;
                 return null;
             }
         }
@@ -2425,79 +2649,118 @@ export const useAudioEngine = () => {
         };
     }, []);
 
+    const cancelAndHoldSafe = (param: AudioParam, time: number, fallbackValue: number) => {
+        try {
+            if (typeof (param as any).cancelAndHoldAtTime === 'function') {
+                (param as any).cancelAndHoldAtTime(time);
+            } else {
+                param.cancelScheduledValues(time);
+                param.setValueAtTime(fallbackValue, time);
+            }
+        } catch {
+            try {
+                param.cancelScheduledValues(time);
+            } catch {}
+        }
+    };
+
     const playSoundFromBuffer = useCallback((instrument: Instrument, volume: number, destination: AudioNode, time?: number, params?: Partial<InstrumentParams>) => {
         const context = audioContextRef.current;
         const bufferToPlay = instrumentBuffersRef.current[instrument];
         if (!context || !destination || !bufferToPlay) return;
 
         if (context.state === 'suspended') {
-            context.resume();
+            context.resume().catch(() => {});
         }
         if (time === undefined && !transportPlayingRef.current && djFxWorkletNodeRef.current) {
             djFxWorkletNodeRef.current.port.postMessage({ type: 'tapestop', reset: true });
         }
-        const playTime = time !== undefined ? Math.max(context.currentTime, time) : context.currentTime;
+        const safeVolume = Number.isFinite(volume) ? Math.max(0, Math.min(2.0, volume)) : 0.7;
+        if (safeVolume <= 0.0001) return;
+
+        const playTime = time !== undefined && Number.isFinite(time) ? Math.max(context.currentTime, time) : context.currentTime;
 
         const source = context.createBufferSource();
         source.buffer = bufferToPlay;
 
-        // Apply real-time pitch shift for sample playback
-        const samplePitch = instrument === 'sample' ? (params?.pitch ?? instrumentParamsRef.current.sample?.pitch ?? 1) : 1;
-        if (instrument === 'sample' && samplePitch) {
+        // Apply real-time pitch shift for sample playback with finite clamping
+        const rawPitch = instrument === 'sample' ? (params?.pitch ?? instrumentParamsRef.current.sample?.pitch ?? 1) : 1;
+        const samplePitch = Number.isFinite(rawPitch) ? Math.max(0.25, Math.min(4.0, rawPitch)) : 1;
+        if (instrument === 'sample') {
             source.playbackRate.setValueAtTime(samplePitch, playTime);
         }
+
+        const gain = context.createGain();
 
         if (instrument === 'sample') {
             const allowOverlap = Boolean((params?.overlap ?? instrumentParamsRef.current.sample?.overlap ?? 0) > 0.5);
             if (!allowOverlap) {
-                if (sampleSourceRef.current) {
+                // Click-free 4ms choke fade on any active sample voices
+                activeSampleVoicesRef.current.forEach(voice => {
                     try {
-                        sampleSourceRef.current.stop(playTime);
-                    } catch (e) {
-                        // Ignore error if already stopped
-                    }
-                }
-                activeSampleSourcesRef.current.forEach(prevSource => {
-                    try {
-                        prevSource.stop(playTime);
-                    } catch (e) {
-                        // Ignore error if already stopped
+                        const chokeTime = Math.max(playTime, voice.startTime + 0.001);
+                        cancelAndHoldSafe(voice.gain.gain, chokeTime, safeVolume);
+                        voice.gain.gain.linearRampToValueAtTime(0.0001, chokeTime + 0.004);
+                        voice.source.stop(chokeTime + 0.005);
+                    } catch {
+                        // Ignore if already stopped
                     }
                 });
-                activeSampleSourcesRef.current.clear();
+                activeSampleVoicesRef.current.clear();
+            } else if (activeSampleVoicesRef.current.size >= 8) {
+                // Cap polyphonic overlapping sample voices to 8 to protect Chromebook audio threads
+                const oldest = activeSampleVoicesRef.current.values().next().value;
+                if (oldest) {
+                    activeSampleVoicesRef.current.delete(oldest);
+                    try {
+                        const chokeTime = Math.max(playTime, oldest.startTime + 0.001);
+                        cancelAndHoldSafe(oldest.gain.gain, chokeTime, safeVolume);
+                        oldest.gain.gain.linearRampToValueAtTime(0.0001, chokeTime + 0.004);
+                        oldest.source.stop(chokeTime + 0.005);
+                    } catch {}
+                }
             }
-            sampleSourceRef.current = source;
-            activeSampleSourcesRef.current.add(source);
-        }
 
-        const gain = context.createGain();
-        if (instrument === 'sample') {
-            const sampleDecay = params?.decay ?? instrumentParamsRef.current.sample?.decay ?? 2;
+            const rawDecay = params?.decay ?? instrumentParamsRef.current.sample?.decay ?? 2;
+            const sampleDecay = Number.isFinite(rawDecay) ? Math.max(0.05, Math.min(2.0, rawDecay)) : 2;
             if (sampleDecay < 1.99) {
-                gain.gain.setValueAtTime(0, playTime);
-                gain.gain.linearRampToValueAtTime(volume, playTime + 0.002);
-                gain.gain.exponentialRampToValueAtTime(0.001, playTime + sampleDecay * 2.5);
+                gain.gain.setValueAtTime(0.0001, playTime);
+                gain.gain.linearRampToValueAtTime(safeVolume, playTime + 0.002);
+                gain.gain.exponentialRampToValueAtTime(0.0001, playTime + Math.max(0.02, sampleDecay * 2.5));
             } else {
-                gain.gain.setValueAtTime(0, playTime);
-                gain.gain.linearRampToValueAtTime(volume, playTime + 0.002);
+                gain.gain.setValueAtTime(0.0001, playTime);
+                gain.gain.linearRampToValueAtTime(safeVolume, playTime + 0.002);
             }
-        } else {
-            // Pre-rendered synthesized drum buffers already have sample-accurate attack envelopes starting at 0.
-            // Setting volume directly at playTime preserves 100% of the initial transient punch and halves AudioParam events.
-            gain.gain.setValueAtTime(volume, playTime);
-        }
-        
-        source.connect(gain);
-        gain.connect(destination);
-        source.onended = () => {
-            source.disconnect();
-            gain.disconnect();
-            if (instrument === 'sample') {
-                activeSampleSourcesRef.current.delete(source);
+
+            const voiceRecord = { source, gain, startTime: playTime };
+            sampleSourceRef.current = source;
+            activeSampleVoicesRef.current.add(voiceRecord);
+
+            source.connect(gain);
+            gain.connect(destination);
+            source.onended = () => {
+                activeSampleVoicesRef.current.delete(voiceRecord);
                 if (sampleSourceRef.current === source) {
                     sampleSourceRef.current = null;
                 }
-            }
+                try {
+                    source.disconnect();
+                    gain.disconnect();
+                } catch {}
+            };
+            source.start(playTime);
+            return;
+        }
+
+        // Pre-rendered synthesized drum buffers already have sample-accurate attack envelopes starting at 0.
+        gain.gain.setValueAtTime(safeVolume, playTime);
+        source.connect(gain);
+        gain.connect(destination);
+        source.onended = () => {
+            try {
+                source.disconnect();
+                gain.disconnect();
+            } catch {}
         };
         source.start(playTime);
     }, []);
@@ -2507,7 +2770,7 @@ export const useAudioEngine = () => {
         const context = audioContextRef.current;
         if (!destination || !context) return;
         
-        const playTime = time || context.currentTime;
+        const playTime = time !== undefined && Number.isFinite(time) ? Math.max(context.currentTime, time) : context.currentTime;
         playSoundFromBuffer('kick', volume, destination, playTime, params);
         
         // --- CLICK-FREE SIDECHAIN DUCKING LOGIC ---
@@ -2515,7 +2778,7 @@ export const useAudioEngine = () => {
         const sidechainVizGain = sidechainVisualiserGainRef.current;
         const amount = kickSidechainAmountRef.current;
         
-        if ((duckNode || sidechainVizGain) && amount > 0.01) {
+        if ((duckNode || sidechainVizGain) && Number.isFinite(amount) && amount > 0.01) {
             const thresholdFactor = Math.max(0.1, Math.min(1.5, (-kickSidechainThresholdRef.current) / 20));
             const ratioFactor = Math.max(0.1, Math.min(1.5, (kickSidechainRatioRef.current - 1) / 3));
             const combinedFactor = Math.min(1.25, thresholdFactor * 0.6 + ratioFactor * 0.4);
@@ -2525,14 +2788,12 @@ export const useAudioEngine = () => {
             const releaseTime = 0.15; // 150ms release
             
             if (duckNode) {
-                // cancelAndHoldAtTime stops any previously scheduled ramps. This is crucial to prevent clicks.
-                duckNode.gain.cancelAndHoldAtTime(playTime);
-                // Use linear ramps for a predictable and click-free gain change.
+                cancelAndHoldSafe(duckNode.gain, playTime, 1.0);
                 duckNode.gain.linearRampToValueAtTime(targetGain, playTime + attackTime);
                 duckNode.gain.linearRampToValueAtTime(1, playTime + attackTime + releaseTime);
             }
             if (sidechainVizGain) {
-                sidechainVizGain.gain.cancelAndHoldAtTime(playTime);
+                cancelAndHoldSafe(sidechainVizGain.gain, playTime, 0.0001);
                 sidechainVizGain.gain.linearRampToValueAtTime(effectiveAmount, playTime + attackTime);
                 sidechainVizGain.gain.linearRampToValueAtTime(0.0001, playTime + attackTime + releaseTime);
             }
@@ -2564,17 +2825,7 @@ export const useAudioEngine = () => {
     }, [playSoundFromBuffer]);
     
     const startRecording = useCallback(async () => {
-        let context = audioContextRef.current;
-        
-        // If context is not ready, attempt to setup
-        if (!context) {
-            console.log("Audio context not ready, attempting setup...");
-            // We need kickDesignerParams for setup. 
-            // Since we don't have it here, we might need to rely on the fact that setup 
-            // might have been called, or we need to handle this differently.
-            // Actually, setup is called in App.tsx. 
-            // Let's just return if it's not ready, but provide a better error message.
-        }
+        const context = audioContextRef.current;
 
         if (!context || context.audioWorklet === undefined) {
             console.error("Audio context not ready or AudioWorklet not supported. Please start the audio engine first.");
@@ -2586,8 +2837,22 @@ export const useAudioEngine = () => {
         }
 
         try {
+            if (context.state === 'suspended') {
+                await context.resume().catch(() => {});
+            }
             if (!mediaStreamRef.current) {
-                mediaStreamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
+                try {
+                    // Disable ChromeOS CRAS hardware echo cancellation / AGC so opening the mic does not duck Web Audio output
+                    mediaStreamRef.current = await navigator.mediaDevices.getUserMedia({
+                        audio: {
+                            echoCancellation: false,
+                            noiseSuppression: false,
+                            autoGainControl: false,
+                        },
+                    });
+                } catch {
+                    mediaStreamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
+                }
             }
             
             micStreamSourceRef.current = context.createMediaStreamSource(mediaStreamRef.current);
@@ -2597,13 +2862,11 @@ export const useAudioEngine = () => {
             recordedPcmDataRef.current = []; // Clear previous recording data
             
             recorderNode.port.onmessage = (event) => {
-                // The event data is an ArrayBuffer, convert it back to Float32Array
                 const pcmData = new Float32Array(event.data);
                 recordedPcmDataRef.current.push(pcmData);
             };
 
             micStreamSourceRef.current.connect(recorderNode);
-            // It's not necessary to connect the worklet to the destination if we don't want to monitor.
 
         } catch (err) {
             console.error("Error accessing microphone:", err);
@@ -2619,27 +2882,35 @@ export const useAudioEngine = () => {
         }
 
         // Disconnect nodes to stop processing
-        micStreamSourceRef.current?.disconnect();
-        recorderWorkletNodeRef.current.port.onmessage = null; // Clean up listener
-        recorderWorkletNodeRef.current.disconnect();
+        try { micStreamSourceRef.current?.disconnect(); } catch {}
+        recorderWorkletNodeRef.current.port.onmessage = null;
+        try { recorderWorkletNodeRef.current.disconnect(); } catch {}
         
         // Stop the microphone track to turn off the indicator
         mediaStreamRef.current?.getTracks().forEach(track => track.stop());
 
-        // Process the recorded PCM data chunks into a single AudioBuffer
+        if (context.state === 'suspended') {
+            context.resume().catch(() => {});
+        }
+
+        // Process the recorded PCM data chunks into a single sanitized AudioBuffer
         if (recordedPcmDataRef.current.length > 0) {
             const totalLength = recordedPcmDataRef.current.reduce((acc, buffer) => acc + buffer.length, 0);
-            const concatenatedPcm = new Float32Array(totalLength);
-            let offset = 0;
-            for (const pcmChunk of recordedPcmDataRef.current) {
-                concatenatedPcm.set(pcmChunk, offset);
-                offset += pcmChunk.length;
-            }
+            if (totalLength > 0) {
+                const concatenatedPcm = new Float32Array(totalLength);
+                let offset = 0;
+                for (const pcmChunk of recordedPcmDataRef.current) {
+                    for (let i = 0; i < pcmChunk.length; i++) {
+                        const v = pcmChunk[i];
+                        concatenatedPcm[offset + i] = Number.isFinite(v) ? Math.max(-1.5, Math.min(1.5, v)) : 0;
+                    }
+                    offset += pcmChunk.length;
+                }
 
-            const audioBuffer = context.createBuffer(1, totalLength, context.sampleRate);
-            audioBuffer.copyToChannel(concatenatedPcm, 0);
-            
-            instrumentBuffersRef.current.sample = audioBuffer;
+                const audioBuffer = context.createBuffer(1, totalLength, context.sampleRate);
+                audioBuffer.copyToChannel(concatenatedPcm, 0);
+                instrumentBuffersRef.current.sample = audioBuffer;
+            }
         }
 
         // Clean up refs
@@ -3442,14 +3713,16 @@ export const useAudioEngine = () => {
         }
 
         if (param === 'highPass') {
-            if (sampleHighPassRef.current) {
-                sampleHighPassRef.current.frequency.setTargetAtTime(value, context.currentTime, RAMP_TIME);
+            if (sampleHighPassRef.current && Number.isFinite(value)) {
+                const safeFreq = clampFreqToNyquist(Math.max(MIN_FILTER_FREQ, Math.min(18000, value)), context.sampleRate, MIN_FILTER_FREQ);
+                sampleHighPassRef.current.frequency.setTargetAtTime(safeFreq, context.currentTime, RAMP_TIME);
             }
             return;
         }
         if (param === 'lowPass') {
-            if (sampleLowPassRef.current) {
-                sampleLowPassRef.current.frequency.setTargetAtTime(value, context.currentTime, RAMP_TIME);
+            if (sampleLowPassRef.current && Number.isFinite(value)) {
+                const safeFreq = clampFreqToNyquist(Math.max(60, Math.min(MAX_FILTER_FREQ, value)), context.sampleRate, 60);
+                sampleLowPassRef.current.frequency.setTargetAtTime(safeFreq, context.currentTime, RAMP_TIME);
             }
             return;
         }
@@ -3549,20 +3822,23 @@ export const useAudioEngine = () => {
 
 
     const setLowPassFrequency = useCallback((freq: number) => {
-        if (lowPassFilterRef.current && audioContextRef.current) {
-            lowPassFilterRef.current.frequency.setTargetAtTime(freq, audioContextRef.current.currentTime, RAMP_TIME);
+        if (lowPassFilterRef.current && audioContextRef.current && Number.isFinite(freq)) {
+            const safeFreq = clampFreqToNyquist(Math.max(60, Math.min(MAX_FILTER_FREQ, freq)), audioContextRef.current.sampleRate, 60);
+            lowPassFilterRef.current.frequency.setTargetAtTime(safeFreq, audioContextRef.current.currentTime, RAMP_TIME);
         }
     }, []);
 
     const setHighPassFrequency = useCallback((freq: number) => {
-        if (highPassFilterRef.current && audioContextRef.current) {
-            highPassFilterRef.current.frequency.setTargetAtTime(freq, audioContextRef.current.currentTime, RAMP_TIME);
+        if (highPassFilterRef.current && audioContextRef.current && Number.isFinite(freq)) {
+            const safeFreq = clampFreqToNyquist(Math.max(MIN_FILTER_FREQ, Math.min(18000, freq)), audioContextRef.current.sampleRate, MIN_FILTER_FREQ);
+            highPassFilterRef.current.frequency.setTargetAtTime(safeFreq, audioContextRef.current.currentTime, RAMP_TIME);
         }
     }, []);
     
     const setReverbMix = useCallback((mix: number) => {
-        if (reverbWetGainRef.current && audioContextRef.current) {
-            reverbWetGainRef.current.gain.setTargetAtTime(mix, audioContextRef.current.currentTime, RAMP_TIME);
+        if (reverbWetGainRef.current && audioContextRef.current && Number.isFinite(mix)) {
+            const safeMix = Math.max(0, Math.min(1.5, mix));
+            reverbWetGainRef.current.gain.setTargetAtTime(safeMix, audioContextRef.current.currentTime, RAMP_TIME);
         }
     }, []);
 
@@ -3587,7 +3863,8 @@ export const useAudioEngine = () => {
     }, []);
 
     const setReverbDecay = useCallback((decayValue: number) => { // decayValue from 0 to 1
-        reverbDecayValueRef.current = decayValue;
+        if (!Number.isFinite(decayValue)) return;
+        reverbDecayValueRef.current = Math.max(0, Math.min(1, decayValue));
         scheduleReverbImpulseUpdate();
     }, [scheduleReverbImpulseUpdate]);
 
@@ -3597,8 +3874,8 @@ export const useAudioEngine = () => {
     }, [scheduleReverbImpulseUpdate]);
 
     const setReverbTone = useCallback((freqHz: number) => {
-        if (reverbToneFilterRef.current && audioContextRef.current) {
-            const clamped = Math.max(400, Math.min(20000, freqHz));
+        if (reverbToneFilterRef.current && audioContextRef.current && Number.isFinite(freqHz)) {
+            const clamped = clampFreqToNyquist(Math.max(400, Math.min(20000, freqHz)), audioContextRef.current.sampleRate, 400);
             reverbToneFilterRef.current.frequency.setTargetAtTime(clamped, audioContextRef.current.currentTime, RAMP_TIME);
         }
     }, []);
@@ -3633,20 +3910,22 @@ export const useAudioEngine = () => {
     }, []);
 
     const setDelayMix = useCallback((mix: number) => {
-        if (delayWetGainRef.current && audioContextRef.current) {
-            delayWetGainRef.current.gain.setTargetAtTime(mix, audioContextRef.current.currentTime, RAMP_TIME);
+        if (delayWetGainRef.current && audioContextRef.current && Number.isFinite(mix)) {
+            const safeMix = Math.max(0, Math.min(1.5, mix));
+            delayWetGainRef.current.gain.setTargetAtTime(safeMix, audioContextRef.current.currentTime, RAMP_TIME);
         }
     }, []);
 
     const setDelayTime = useCallback((time: number) => {
-        if (delayNodeRef.current && audioContextRef.current) {
-            delayNodeRef.current.delayTime.setTargetAtTime(Math.min(2.5, Math.max(0.001, time)), audioContextRef.current.currentTime, RAMP_TIME);
+        if (delayNodeRef.current && audioContextRef.current && Number.isFinite(time)) {
+            delayNodeRef.current.delayTime.setTargetAtTime(Math.min(2.5, Math.max(0.005, time)), audioContextRef.current.currentTime, RAMP_TIME);
         }
     }, []);
 
     const setDelayFeedback = useCallback((feedback: number) => {
-        if (delayFeedbackGainRef.current && audioContextRef.current) {
-            delayFeedbackGainRef.current.gain.setTargetAtTime(feedback, audioContextRef.current.currentTime, RAMP_TIME);
+        if (delayFeedbackGainRef.current && audioContextRef.current && Number.isFinite(feedback)) {
+            const safeFeedback = Math.max(0, Math.min(0.92, feedback));
+            delayFeedbackGainRef.current.gain.setTargetAtTime(safeFeedback, audioContextRef.current.currentTime, RAMP_TIME);
         }
     }, []);
     
@@ -3680,29 +3959,51 @@ export const useAudioEngine = () => {
     }, []);
     
     const setKickSidechainAmount = useCallback((amount: number) => {
-        kickSidechainAmountRef.current = amount;
+        const safeAmount = Number.isFinite(amount) ? Math.max(0, Math.min(1, amount)) : 0;
+        kickSidechainAmountRef.current = safeAmount;
+        if (safeAmount <= 0.01 && sidechainDuckNodeRef.current && audioContextRef.current) {
+            const now = audioContextRef.current.currentTime;
+            cancelAndHoldSafe(sidechainDuckNodeRef.current.gain, now, 1.0);
+            sidechainDuckNodeRef.current.gain.setTargetAtTime(1.0, now, RAMP_TIME);
+        }
     }, []);
 
     const setKickSidechainThreshold = useCallback((threshold: number) => {
-        kickSidechainThresholdRef.current = threshold;
+        if (Number.isFinite(threshold)) {
+            kickSidechainThresholdRef.current = threshold;
+        }
     }, []);
 
     const setKickSidechainRatio = useCallback((ratio: number) => {
-        kickSidechainRatioRef.current = ratio;
+        if (Number.isFinite(ratio)) {
+            kickSidechainRatioRef.current = ratio;
+        }
     }, []);
 
     const setMasterVolume = useCallback((volume: number) => {
-        if (masterGainRef.current && audioContextRef.current) {
-            masterGainRef.current.gain.setTargetAtTime(volume, audioContextRef.current.currentTime, RAMP_TIME);
+        if (masterGainRef.current && audioContextRef.current && Number.isFinite(volume)) {
+            const safeVol = Math.max(0, Math.min(1.5, volume));
+            masterGainRef.current.gain.setTargetAtTime(safeVol, audioContextRef.current.currentTime, RAMP_TIME);
         }
     }, []);
 
     const setCrushAmount = useCallback((amount: number) => {
-        if (crusherWorkletNodeRef.current && audioContextRef.current) {
+        const context = audioContextRef.current;
+        if (!context || !Number.isFinite(amount)) return;
+        const safeAmt = Math.max(0, Math.min(1, amount));
+        const now = context.currentTime;
+
+        if (crusherWorkletNodeRef.current) {
             const crushParam = crusherWorkletNodeRef.current.parameters.get('amount');
             if (crushParam) {
-                crushParam.setTargetAtTime(amount, audioContextRef.current.currentTime, RAMP_TIME);
+                crushParam.setTargetAtTime(safeAmt, now, RAMP_TIME);
             }
+        }
+        // Route through 100% native C++ dry gain when crushAmount === 0
+        if (crusherBypassGainRef.current && crusherWetGainRef.current) {
+            const useWorklet = safeAmt > 0.001 && Boolean(crusherWorkletNodeRef.current) && djFxWorkletReadyRef.current;
+            crusherBypassGainRef.current.gain.setTargetAtTime(useWorklet ? 0 : 1, now, RAMP_TIME);
+            crusherWetGainRef.current.gain.setTargetAtTime(useWorklet ? 1 : 0, now, RAMP_TIME);
         }
     }, []);
 
@@ -3710,21 +4011,23 @@ export const useAudioEngine = () => {
         const context = audioContextRef.current;
         const dryGain = tapeSaturationDryGainRef.current;
         const wetGain = tapeSaturationWetGainRef.current;
-        if (context && dryGain && wetGain) {
-            dryGain.gain.setTargetAtTime(1.0 - mix, context.currentTime, RAMP_TIME);
-            wetGain.gain.setTargetAtTime(mix, context.currentTime, RAMP_TIME);
+        if (context && dryGain && wetGain && Number.isFinite(mix)) {
+            const safeMix = Math.max(0, Math.min(1, mix));
+            dryGain.gain.setTargetAtTime(1.0 - safeMix, context.currentTime, RAMP_TIME);
+            wetGain.gain.setTargetAtTime(safeMix, context.currentTime, RAMP_TIME);
         }
     }, []);
     
     const setTapeSaturationAmount = useCallback((amount: number) => {
-        if (tapeSaturationNodeRef.current) {
-            tapeSaturationNodeRef.current.curve = makeTapeSaturationCurve(amount);
+        if (tapeSaturationNodeRef.current && Number.isFinite(amount)) {
+            tapeSaturationNodeRef.current.curve = makeTapeSaturationCurve(Math.max(0, Math.min(1, amount)));
         }
     }, []);
 
     const setTapeSaturationTone = useCallback((freq: number) => {
-        if (tapeToneFilterRef.current && audioContextRef.current) {
-            tapeToneFilterRef.current.frequency.setTargetAtTime(freq, audioContextRef.current.currentTime, RAMP_TIME);
+        if (tapeToneFilterRef.current && audioContextRef.current && Number.isFinite(freq)) {
+            const safeFreq = clampFreqToNyquist(Math.max(200, Math.min(MAX_FILTER_FREQ, freq)), audioContextRef.current.sampleRate, 200);
+            tapeToneFilterRef.current.frequency.setTargetAtTime(safeFreq, audioContextRef.current.currentTime, RAMP_TIME);
         }
     }, []);
 
@@ -3732,30 +4035,52 @@ export const useAudioEngine = () => {
         const context = audioContextRef.current;
         const dryGain = envelopeFilterDryGainRef.current;
         const wetGain = envelopeFilterWetGainRef.current;
-        if (context && wetGain) {
+        const envAnalyser = envelopeFilterAnalyserRef.current;
+        const envOutput = envelopeFilterOutputRef.current;
+        if (context && wetGain && Number.isFinite(mix)) {
+            const safeMix = Math.max(0, Math.min(1, mix));
             if (dryGain) {
-                dryGain.gain.setTargetAtTime(1.0 - mix, context.currentTime, RAMP_TIME);
+                dryGain.gain.setTargetAtTime(1.0 - safeMix, context.currentTime, RAMP_TIME);
             }
-            wetGain.gain.setTargetAtTime(mix, context.currentTime, RAMP_TIME);
+            wetGain.gain.setTargetAtTime(safeMix, context.currentTime, RAMP_TIME);
+
+            // Physically connect/disconnect the wet branch from envelopeFilterOutput so when mix === 0
+            // any biquad transient can never multiply NaN * 0 === NaN into the master bus
+            if (envAnalyser && envOutput) {
+                if (safeMix > 0.0005 && !envelopeWetConnectedRef.current) {
+                    try {
+                        envAnalyser.connect(envOutput);
+                        envelopeWetConnectedRef.current = true;
+                    } catch {}
+                } else if (safeMix <= 0.0005 && envelopeWetConnectedRef.current) {
+                    try {
+                        envAnalyser.disconnect(envOutput);
+                        envelopeWetConnectedRef.current = false;
+                    } catch {}
+                }
+            }
         }
     }, []);
     
     const setEnvelopeFilterAmount = useCallback((amount: number) => {
-        if (envelopeAmountRef.current && audioContextRef.current) {
-            const targetGain = amount * 8000;
+        if (envelopeAmountRef.current && audioContextRef.current && Number.isFinite(amount)) {
+            const safeAmount = Math.max(0, Math.min(1, amount));
+            const targetGain = safeAmount * 6500;
             envelopeAmountRef.current.gain.setTargetAtTime(targetGain, audioContextRef.current.currentTime, RAMP_TIME);
         }
     }, []);
     
     const setEnvelopeFilterBaseFreq = useCallback((freq: number) => {
-        if (envelopeFilterBaseFreqNodeRef.current && audioContextRef.current) {
-            envelopeFilterBaseFreqNodeRef.current.offset.setTargetAtTime(freq, audioContextRef.current.currentTime, RAMP_TIME);
+        if (envelopeFilterBaseFreqNodeRef.current && audioContextRef.current && Number.isFinite(freq)) {
+            const safeFreq = Math.max(40, Math.min(8000, freq));
+            envelopeFilterBaseFreqNodeRef.current.offset.setTargetAtTime(safeFreq, audioContextRef.current.currentTime, RAMP_TIME);
         }
     }, []);
     
     const setEnvelopeFilterQ = useCallback((q: number) => {
-        if (envelopeFilterNodeRef.current && audioContextRef.current) {
-            const targetQ = 0.1 + q * 19.9;
+        if (envelopeFilterNodeRef.current && audioContextRef.current && Number.isFinite(q)) {
+            const safeQ = Math.max(0, Math.min(1, q));
+            const targetQ = 0.5 + safeQ * 11.5; // Max Q = 12.0 to guarantee biquad stability under fast modulation
             envelopeFilterNodeRef.current.Q.setTargetAtTime(targetQ, audioContextRef.current.currentTime, RAMP_TIME);
         }
     }, []);
@@ -3775,17 +4100,20 @@ export const useAudioEngine = () => {
     }, []);
 
     const setXyFilterParams = useCallback((freq: number, drive: number) => {
+        if (!Number.isFinite(freq) || !Number.isFinite(drive)) return;
+        const safeFreq = Math.max(60, Math.min(16000, freq));
+        const safeDrive = Math.max(0, Math.min(1, drive));
         const prevDrive = xyFilterDriveRef.current;
-        xyFilterFreqRef.current = freq;
-        xyFilterDriveRef.current = drive;
+        xyFilterFreqRef.current = safeFreq;
+        xyFilterDriveRef.current = safeDrive;
         const filter = xyFilterNodeRef.current;
         const saturator = xyFilterSaturatorRef.current;
         const context = audioContextRef.current;
         if (!filter || !saturator || !context) return;
 
-        filter.frequency.setTargetAtTime(freq, context.currentTime, RAMP_TIME);
-        if (Math.abs(drive - prevDrive) > 0.005) {
-            saturator.curve = makeFilterDriveCurve(drive);
+        filter.frequency.setTargetAtTime(safeFreq, context.currentTime, RAMP_TIME);
+        if (Math.abs(safeDrive - prevDrive) > 0.005) {
+            saturator.curve = makeFilterDriveCurve(safeDrive);
         }
     }, []);
     
@@ -3796,16 +4124,17 @@ export const useAudioEngine = () => {
         const filter = lofiBandpassFilterRef.current;
         const distortion = lofiDistortionRef.current;
         const context = audioContextRef.current;
-        if (!dry || !wet || !noise || !filter || !distortion || !context) return;
+        if (!dry || !wet || !noise || !filter || !distortion || !context || !Number.isFinite(mix)) return;
         
-        dry.gain.setTargetAtTime(1 - mix, context.currentTime, RAMP_TIME);
-        wet.gain.setTargetAtTime(mix, context.currentTime, RAMP_TIME);
+        const safeMix = Math.max(0, Math.min(1, mix));
+        dry.gain.setTargetAtTime(1 - safeMix, context.currentTime, RAMP_TIME);
+        wet.gain.setTargetAtTime(safeMix, context.currentTime, RAMP_TIME);
         
-        noise.gain.setTargetAtTime(mix * 0.004, context.currentTime, RAMP_TIME);
-        filter.frequency.setTargetAtTime(3500 - (mix * 2500), context.currentTime, RAMP_TIME);
-        filter.Q.setTargetAtTime(2 + (mix * 6), context.currentTime, RAMP_TIME);
+        noise.gain.setTargetAtTime(safeMix * 0.004, context.currentTime, RAMP_TIME);
+        filter.frequency.setTargetAtTime(3500 - (safeMix * 2500), context.currentTime, RAMP_TIME);
+        filter.Q.setTargetAtTime(2 + (safeMix * 6), context.currentTime, RAMP_TIME);
         
-        const distortionAmount = 1 + mix * 8;
+        const distortionAmount = 1 + safeMix * 8;
         const curve = new Float32Array(256);
         for (let i = 0; i < 256; i++) {
             const x = i * 2 / 256 - 1;
@@ -3816,7 +4145,7 @@ export const useAudioEngine = () => {
 
     const setIsoGain = useCallback((band: 'low' | 'mid' | 'high', gain: number) => {
         const context = audioContextRef.current;
-        if (!context) return;
+        if (!context || !Number.isFinite(gain)) return;
         
         let gainNode: GainNode | null = null;
         if (band === 'low') gainNode = isolatorLowGainRef.current;
@@ -3824,7 +4153,8 @@ export const useAudioEngine = () => {
         if (band === 'high') gainNode = isolatorHighGainRef.current;
         
         if (gainNode) {
-            gainNode.gain.setTargetAtTime(gain, context.currentTime, RAMP_TIME);
+            const safeGain = Math.max(0, Math.min(2.0, gain));
+            gainNode.gain.setTargetAtTime(safeGain, context.currentTime, RAMP_TIME);
         }
     }, []);
 
@@ -3904,12 +4234,17 @@ export const useAudioEngine = () => {
     const setSampleAudioData = useCallback((audioData: Float32Array) => {
         const context = audioContextRef.current;
         if (!context) return;
-        if (audioData.length === 0) {
+        if (!audioData || audioData.length === 0) {
             instrumentBuffersRef.current.sample = null;
             return;
         }
-        const audioBuffer = context.createBuffer(1, audioData.length, context.sampleRate);
-        audioBuffer.copyToChannel(audioData, 0);
+        const sanitized = new Float32Array(audioData.length);
+        for (let i = 0; i < audioData.length; i++) {
+            const v = audioData[i];
+            sanitized[i] = Number.isFinite(v) ? Math.max(-1.5, Math.min(1.5, v)) : 0;
+        }
+        const audioBuffer = context.createBuffer(1, sanitized.length, context.sampleRate);
+        audioBuffer.copyToChannel(sanitized, 0);
         instrumentBuffersRef.current.sample = audioBuffer;
     }, []);
 
@@ -3936,11 +4271,13 @@ export const useAudioEngine = () => {
         return scaled;
     }, []);
 
-    const routeStutterSourceGraph = useCallback((source: Instrument | 'all') => {
+    const routeStutterSourceGraph = useCallback((source: Instrument | 'all', active: boolean = stutterActiveRef.current) => {
         const instStutterNode = instrumentStutterWorkletNodeRef.current;
         if (!instStutterNode) return;
 
         try { instStutterNode.disconnect(); } catch {}
+
+        const useWorkletForInstrument = active && source !== 'all' && djFxWorkletReadyRef.current;
 
         INSTRUMENTS.forEach(inst => {
             const preNode: AudioNode | null = inst === 'sample'
@@ -3952,7 +4289,7 @@ export const useAudioEngine = () => {
             try { preNode.disconnect(postGain); } catch {}
             try { preNode.disconnect(instStutterNode); } catch {}
 
-            if (source === inst) {
+            if (useWorkletForInstrument && source === inst) {
                 preNode.connect(instStutterNode);
                 instStutterNode.connect(postGain);
             } else {
@@ -3961,13 +4298,35 @@ export const useAudioEngine = () => {
         });
     }, []);
 
+    const syncMasterDjFxBypass = useCallback((forceActive?: boolean) => {
+        const context = audioContextRef.current;
+        const bypassGain = djFxBypassGainRef.current;
+        const wetGain = djFxWetGainRef.current;
+        if (!context || !bypassGain || !wetGain) return;
+
+        const shouldEngageWorklet = djFxWorkletReadyRef.current && (
+            Boolean(forceActive) ||
+            tapeStopActiveRef.current ||
+            (stutterActiveRef.current && stutterSourceRef.current === 'all')
+        );
+        const now = context.currentTime;
+        bypassGain.gain.setTargetAtTime(shouldEngageWorklet ? 0 : 1, now, 0.004);
+        wetGain.gain.setTargetAtTime(shouldEngageWorklet ? 1 : 0, now, 0.004);
+    }, []);
+
     const setTapeStop = useCallback((active: boolean, duration: number = 0.64, tempo: number = 90, pauseAfterStop: boolean = false, reset: boolean = false) => {
         const node = djFxWorkletNodeRef.current;
         const context = audioContextRef.current;
+        tapeStopActiveRef.current = active && !reset;
+        if (reset) {
+            syncMasterDjFxBypass(false);
+        } else if (active) {
+            syncMasterDjFxBypass(true);
+        }
         if (!node) return;
         const beatSamples = context ? Math.max(256, Math.floor((60 / tempo) * context.sampleRate)) : 24000;
         node.port.postMessage({ type: 'tapestop', active, duration, beatSamples, pauseAfterStop, reset });
-    }, []);
+    }, [syncMasterDjFxBypass]);
 
     const updateTapeStopDuration = useCallback((duration: number, tempo: number = 90, pauseAfterStop?: boolean) => {
         const node = djFxWorkletNodeRef.current;
@@ -3992,14 +4351,15 @@ export const useAudioEngine = () => {
         stutterSwing: number = stutterSwingRef.current
     ) => {
         stutterSwingRef.current = stutterSwing;
-        const prevSource = stutterSourceRef.current;
-        if (source !== prevSource) {
-            stutterSourceRef.current = source;
-            routeStutterSourceGraph(source);
-        }
+        stutterSourceRef.current = source;
         stutterActiveRef.current = active;
         stutterHeldRef.current = held;
         stutterDivisionRef.current = division;
+
+        // Only insert the per-instrument AudioWorklet while Stutter is actively engaged on a single instrument
+        routeStutterSourceGraph(source, active);
+        // Only engage the master DJ FX AudioWorklet when Whole-Mix Stutter or Tape Stop is active
+        syncMasterDjFxBypass();
 
         const context = audioContextRef.current;
         const masterNode = djFxWorkletNodeRef.current;
@@ -4103,7 +4463,8 @@ export const useAudioEngine = () => {
 
         if (source !== prevSource) {
             stutterSourceRef.current = source;
-            routeStutterSourceGraph(source);
+            routeStutterSourceGraph(source, stutterActiveRef.current);
+            syncMasterDjFxBypass();
             if (stutterActiveRef.current) {
                 setStutterState(true, stutterHeldRef.current, division, tempo, source, sourceVolume, stutterSwing);
                 return;
@@ -4190,12 +4551,94 @@ export const useAudioEngine = () => {
         }
     }, [buildInstrumentFallbackSlice]);
 
+    // Fast non-destructive self-healing: resumes suspended AudioContext, flushes DJ worklets,
+    // restores native C++ dry bypass paths, resets stuck sidechain ducking, and clears biquad filter state.
+    const healAudioEngine = useCallback(async (resetTape: boolean = true) => {
+        const context = audioContextRef.current;
+        if (!context) return;
+
+        if (context.state === 'suspended' || (context.state as string) === 'interrupted') {
+            try {
+                await context.resume();
+            } catch {}
+        }
+
+        if (resetTape) {
+            tapeStopActiveRef.current = false;
+            stutterActiveRef.current = false;
+            stutterHeldRef.current = false;
+            routeStutterSourceGraph(stutterSourceRef.current, false);
+            syncMasterDjFxBypass(false);
+        }
+
+        if (djFxWorkletNodeRef.current) {
+            djFxWorkletNodeRef.current.port.postMessage({ type: 'flush', resetTape });
+        }
+        if (instrumentStutterWorkletNodeRef.current) {
+            instrumentStutterWorkletNodeRef.current.port.postMessage({ type: 'flush', resetTape: true });
+        }
+
+        const now = context.currentTime;
+        if (sidechainDuckNodeRef.current && kickSidechainAmountRef.current <= 0.01) {
+            cancelAndHoldSafe(sidechainDuckNodeRef.current.gain, now, 1.0);
+            sidechainDuckNodeRef.current.gain.setValueAtTime(1.0, now);
+        }
+        if (envelopeFilterNodeRef.current) {
+            try {
+                const currentQ = envelopeFilterNodeRef.current.Q.value;
+                envelopeFilterNodeRef.current.Q.setValueAtTime(0.707, now);
+                envelopeFilterNodeRef.current.Q.setTargetAtTime(Math.max(0.5, Math.min(12.0, currentQ)), now + 0.015, RAMP_TIME);
+            } catch {}
+        }
+    }, [routeStutterSourceGraph, syncMasterDjFxBypass]);
+
+    // Full in-place AudioContext teardown and reconstruction: recovers from ChromeOS CRAS hardware
+    // stream lockups or corrupted Web Audio filter graphs without reloading the page or losing work.
+    const rebuildAudioEngine = useCallback(async (
+        kickDesignerParams: KickDesignerParams,
+        drumKit: '808' | '909' | '727' = '808',
+        initialInstrumentParams?: AllInstrumentParams
+    ): Promise<{ analysers: AllAnalyserNodes, context: AudioContext } | null> => {
+        // Preserve any loaded vocal/custom sample PCM data across context rebuild
+        let savedSamplePcm: Float32Array | null = null;
+        const prevSampleBuf = instrumentBuffersRef.current.sample;
+        if (prevSampleBuf && prevSampleBuf.length > 0) {
+            savedSamplePcm = new Float32Array(prevSampleBuf.getChannelData(0));
+        }
+
+        activeSampleVoicesRef.current.forEach(voice => {
+            try { voice.source.stop(); } catch {}
+            try { voice.source.disconnect(); voice.gain.disconnect(); } catch {}
+        });
+        activeSampleVoicesRef.current.clear();
+        sampleSourceRef.current = null;
+
+        try { lofiNoiseSourceRef.current?.stop(); } catch {}
+        try { envelopeFilterBaseFreqNodeRef.current?.stop(); } catch {}
+
+        if (audioContextRef.current) {
+            try {
+                await audioContextRef.current.close();
+            } catch {}
+            audioContextRef.current = null;
+        }
+
+        const result = await setup(kickDesignerParams, drumKit, initialInstrumentParams);
+        if (result && savedSamplePcm && savedSamplePcm.length > 0) {
+            const newSampleBuffer = result.context.createBuffer(1, savedSamplePcm.length, result.context.sampleRate);
+            newSampleBuffer.copyToChannel(savedSamplePcm, 0);
+            instrumentBuffersRef.current.sample = newSampleBuffer;
+        }
+        return result;
+    }, [setup]);
+
     return {
         setup, playKick, playSnare, playHiHat, playSnap, playClave, playCowbell, playSample, startRecording, stopRecording, startLiveRecording, stopLiveRecording, getRecordedAudioData, setSampleAudioData, renderBeatToBuffer, updateInstrumentParameter, rerenderKick, rerenderAllInstruments,
         setLowPassFrequency, setHighPassFrequency, setReverbMix, setReverbDecay, setReverbType, setReverbTone, setReverbSource, setDelayMix, setDelayTime, setDelayFeedback, setDelaySource, setKickSidechainAmount, setKickSidechainThreshold, setKickSidechainRatio,
         setMasterVolume, setCrushAmount, setTapeSaturationMix, setTapeSaturationAmount, setTapeSaturationTone,
         setEnvelopeFilterMix, setEnvelopeFilterAmount, setEnvelopeFilterBaseFreq, setEnvelopeFilterQ,
         toggleXyFilter, setXyFilterParams, setLofiMix, setIsoGain, playAirhorn,
-        setTapeStop, updateTapeStopDuration, setStutterState, updateStutterParams, syncStutterTransport
+        setTapeStop, updateTapeStopDuration, setStutterState, updateStutterParams, syncStutterTransport,
+        healAudioEngine, rebuildAudioEngine
     };
 };
